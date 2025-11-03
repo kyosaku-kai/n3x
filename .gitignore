@@ -1,0 +1,107 @@
+# n3x .gitignore
+
+# Nix build outputs
+result
+result-*
+
+# Secrets - NEVER commit private keys
+secrets/keys/*.age
+secrets/keys/*.key
+secrets/keys/*.pem
+secrets/public-keys.txt
+
+# Decrypted secrets - NEVER commit
+*.dec
+*.decrypted
+*.plain
+*.cleartext
+*~
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+.*.swp
+.*.swo
+
+# Editor directories
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Log files
+*.log
+/var/log/
+
+# K3s runtime data
+/var/lib/k3s/
+/var/lib/rancher/
+
+# SSH keys (if accidentally placed in repo)
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.pem
+
+# Allow tracking encrypted secrets
+!secrets/**/*.yaml
+# Allow example files for reference
+!secrets/**/*.example
+
+# Allow .sops.yaml config
+!secrets/.sops.yaml
+
+# NixOS build artifacts
+/nixos.qcow2
+/*.img
+/*.iso
+
+# Terraform state (if using Terraform)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Python artifacts (for any helper scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# Documentation build artifacts
+docs/_build/
+docs/.doctrees/
+
+# Test artifacts
+test-results/
+coverage/
+
+# Deployment artifacts
+deploy/
+dist/
+
+# Local development
+.env
+.env.local
+.envrc
+
+# Direnv
+.direnv/
+
+# Age recipient files (public keys are okay, but be careful)
+*.age.pub
+
+# SOPS temporary files
+.sops.*.yaml
+.sops.*.yml

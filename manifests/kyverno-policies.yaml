@@ -1,0 +1,125 @@
+# Kyverno ClusterPolicy for Longhorn on NixOS
+# This must be applied BEFORE installing Longhorn
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-path-to-longhorn
+  annotations:
+    policies.kyverno.io/title: Add PATH to Longhorn System Pods
+    policies.kyverno.io/category: NixOS Compatibility
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: |
+      This policy adds the NixOS PATH environment variable to all pods
+      in the longhorn-system namespace. This is required because Longhorn
+      expects FHS paths like /usr/bin/env, but NixOS uses /nix/store paths.
+      Without this patch, Longhorn pods will fail to execute required binaries.
+spec:
+  background: false
+  rules:
+    - name: add-nixos-path
+      match:
+        any:
+        - resources:
+            kinds:
+            - Pod
+            namespaces:
+            - longhorn-system
+      mutate:
+        patchStrategicMerge:
+          spec:
+            containers:
+            - name: "*"
+              env:
+              - name: PATH
+                value: "/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin"
+
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: longhorn-kernel-modules
+  annotations:
+    policies.kyverno.io/title: Ensure Longhorn Kernel Module Access
+    policies.kyverno.io/category: Storage
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: |
+      Ensures Longhorn pods have the necessary volume mounts and
+      security context to access kernel modules required for iSCSI
+      and other storage operations on NixOS.
+spec:
+  background: false
+  rules:
+    - name: add-kernel-module-access
+      match:
+        any:
+        - resources:
+            kinds:
+            - Pod
+            namespaces:
+            - longhorn-system
+            selector:
+              matchLabels:
+                app: longhorn-manager
+      mutate:
+        patchStrategicMerge:
+          spec:
+            containers:
+            - name: "longhorn-manager"
+              volumeMounts:
+              - name: kernel-modules
+                mountPath: /lib/modules
+                readOnly: true
+            volumes:
+            - name: kernel-modules
+              hostPath:
+                path: /run/current-system/kernel-modules/lib/modules
+                type: Directory
+
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: longhorn-host-binaries
+  annotations:
+    policies.kyverno.io/title: Mount Host Binaries for Longhorn
+    policies.kyverno.io/category: Storage
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: |
+      Mounts NixOS system binaries into Longhorn pods to ensure
+      access to required utilities like iscsiadm, cryptsetup, etc.
+spec:
+  background: false
+  rules:
+    - name: mount-host-binaries
+      match:
+        any:
+        - resources:
+            kinds:
+            - Pod
+            namespaces:
+            - longhorn-system
+            selector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - longhorn-manager
+                - longhorn-driver-deployer
+      mutate:
+        patchStrategicMerge:
+          spec:
+            containers:
+            - name: "*"
+              volumeMounts:
+              - name: host-binaries
+                mountPath: /host/bin
+                readOnly: true
+            volumes:
+            - name: host-binaries
+              hostPath:
+                path: /run/current-system/sw/bin
+                type: Directory

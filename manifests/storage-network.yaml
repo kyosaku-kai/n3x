@@ -1,0 +1,74 @@
+# Multus NetworkAttachmentDefinition for Longhorn storage network
+# This separates storage traffic from cluster traffic
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: longhorn-storage-network
+  namespace: longhorn-system
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "type": "macvlan",
+      "master": "bond0",
+      "mode": "bridge",
+      "ipam": {
+        "type": "host-local",
+        "subnet": "192.168.20.0/24",
+        "rangeStart": "192.168.20.10",
+        "rangeEnd": "192.168.20.250",
+        "routes": [
+          { "dst": "192.168.20.0/24" }
+        ]
+      }
+    }
+
+---
+# Alternative configuration using VLAN for storage network
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: longhorn-storage-vlan
+  namespace: longhorn-system
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "type": "vlan",
+      "master": "bond0",
+      "vlanId": 20,
+      "ipam": {
+        "type": "host-local",
+        "subnet": "192.168.20.0/24",
+        "rangeStart": "192.168.20.10",
+        "rangeEnd": "192.168.20.250",
+        "routes": [
+          { "dst": "192.168.20.0/24" }
+        ]
+      }
+    }
+
+---
+# Example pod annotation to use storage network
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-network-example
+  namespace: longhorn-system
+data:
+  example.yaml: |
+    # To use the storage network, add this annotation to Longhorn pods:
+    # annotations:
+    #   k8s.v1.cni.cncf.io/networks: longhorn-storage-network
+    #
+    # Or for multiple networks:
+    # annotations:
+    #   k8s.v1.cni.cncf.io/networks: |
+    #     [
+    #       {
+    #         "name": "longhorn-storage-network",
+    #         "namespace": "longhorn-system",
+    #         "interface": "storage0"
+    #       }
+    #     ]

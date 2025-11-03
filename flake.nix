@@ -31,15 +31,30 @@
     impermanence = {
       url = "github:nix-community/impermanence";
     };
+
+    # Colmena for deployment automation
+    colmena = {
+      url = "github:zhaofengli/colmena";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Jetpack-nixos for Jetson Orin Nano support
+    jetpack-nixos = {
+      url = "github:anduril/jetpack-nixos";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, nixos-hardware, disko, sops-nix, nixos-anywhere, impermanence, ... }@inputs:
+  outputs = { self, nixpkgs, nixos-hardware, disko, sops-nix, nixos-anywhere, impermanence, colmena, jetpack-nixos, ... }@inputs:
     let
-      # Primary system for N100 nodes
-      system = "x86_64-linux";
+      # Supported systems
+      systems = {
+        n100 = "x86_64-linux";
+        jetson = "aarch64-linux";
+      };
 
       # Helper to create a NixOS system configuration
-      mkSystem = { hostname, modules ? [] }:
+      mkSystem = { hostname, system ? systems.n100, modules ? [] }:
         nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = { inherit inputs; };
@@ -66,17 +81,25 @@
           ] ++ modules;
         };
 
-      # Package set
+      # Package set for x86_64
       pkgs = import nixpkgs {
-        inherit system;
+        system = systems.n100;
+        config.allowUnfree = true;
+      };
+
+      # Package set for aarch64
+      pkgsAarch64 = import nixpkgs {
+        system = systems.jetson;
         config.allowUnfree = true;
       };
     in
     {
-      # NixOS configurations for N100 nodes only
+      # NixOS configurations for all nodes
       nixosConfigurations = {
+        # N100 nodes
         n100-1 = mkSystem {
           hostname = "n100-1";
+          system = systems.n100;
           modules = [
             ./modules/hardware/n100.nix
             ./modules/roles/k3s-server.nix
@@ -86,6 +109,7 @@
 
         n100-2 = mkSystem {
           hostname = "n100-2";
+          system = systems.n100;
           modules = [
             ./modules/hardware/n100.nix
             ./modules/roles/k3s-server.nix
@@ -95,22 +119,103 @@
 
         n100-3 = mkSystem {
           hostname = "n100-3";
+          system = systems.n100;
           modules = [
             ./modules/hardware/n100.nix
             ./modules/roles/k3s-agent.nix
             ./modules/network/bonding.nix
           ];
         };
+
+        # Jetson Orin Nano nodes
+        jetson-1 = mkSystem {
+          hostname = "jetson-1";
+          system = systems.jetson;
+          modules = [
+            ./modules/hardware/jetson-orin-nano.nix
+            ./modules/roles/k3s-agent.nix
+            ./modules/network/bonding.nix
+          ];
+        };
+
+        jetson-2 = mkSystem {
+          hostname = "jetson-2";
+          system = systems.jetson;
+          modules = [
+            ./modules/hardware/jetson-orin-nano.nix
+            ./modules/roles/k3s-agent.nix
+            ./modules/network/bonding.nix
+          ];
+        };
       };
 
-      # Development shell
-      devShells.${system} = {
+      # Colmena deployment configuration
+      colmena = {
+        meta = {
+          nixpkgs = import nixpkgs {
+            system = systems.n100;
+            config.allowUnfree = true;
+          };
+          specialArgs = { inherit inputs; };
+        };
+
+        # N100 nodes
+        n100-1 = {
+          deployment = {
+            targetHost = "n100-1.local";
+            targetUser = "root";
+            tags = [ "n100" "k3s-server" "control-plane" ];
+          };
+          imports = nixosConfigurations.n100-1.config.system.build.toplevel.drvPath;
+        };
+
+        n100-2 = {
+          deployment = {
+            targetHost = "n100-2.local";
+            targetUser = "root";
+            tags = [ "n100" "k3s-server" "control-plane" ];
+          };
+          imports = nixosConfigurations.n100-2.config.system.build.toplevel.drvPath;
+        };
+
+        n100-3 = {
+          deployment = {
+            targetHost = "n100-3.local";
+            targetUser = "root";
+            tags = [ "n100" "k3s-agent" "worker" ];
+          };
+          imports = nixosConfigurations.n100-3.config.system.build.toplevel.drvPath;
+        };
+
+        # Jetson nodes
+        jetson-1 = {
+          deployment = {
+            targetHost = "jetson-1.local";
+            targetUser = "root";
+            tags = [ "jetson" "k3s-agent" "worker" "edge" ];
+          };
+          imports = nixosConfigurations.jetson-1.config.system.build.toplevel.drvPath;
+        };
+
+        jetson-2 = {
+          deployment = {
+            targetHost = "jetson-2.local";
+            targetUser = "root";
+            tags = [ "jetson" "k3s-agent" "worker" "edge" ];
+          };
+          imports = nixosConfigurations.jetson-2.config.system.build.toplevel.drvPath;
+        };
+      };
+
+      # Development shells for x86_64
+      devShells.${systems.n100} = {
         default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # NixOS tools
             nixos-rebuild
             nixos-generators
             nixos-anywhere
+            colmena
 
             # Secrets management
             sops
@@ -144,11 +249,14 @@
             echo "Available commands:"
             echo "  nixos-rebuild   - Build and switch NixOS configurations"
             echo "  nixos-anywhere  - Provision bare-metal systems"
+            echo "  colmena         - Deploy to multiple nodes in parallel"
             echo "  kubectl         - Interact with k3s cluster"
             echo ""
             echo "Example usage:"
             echo "  nixos-rebuild switch --flake .#n100-1 --target-host root@n100-1.local"
             echo "  nixos-anywhere --flake .#n100-1 root@n100-1.local"
+            echo "  colmena apply --on @control-plane  # Deploy to all control plane nodes"
+            echo "  colmena apply --on n100-1,n100-2   # Deploy to specific nodes"
             echo ""
           '';
         };
@@ -177,7 +285,7 @@
       };
 
       # Packages that can be built
-      packages.${system} = {
+      packages.${systems.n100} = {
         # ISO images for installation
         iso = nixos-generators.nixosGenerate {
           inherit pkgs;
@@ -225,7 +333,7 @@
       };
 
       # Checks run by CI/CD
-      checks.${system} = {
+      checks.${systems.n100} = {
         # Validate all NixOS configurations build
         build-all = pkgs.runCommand "build-all-configs" {} ''
           echo "All configurations build successfully" > $out
