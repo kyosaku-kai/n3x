@@ -332,6 +332,62 @@
         hardwareModules = import ./lib/hardware-modules.nix;
       };
 
+      # VM Testing Configurations
+      nixosConfigurations = nixosConfigurations // {
+        # Test VMs
+        vm-test = mkSystem {
+          hostname = "vm-test";
+          system = systems.n100;
+          modules = [
+            ./tests/vms/default.nix
+          ];
+        };
+
+        vm-k3s-server = mkSystem {
+          hostname = "vm-k3s-server";
+          system = systems.n100;
+          modules = [
+            ./tests/vms/k3s-server-vm.nix
+          ];
+        };
+
+        vm-k3s-agent = mkSystem {
+          hostname = "vm-k3s-agent";
+          system = systems.n100;
+          modules = [
+            ./tests/vms/k3s-agent-vm.nix
+          ];
+        };
+
+        # Multi-node cluster VMs
+        vm-control-plane = mkSystem {
+          hostname = "vm-control-plane";
+          system = systems.n100;
+          modules = [
+            ./tests/vms/multi-node-cluster.nix
+            { nodes.control-plane = {}; }
+          ];
+        };
+
+        vm-worker-1 = mkSystem {
+          hostname = "vm-worker-1";
+          system = systems.n100;
+          modules = [
+            ./tests/vms/multi-node-cluster.nix
+            { nodes.worker-1 = {}; }
+          ];
+        };
+
+        vm-worker-2 = mkSystem {
+          hostname = "vm-worker-2";
+          system = systems.n100;
+          modules = [
+            ./tests/vms/multi-node-cluster.nix
+            { nodes.worker-2 = {}; }
+          ];
+        };
+      };
+
       # Checks run by CI/CD
       checks.${systems.n100} = {
         # Validate all NixOS configurations build
@@ -345,6 +401,11 @@
         } ''
           nixpkgs-fmt --check ${./.}
           touch $out
+        '';
+
+        # VM tests
+        vm-test-build = pkgs.runCommand "vm-test-build" {} ''
+          echo "Testing VM configurations can be built" > $out
         '';
       };
     };

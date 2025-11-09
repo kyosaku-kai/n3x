@@ -87,19 +87,21 @@
       };
       timeout = 3;
     };
-
-    # Enable all firmware
-    hardware.enableAllFirmware = true;
   };
 
   # Hardware configuration
   hardware = {
+    # Enable all firmware including non-free
+    enableAllFirmware = true;
+    enableRedistributableFirmware = true;
+
     # Intel CPU microcode updates
     cpu.intel.updateMicrocode = true;
 
     # Enable GPU support (Intel UHD Graphics)
     graphics = {
       enable = true;
+      enable32Bit = false; # Don't need 32-bit on server
       extraPackages = with pkgs; [
         intel-media-driver # VA-API
         intel-compute-runtime # OpenCL
@@ -107,9 +109,6 @@
         libvdpau-va-gl
       ];
     };
-
-    # Enable hardware video acceleration
-    graphics.enable32Bit = false; # Don't need 32-bit on server
 
     # Bluetooth (usually not needed on servers)
     bluetooth.enable = false;
@@ -289,5 +288,56 @@
   systemd.services."serial-getty@ttyS0" = {
     enable = true;
     wantedBy = [ "getty.target" ];
+  };
+
+  # PCIe Active State Power Management
+  systemd.services.pcie-aspm-performance = {
+    description = "Disable PCIe Active State Power Management for better performance";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.bash}/bin/bash -c 'echo performance > /sys/module/pcie_aspm/parameters/policy || true'";
+      RemainAfterExit = true;
+    };
+  };
+
+  # Network interface ring buffer optimization
+  systemd.services.network-optimization = {
+    description = "Optimize network interface ring buffers";
+    wantedBy = [ "network.target" ];
+    after = [ "network.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = pkgs.writeShellScript "network-optimize" ''
+        # Wait for network interfaces to be available
+        sleep 5
+        # Optimize each ethernet interface
+        for iface in $(ls /sys/class/net | grep -E '^(eth|enp)'); do
+          # Increase ring buffer sizes if supported
+          ${pkgs.ethtool}/bin/ethtool -G $iface rx 4096 tx 4096 2>/dev/null || true
+          # Enable offloading features
+          ${pkgs.ethtool}/bin/ethtool -K $iface gso on gro on tso on 2>/dev/null || true
+          # Disable flow control for lower latency
+          ${pkgs.ethtool}/bin/ethtool -A $iface rx off tx off 2>/dev/null || true
+        done
+      '';
+      RemainAfterExit = true;
+    };
+  };
+
+  # Hugepages configuration for better memory performance
+  boot.kernelParams = [ "hugepagesz=2M" "hugepages=512" ];
+
+  # Additional security hardening
+  security.protectKernelImage = true;
+  security.lockKernelModules = false; # Keep false to allow loading modules for hardware
+
+  # Disable unnecessary documentation to save space
+  documentation = {
+    enable = false;
+    doc.enable = false;
+    info.enable = false;
+    man.enable = false;
   };
 }
