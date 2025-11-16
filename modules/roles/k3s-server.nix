@@ -14,7 +14,7 @@
     role = "server";
 
     # Server configuration
-    extraFlags = toString [
+    extraFlags = lib.mkDefault [
       # Cluster configuration
       "--cluster-init"                        # Initialize new cluster (first server only)
       "--disable-cloud-controller"            # We're not in a cloud
@@ -133,16 +133,15 @@
     # Restart configuration
     serviceConfig = {
       Restart = lib.mkForce "always";
-      RestartSec = "10s";
-      StartLimitInterval = "10min";
-      StartLimitBurst = 6;
+      RestartSec = lib.mkDefault "10s";
+      StartLimitInterval = lib.mkDefault "10min";
+      StartLimitBurst = lib.mkDefault 6;
 
-      # Resource limits
-      LimitNOFILE = 1048576;
-      LimitNPROC = 512000;
-      LimitCORE = "infinity";
-      TasksMax = "infinity";
-      LimitMEMLOCK = "infinity";
+      # Resource limits (NixOS k3s module sets LimitNPROC="infinity" by default)
+      LimitNOFILE = lib.mkDefault 1048576;
+      LimitCORE = lib.mkDefault "infinity";
+      TasksMax = lib.mkDefault "infinity";
+      LimitMEMLOCK = lib.mkDefault "infinity";
 
       # CPU and Memory limits (adjust based on hardware)
       CPUWeight = 200; # Higher priority

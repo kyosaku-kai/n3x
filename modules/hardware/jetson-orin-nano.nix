@@ -6,6 +6,9 @@
     inputs.jetpack-nixos.nixosModules.default
   ];
 
+  # Allow unfree packages (required for NVIDIA CUDA and proprietary firmware)
+  nixpkgs.config.allowUnfree = true;
+
   # Jetson Orin Nano specific configuration
   hardware.nvidia-jetpack = {
     enable = true;
@@ -14,7 +17,8 @@
 
     # Jetson Orin Nano specific settings
     # 8GB RAM variant with NVIDIA Ampere GPU (1024 CUDA cores)
-    modesetting.enable = true;
+    # Note: modesetting disabled for now due to evaluation issues
+    modesetting.enable = false;
 
     # Use stable firmware version (35.2.1 recommended over 35.3.1 for USB boot)
     flashScriptOverrides = {
@@ -84,6 +88,10 @@
       "cgroup_memory=1"
       "cgroup_enable=memory"
 
+      # Memory compression
+      "zswap.enabled=1"
+      "zswap.compressor=zstd"
+
       # Disable unnecessary debugging
       "quiet"
       "loglevel=3"
@@ -122,8 +130,9 @@
 
   # Hardware-specific services
   services = {
-    # Thermal management
-    thermald.enable = lib.mkDefault true;
+    # Thermal management (Jetson uses Tegra thermal management, not thermald)
+    # thermald is Intel-specific and not available on ARM64
+    thermald.enable = false;
 
     # Power management
     tlp = {
@@ -136,11 +145,12 @@
 
   # Jetson-specific packages
   environment.systemPackages = with pkgs; [
-    # Jetson utilities
-    jetson-gpio
-    jetson-stats
-    tegrastats
-    nvpmodel  # Power mode management
+    # Jetson utilities (provided by jetpack-nixos or need custom packaging)
+    # jetson-gpio
+    # jetson-stats
+    # tegrastats
+    # nvpmodel  # Power mode management
+    # jtop  # Jetson system monitor
 
     # CUDA and AI acceleration (when needed for workloads)
     # cudaPackages.cudatoolkit
@@ -149,8 +159,6 @@
 
     # Hardware monitoring
     lm_sensors
-    nvtop  # NVIDIA GPU monitoring
-    jtop  # Jetson system monitor
 
     # Serial console tools (for debugging via UART)
     minicom
@@ -201,32 +209,21 @@
   # Network and system optimizations for edge computing
   boot.kernel.sysctl = {
     # Network buffer sizes for high throughput
-    "net.core.rmem_max" = 134217728;
-    "net.core.wmem_max" = 134217728;
-    "net.ipv4.tcp_rmem" = "4096 87380 134217728";
-    "net.ipv4.tcp_wmem" = "4096 65536 134217728";
-
-    # Increase netdev budget for packet processing
+    # Note: netdev_max_backlog is configured in modules/common/networking.nix
     "net.core.netdev_budget" = 600;
     "net.core.netdev_budget_usecs" = 20000;
-    "net.core.netdev_max_backlog" = 5000;
 
     # TCP optimizations
     "net.ipv4.tcp_fastopen" = 3;
     "net.ipv4.tcp_low_latency" = 1;
-    "net.ipv4.tcp_congestion_control" = "bbr";
-    "net.core.default_qdisc" = "fq";
+    # Note: tcp_congestion_control and default_qdisc are in modules/common/networking.nix
 
     # Memory management for containers
     "vm.max_map_count" = 262144;
-    "vm.swappiness" = 10;  # Prefer RAM over swap
+    # Note: vm.swappiness configured in base.nix
     "vm.min_free_kbytes" = 65536;  # 64MB minimum free memory
 
-    # File system limits for k3s
-    "fs.inotify.max_user_instances" = 8192;
-    "fs.inotify.max_user_watches" = 524288;
-    "fs.file-max" = 2097152;
-    "fs.nr_open" = 1048576;
+    # Note: fs.inotify.*, fs.file-max, fs.nr_open are configured in k3s-common.nix
 
     # ARM64 specific optimizations
     "kernel.perf_event_paranoid" = -1;  # Allow performance monitoring
@@ -238,7 +235,6 @@
   # Enable hardware acceleration where applicable
   hardware.opengl = {
     enable = true;
-    driSupport = true;
     driSupport32Bit = false;  # Jetson is ARM64 only
   };
 
@@ -278,30 +274,24 @@
   documentation.man.enable = lib.mkDefault false;
   documentation.info.enable = lib.mkDefault false;
 
-  # File system mount options
-  fileSystems = {
-    "/".options = [ "noatime" "nodiratime" ];
-    "/nix".options = [ "noatime" "nodiratime" ];
-    "/var".options = [ "noatime" "nodiratime" ];
-    "/var/lib/longhorn".options = [ "noatime" "nodiratime" "discard" ];
-  };
+  # Note: Filesystem mount options are configured in host-specific configuration
+  # See hosts/jetson-*/configuration.nix for filesystem definitions
 
   # Power profile management service
-  systemd.services.jetson-power-profile = {
-    description = "Configure Jetson Power Profile";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      # Default to 10W mode for balanced performance/power
-      # Mode 0: MAXN (15W), Mode 1: 10W, Mode 2: 5W
-      ExecStart = "${pkgs.bash}/bin/bash -c 'nvpmodel -m 1 || true'";
-    };
-  };
-
-  # Enable zswap for better memory compression
-  boot.kernelParams = [ "zswap.enabled=1" "zswap.compressor=zstd" ];
+  # Note: nvpmodel requires jetpack-nixos or custom packaging
+  # Uncomment when nvpmodel is available
+  # systemd.services.jetson-power-profile = {
+  #   description = "Configure Jetson Power Profile";
+  #   wantedBy = [ "multi-user.target" ];
+  #   after = [ "multi-user.target" ];
+  #   serviceConfig = {
+  #     Type = "oneshot";
+  #     RemainAfterExit = true;
+  #     # Default to 10W mode for balanced performance/power
+  #     # Mode 0: MAXN (15W), Mode 1: 10W, Mode 2: 5W
+  #     ExecStart = "${pkgs.bash}/bin/bash -c 'nvpmodel -m 1 || true'";
+  #   };
+  # };
 
   # Hardware watchdog
   systemd.watchdog = {

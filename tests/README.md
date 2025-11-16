@@ -7,8 +7,50 @@ This directory contains VM configurations and test scripts for validating the n3
 The VM testing framework allows you to:
 - Test individual node configurations (server/agent)
 - Validate multi-node cluster deployment
-- Test networking, storage, and K3s configurations
+- Test networking, bonding, and K3s configurations
+- Verify Longhorn storage prerequisites
 - Debug issues in a safe, isolated environment
+
+## Automated Integration Tests
+
+The repository includes comprehensive automated tests using the NixOS `nixosTest` framework. These tests boot VMs, configure services, and verify functionality automatically.
+
+### Running Tests
+
+```bash
+# Run all tests (takes a while)
+nix flake check
+
+# Run a specific test
+nix build .#checks.x86_64-linux.k3s-single-server
+nix build .#checks.x86_64-linux.k3s-agent-join
+nix build .#checks.x86_64-linux.k3s-multi-node
+nix build .#checks.x86_64-linux.network-bonding
+nix build .#checks.x86_64-linux.longhorn-prerequisites
+
+# Interactive debugging (opens Python REPL for test control)
+nix build .#checks.x86_64-linux.k3s-single-server.driverInteractive
+./result/bin/nixos-test-driver
+```
+
+### Available Tests
+
+| Test Name | Description | What It Validates | Priority |
+|-----------|-------------|-------------------|----------|
+| **Core K3s Functionality** ||||
+| `k3s-single-server` | Single control plane | K3s server initialization, API availability, system pods, workload deployment | HIGH |
+| `k3s-agent-join` | 2-node cluster | Agent registration, cluster joining, workload scheduling | HIGH |
+| `k3s-multi-node` | 3-node cluster | Multi-node formation, workload distribution across nodes | HIGH |
+| **Networking Validation** ||||
+| `network-bonding` | Network bonding | Bond interface creation, slave configuration, active-backup mode | MEDIUM |
+| `k3s-networking` | **Cross-node networking** ⭐ | **Pod-to-pod communication, Flannel overlay, DNS resolution, service discovery** | **CRITICAL** |
+| **Storage Stack** ||||
+| `longhorn-prerequisites` | Storage readiness | Kernel modules, iSCSI, filesystem support, required utilities | HIGH |
+| `kyverno-deployment` | **NixOS compatibility** ⭐ | **Kyverno Helm install, admission controller, PATH mutation policy for Longhorn** | **CRITICAL** |
+
+⭐ = Critical tests added after initial implementation - validate "the right things"
+
+**See [TEST-COVERAGE.md](TEST-COVERAGE.md) for detailed analysis of what each test validates and why it matters.**
 
 ## Directory Structure
 

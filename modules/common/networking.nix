@@ -83,7 +83,7 @@
     config = {
       networkConfig = {
         SpeedMeter = true; # Enable speed metering
-        SpeedMeterIntervalSec = "10s";
+        SpeedMeterIntervalSec = 10; # Seconds (integer)
         ManageForeignRoutes = true;
         ManageForeignRoutingPolicyRules = true;
       };
@@ -148,15 +148,12 @@
     "net.ipv4.tcp_congestion_control" = "bbr";
     "net.core.default_qdisc" = "fq";
 
-    # Connection tracking for k3s
-    "net.netfilter.nf_conntrack_max" = 131072;
-    "net.nf_conntrack_max" = 131072;
-    "net.netfilter.nf_conntrack_tcp_timeout_established" = 86400;
-    "net.netfilter.nf_conntrack_tcp_timeout_close_wait" = 3600;
+    # Note: Connection tracking (nf_conntrack_*) settings are configured in
+    # modules/roles/k3s-common.nix and k3s-agent.nix
 
-    # IPv6 settings
-    "net.ipv6.conf.all.use_tempaddr" = 0;
-    "net.ipv6.conf.default.use_tempaddr" = 0;
+    # IPv6 settings (disable temp addresses for static IP cluster)
+    "net.ipv6.conf.all.use_tempaddr" = lib.mkForce 0;
+    "net.ipv6.conf.default.use_tempaddr" = lib.mkForce 0;
 
     # Security settings
     "net.ipv4.conf.all.rp_filter" = 1;
@@ -200,11 +197,7 @@
     conntrack-tools
   ];
 
-  # Enable packet forwarding for k3s
-  boot.kernel.sysctl = {
-    "net.ipv4.ip_forward" = 1;
-    "net.ipv6.conf.all.forwarding" = 1;
-  };
+  # Note: IP forwarding settings are configured in modules/roles/k3s-common.nix
 
   # Disable NetworkManager (using systemd-networkd)
   networking.networkmanager.enable = false;
@@ -215,7 +208,7 @@
   };
 
   # MTU discovery
-  networking.usePredictableInterfaceNames = true; # Use predictable names (enpXsY format)
+  networking.usePredictableInterfaceNames = lib.mkDefault true; # Use predictable names (enpXsY format)
 
   # Disable IPv6 if not needed (uncomment to disable)
   # boot.kernelParams = [ "ipv6.disable=1" ];

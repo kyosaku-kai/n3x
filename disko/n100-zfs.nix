@@ -238,10 +238,7 @@
     "fs.file-max" = 2097152;
 
     # Network tuning for storage traffic
-    "net.core.rmem_default" = 134217728;
-    "net.core.wmem_default" = 134217728;
-    "net.core.rmem_max" = 134217728;
-    "net.core.wmem_max" = 134217728;
+    # Note: Network buffer settings configured in modules/common/networking.nix
   };
 
   # ZFS event daemon for monitoring

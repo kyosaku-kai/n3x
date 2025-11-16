@@ -4,7 +4,19 @@
 
 ## Project Status
 
-**Current Phase**: Documentation and planning. This repository contains comprehensive implementation guides but no actual NixOS configurations yet. Following a documentation-first approach, implementation will begin after thorough planning alignment.
+**Current Phase**: Implementation complete, ready for VM testing and hardware deployment.
+
+All core modules, configurations, and testing framework have been implemented:
+- ✅ Complete flake structure with modular NixOS configurations
+- ✅ Hardware modules for N100 (x86_64) and Jetson Orin Nano (ARM64)
+- ✅ K3s server and agent roles with secure variants
+- ✅ Network bonding, VLANs, and Multus CNI integration
+- ✅ Disko-based disk partitioning for multiple layouts
+- ✅ Kyverno and Longhorn storage integration
+- ✅ Sops-nix secrets management
+- ✅ Comprehensive VM testing framework
+
+See CLAUDE.md for detailed implementation status and next steps.
 
 ## Hardware Platform Support
 
@@ -404,10 +416,10 @@ For comprehensive Jetson Orin Nano documentation including kernel management, L4
    - Uses kexec to boot installer environment without reboot
    - Integrates with disko for declarative partitioning
 
-2. **deploy-rs**: Multi-node deployment tool
+2. **nixos-rebuild**: Remote deployment and updates
    - Manages remote deployments from single flake
    - Supports rollback on failure
-   - Integrates with NixOS activation scripts
+   - Standard NixOS tool for configuration management
 
 3. **disko**: Declarative disk partitioning
    - Defines partition layout in Nix
@@ -432,7 +444,7 @@ For comprehensive Jetson Orin Nano documentation including kernel management, L4
 1. Boot nodes via network (iPXE) or USB installer
 2. Deploy first node: `nixos-anywhere --flake .#node1 root@192.168.10.11`
 3. Verify boot and SSH access
-4. Deploy remaining nodes: `deploy-rs .#node2 .#node3` or use nixos-rebuild
+4. Deploy remaining nodes using nixos-rebuild or nixos-anywhere
 
 **Kubernetes Setup**:
 1. Install Multus CNI for network separation
@@ -442,8 +454,8 @@ For comprehensive Jetson Orin Nano documentation including kernel management, L4
 5. Deploy workloads via manifests or GitOps
 
 **Ongoing Management**:
-- Updates: `nix flake update` → `nixos-rebuild` or `deploy-rs`
-- Configuration changes: Edit `.nix` files → deploy via preferred method
+- Updates: `nix flake update` → `nixos-rebuild`
+- Configuration changes: Edit `.nix` files → deploy via nixos-rebuild
 - Rollback: Boot into previous NixOS generation
 - Monitoring: Deploy Prometheus/Grafana via k3s manifests
 
@@ -451,18 +463,14 @@ For comprehensive Jetson Orin Nano documentation including kernel management, L4
 
 ### Deployment Commands
 ```bash
-# Deploy single node
-nixos-anywhere --flake .#node1 root@192.168.10.11
+# Initial bare-metal deployment
+nixos-anywhere --flake .#n100-1 root@192.168.10.11
 
-# Deploy to multiple nodes (various methods)
-# Using deploy-rs:
-deploy-rs .#node1 .#node2 .#node3
+# Deploy configuration updates remotely
+nixos-rebuild switch --flake .#n100-1 --target-host root@n100-1.local
 
-# Using nixos-rebuild remotely:
-nixos-rebuild switch --flake .#node2 --target-host root@192.168.10.12
-
-# Deploy all nodes in parallel with GNU parallel:
-parallel nixos-rebuild switch --flake .#{} --target-host root@{} ::: node1:192.168.10.11 node2:192.168.10.12 node3:192.168.10.13
+# Deploy to multiple nodes in parallel with GNU parallel
+parallel nixos-rebuild switch --flake .#n100-{} --target-host root@n100-{}.local ::: 1 2 3
 ```
 
 ### Development Commands
@@ -539,13 +547,53 @@ While Talos provides an 80MB footprint and API-only management, NixOS offers:
 - Always test configurations in VMs before bare metal deployment
 - Serial console access is critical for Jetson hardware troubleshooting
 
-## Next Steps
+## Next Steps for Deployment
 
-Once documentation alignment is achieved, implementation will focus on:
+With implementation complete, the recommended path to deployment:
 
-1. Creating the flake structure with multi-node configurations
-2. Setting up disko partitioning layouts for N100 hardware
-3. Configuring sops-nix with proper key management
-4. Testing deployments in VMs with various scenarios
-5. Deploying to physical hardware with incremental validation
-6. Documenting specific configurations and lessons learned
+1. **VM Testing** (see tests/README.md and tests/TEST-COVERAGE.md)
+   - Run automated integration tests: `nix flake check`
+   - **Core K3s tests:**
+     - `k3s-single-server`: Single control plane node
+     - `k3s-agent-join`: Agent joining server cluster
+     - `k3s-multi-node`: 3-node cluster (1 server + 2 agents)
+   - **Networking tests:**
+     - `network-bonding`: Network bonding configuration
+     - `k3s-networking`: **Pod-to-pod communication, DNS, service discovery** ⭐ NEW
+   - **Storage stack tests:**
+     - `longhorn-prerequisites`: Longhorn readiness (kernel modules, iSCSI)
+     - `kyverno-deployment`: **Kyverno install + PATH patching validation** ⭐ NEW
+   - Manual testing: `./tests/run-vm-tests.sh`
+   - Individual test: `nix build .#checks.x86_64-linux.TEST_NAME`
+
+2. **Secrets Configuration** (see docs/SECRETS-SETUP.md)
+   - Generate age keys for admin and all hosts
+   - Create strong K3s tokens using provided scripts
+   - Encrypt secrets with sops
+   - Prepare keys for deployment to nodes
+
+3. **Hardware Deployment** (initial provisioning)
+   - Deploy to first server node using nixos-anywhere
+   - Verify K3s control plane starts successfully
+   - Deploy remaining nodes (servers then agents)
+   - Validate cluster formation
+
+4. **Kubernetes Setup**
+   - Install Kyverno for NixOS PATH compatibility
+   - Deploy Longhorn distributed storage
+   - Configure Multus CNI for storage network separation
+   - Test PVC creation and replica management
+
+5. **Production Hardening**
+   - Configure proper TLS certificates
+   - Set up monitoring and alerting
+   - Implement backup strategies for etcd and Longhorn volumes
+   - Document operational procedures
+
+## Additional Documentation
+
+- **[Jetson Orin Nano Setup](jetson-orin-nano.md)** - Comprehensive guide for Jetson hardware
+- **[Secrets Management Tutorial](docs/SECRETS-SETUP.md)** - Detailed secrets setup walkthrough
+- **[Secrets Quick Reference](secrets/README.md)** - Practical guide for deployed systems
+- **[VM Testing Guide](tests/README.md)** - Testing framework documentation
+- **[Kubernetes Manifests](manifests/README.md)** - Kyverno and Longhorn deployment procedures

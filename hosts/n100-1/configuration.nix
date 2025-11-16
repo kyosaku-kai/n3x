@@ -26,7 +26,10 @@
     };
 
     # Default gateway
-    defaultGateway = "10.0.1.1";
+    defaultGateway = {
+      address = "10.0.1.1";
+      interface = "bond0";
+    };
 
     # DNS servers
     nameservers = [ "10.0.1.1" "1.1.1.1" ];
@@ -74,12 +77,8 @@
     };
   };
 
-  # Storage configuration for Longhorn
-  fileSystems."/var/lib/longhorn" = {
-    device = "/dev/disk/by-label/longhorn";
-    fsType = "ext4";
-    options = [ "defaults" "noatime" ];
-  };
+  # Note: Longhorn storage filesystem is managed by disko configuration
+  # See disko/n100-standard.nix for /var/lib/longhorn partition definition
 
   # Firewall configuration
   networking.firewall = {
@@ -118,12 +117,8 @@
     helm
   ];
 
-  # Enable SSH
-  services.openssh.enable = true;
-  services.openssh.settings = {
-    PermitRootLogin = "yes";
-    PasswordAuthentication = false;
-  };
+  # Note: SSH is configured in modules/common/base.nix
+  # Base module enables SSH with prohibit-password (key-based root login only)
 
   # SSH keys for access
   users.users.root.openssh.authorizedKeys.keys = [

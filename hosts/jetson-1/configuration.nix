@@ -25,7 +25,10 @@
     };
 
     # Static IP configuration for management
-    defaultGateway = "10.10.10.1";
+    defaultGateway = {
+      address = "10.10.10.1";
+      interface = "bond0";
+    };
     nameservers = [ "10.10.10.1" "1.1.1.1" ];
 
     # Bonded interface will be configured by network/bonding.nix module
@@ -108,12 +111,12 @@
     iotop
     iftop
 
-    # Jetson-specific monitoring
-    jetson-stats
+    # Jetson-specific monitoring (requires jetpack-nixos or custom packaging)
+    # jetson-stats
 
     # Container debugging
-    crictl
-    ctr
+    cri-tools  # Provides crictl
+    # ctr is provided by containerd
   ];
 
   # Services specific to edge nodes

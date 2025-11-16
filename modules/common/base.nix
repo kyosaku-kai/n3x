@@ -9,16 +9,8 @@
 
   # Boot configuration
   boot = {
-    loader = {
-      # Use systemd-boot on UEFI systems
-      systemd-boot = {
-        enable = true;
-        configurationLimit = 10; # Keep only 10 generations
-        editor = false; # Disable boot menu editor for security
-      };
-      efi.canTouchEfiVariables = true;
-      timeout = 3; # 3 second boot menu timeout
-    };
+    # Note: Bootloader configuration is in hardware-specific modules
+    # (modules/hardware/n100.nix uses systemd-boot, jetson-orin-nano.nix uses extlinux)
 
     # Kernel modules required for k3s and Longhorn
     kernelModules = [
@@ -35,14 +27,9 @@
       "loglevel=3"      # Only show critical messages during boot
     ];
 
-    # Enable kernel settings required for k3s
+    # Note: K3s-specific kernel settings are in modules/roles/k3s-common.nix
+    # Performance tuning
     kernel.sysctl = {
-      "net.ipv4.ip_forward" = 1;
-      "net.ipv6.conf.all.forwarding" = 1;
-      "net.bridge.bridge-nf-call-iptables" = 1;
-      "net.bridge.bridge-nf-call-ip6tables" = 1;
-
-      # Performance tuning
       "vm.swappiness" = 10; # Reduce swap usage
       "vm.vfs_cache_pressure" = 50; # Balance between caching and reclaiming memory
       "vm.dirty_ratio" = 15; # Start writing dirty pages at 15% memory usage

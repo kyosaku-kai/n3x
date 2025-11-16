@@ -38,6 +38,9 @@
       "coretemp"            # Temperature monitoring
       "intel_pstate"        # CPU frequency scaling
 
+      # MSR module for CPU features
+      "msr"
+
       # Required for k3s/Longhorn
       "br_netfilter"
       "overlay"
@@ -71,6 +74,14 @@
 
       # Network optimizations
       "net.ifnames=0"                      # Use traditional interface names (eth0, eth1)
+
+      # Serial console (useful for debugging)
+      "console=ttyS0,115200n8"
+      "console=tty0"
+
+      # Hugepages configuration for better memory performance
+      "hugepagesz=2M"
+      "hugepages=512"
     ];
 
     # Bootloader configuration
@@ -91,8 +102,7 @@
 
   # Hardware configuration
   hardware = {
-    # Enable all firmware including non-free
-    enableAllFirmware = true;
+    # Enable redistributable firmware only (non-redistributable requires allowUnfree)
     enableRedistributableFirmware = true;
 
     # Intel CPU microcode updates
@@ -105,7 +115,7 @@
       extraPackages = with pkgs; [
         intel-media-driver # VA-API
         intel-compute-runtime # OpenCL
-        vaapiVdpau
+        libva-vdpau-driver # Renamed from vaapiVdpau
         libvdpau-va-gl
       ];
     };
@@ -185,37 +195,20 @@
     memoryPercent = 25; # Use 25% of RAM for zram swap
   };
 
-  # File system optimizations
-  fileSystems = {
-    "/".options = [ "noatime" "nodiratime" ];
-    "/nix".options = [ "noatime" "nodiratime" ];
-    "/var".options = [ "noatime" "nodiratime" ];
-    "/var/lib/longhorn".options = [ "noatime" "nodiratime" "discard" ];
-  };
+  # Note: Filesystem mount options are configured in disko/n100-standard.nix
+  # See disko configuration for noatime, nodiratime, and other mount options
 
   # System-specific kernel tuning
   boot.kernel.sysctl = {
+    # Note: vm.swappiness, vm.vfs_cache_pressure, vm.dirty_* are in modules/common/base.nix
     # Memory management
-    "vm.swappiness" = 10; # Prefer RAM over swap
-    "vm.vfs_cache_pressure" = 50;
-    "vm.dirty_ratio" = 15;
-    "vm.dirty_background_ratio" = 5;
     "vm.min_free_kbytes" = 131072; # 128MB reserve
 
-    # Network performance (for dual NIC setups)
-    "net.core.netdev_max_backlog" = 5000;
-    "net.ipv4.tcp_congestion_control" = "bbr";
-    "net.core.default_qdisc" = "fq";
-
-    # Increase network buffers for better throughput
-    "net.core.rmem_max" = 134217728;
-    "net.core.wmem_max" = 134217728;
-    "net.ipv4.tcp_rmem" = "4096 87380 134217728";
-    "net.ipv4.tcp_wmem" = "4096 65536 134217728";
+    # Note: Network performance settings (netdev_max_backlog, tcp_congestion_control,
+    # default_qdisc, rmem/wmem buffers) are configured in modules/common/networking.nix
 
     # File system
-    "fs.inotify.max_user_watches" = 524288; # For k3s
-    "fs.inotify.max_user_instances" = 8192;
+    # Note: fs.inotify.* settings are configured in modules/roles/k3s-common.nix
     "fs.file-max" = 2097152;
     "fs.nr_open" = 1048576;
 
@@ -236,29 +229,12 @@
   ];
 
   # Hardware monitoring
-  services = {
-    # Smart monitoring for SSDs
-    smartd = {
-      enable = true;
-      defaults.monitored = "-a -o on -S on -n standby,q -s (S/../.././02|L/../../7/03) -W 4,45,55";
-      notifications = {
-        mail.enable = false; # Configure if needed
-        wall.enable = true;
-      };
-    };
-
-    # Hardware sensors
-    lm-sensors = {
-      enable = true;
-      sensorsConfig = ''
-        # Intel N100 sensor configuration
-        chip "coretemp-*"
-          label temp1 "CPU Package"
-          label temp2 "Core 0"
-          label temp3 "Core 1"
-          label temp4 "Core 2"
-          label temp5 "Core 3"
-      '';
+  services.smartd = {
+    enable = true;
+    defaults.monitored = "-a -o on -S on -n standby,q -s (S/../.././02|L/../../7/03) -W 4,45,55";
+    notifications = {
+      mail.enable = false; # Configure if needed
+      wall.enable = true;
     };
   };
 
@@ -274,15 +250,8 @@
     };
   };
 
-  # MSR module for CPU features
-  boot.kernelModules = [ "msr" ];
-
   # Disable unnecessary features for mini PCs
   services.xserver.enable = false;
-  sound.enable = false;
-
-  # Serial console (useful for debugging)
-  boot.kernelParams = [ "console=ttyS0,115200n8" "console=tty0" ];
 
   # Enable serial console
   systemd.services."serial-getty@ttyS0" = {
@@ -325,9 +294,6 @@
       RemainAfterExit = true;
     };
   };
-
-  # Hugepages configuration for better memory performance
-  boot.kernelParams = [ "hugepagesz=2M" "hugepages=512" ];
 
   # Additional security hardening
   security.protectKernelImage = true;

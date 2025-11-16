@@ -17,7 +17,7 @@
     # serverAddr = "https://k3s-server:6443";
 
     # Agent configuration
-    extraFlags = toString [
+    extraFlags = lib.mkDefault [
       # Kubelet configuration
       "--kubelet-arg=max-pods=250"
       "--kubelet-arg=eviction-hard=memory.available<5%"
@@ -61,14 +61,20 @@
     allowedTCPPorts = [
       10250 # kubelet API
       10255 # kubelet read-only API (deprecated but sometimes needed)
-      30000-32767 # NodePort range
+    ];
+
+    allowedTCPPortRanges = [
+      { from = 30000; to = 32767; } # NodePort range
     ];
 
     allowedUDPPorts = [
       8472  # Flannel VXLAN
       51820 # Flannel WireGuard
       51821 # Flannel WireGuard IPv6
-      30000-32767 # NodePort range
+    ];
+
+    allowedUDPPortRanges = [
+      { from = 30000; to = 32767; } # NodePort range
     ];
 
     # Allow all traffic from cluster networks
@@ -97,16 +103,15 @@
     # Restart configuration
     serviceConfig = {
       Restart = lib.mkForce "always";
-      RestartSec = "10s";
-      StartLimitInterval = "10min";
-      StartLimitBurst = 6;
+      RestartSec = lib.mkDefault "10s";
+      StartLimitInterval = lib.mkDefault "10min";
+      StartLimitBurst = lib.mkDefault 6;
 
-      # Resource limits
-      LimitNOFILE = 1048576;
-      LimitNPROC = 512000;
-      LimitCORE = "infinity";
-      TasksMax = "infinity";
-      LimitMEMLOCK = "infinity";
+      # Resource limits (NixOS k3s module sets LimitNPROC="infinity" by default)
+      LimitNOFILE = lib.mkDefault 1048576;
+      LimitCORE = lib.mkDefault "infinity";
+      TasksMax = lib.mkDefault "infinity";
+      LimitMEMLOCK = lib.mkDefault "infinity";
 
       # CPU and Memory limits (agents can use more resources)
       CPUWeight = 100; # Normal priority
@@ -178,15 +183,12 @@
 
   # System tuning for container workloads
   boot.kernel.sysctl = {
-    # Increase limits for containers
-    "fs.inotify.max_user_watches" = 1048576;
-    "fs.inotify.max_user_instances" = 8192;
-    "fs.file-max" = 2097152;
-    "fs.nr_open" = 1048576;
+    # Note: fs.inotify.* settings are in modules/roles/k3s-common.nix
+    # Note: fs.file-max and fs.nr_open are in modules/hardware/n100.nix
 
-    # Network tuning for container networking
-    "net.netfilter.nf_conntrack_max" = 262144;
-    "net.nf_conntrack_max" = 262144;
+    # Network tuning for container networking (higher than k3s-common for agents)
+    "net.netfilter.nf_conntrack_max" = lib.mkForce 262144;
+    "net.nf_conntrack_max" = lib.mkForce 262144;
 
     # Memory overcommit for containers
     "vm.overcommit_memory" = 1;

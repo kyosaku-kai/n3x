@@ -9,7 +9,7 @@
     kubectl
     kubernetes-helm
     nfs-utils       # For NFS storage if needed
-    open-iscsi      # For iSCSI (Longhorn)
+    openiscsi       # For iSCSI (Longhorn)
     cryptsetup      # For encrypted volumes
     util-linux      # For mount and other utilities
     cifs-utils      # For SMB/CIFS if needed
@@ -136,14 +136,14 @@
   # Configure systemd to better handle containers
   systemd = {
     # Increase default limits
-    extraConfig = ''
-      DefaultLimitNOFILE=1048576
-      DefaultLimitNPROC=512000
-      DefaultLimitCORE=infinity
-      DefaultTasksMax=infinity
-      DefaultTimeoutStartSec=90s
-      DefaultTimeoutStopSec=90s
-    '';
+    settings.Manager = {
+      DefaultLimitNOFILE = 1048576;
+      DefaultLimitNPROC = 512000;
+      DefaultLimitCORE = "infinity";
+      DefaultTasksMax = "infinity";
+      DefaultTimeoutStartSec = "90s";
+      DefaultTimeoutStopSec = "90s";
+    };
 
     # Ensure systemd can track container cgroups properly
     services."user@".serviceConfig = {

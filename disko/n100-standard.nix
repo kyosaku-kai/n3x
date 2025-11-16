@@ -140,24 +140,12 @@
 
   # Storage optimization
   boot.kernel.sysctl = {
-    # VM tuning for storage workload
-    "vm.swappiness" = 10; # Reduce swappiness
-    "vm.dirty_ratio" = 15;
-    "vm.dirty_background_ratio" = 5;
+    # Note: VM tuning (vm.swappiness, vm.dirty_*) is configured in modules/common/base.nix
+    # Note: File system tuning (fs.inotify.*, fs.file-max) is in modules/roles/k3s-common.nix and modules/hardware/n100.nix
+    # Note: Network buffer settings are in modules/common/networking.nix
+
+    # Storage-specific tuning
     "vm.dirty_writeback_centisecs" = 1500;
-
-    # File system tuning
-    "fs.inotify.max_user_watches" = 1048576;
-    "fs.inotify.max_user_instances" = 8192;
-    "fs.file-max" = 2097152;
-
-    # Network tuning for storage traffic
-    "net.core.rmem_default" = 134217728;
-    "net.core.wmem_default" = 134217728;
-    "net.core.rmem_max" = 134217728;
-    "net.core.wmem_max" = 134217728;
-    "net.ipv4.tcp_rmem" = "4096 87380 134217728";
-    "net.ipv4.tcp_wmem" = "4096 65536 134217728";
   };
 
   # Periodic TRIM for SSD optimization

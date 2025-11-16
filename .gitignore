@@ -105,3 +105,6 @@ dist/
 # SOPS temporary files
 .sops.*.yaml
 .sops.*.yml
+
+# vim session files
+*.vim
