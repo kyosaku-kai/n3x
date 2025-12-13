@@ -21,7 +21,7 @@ let
       bandwidth = true;
     };
     clusterNetwork = "k3s-flannel";
-    defaultNetworks = [];
+    defaultNetworks = [ ];
     systemNamespaces = [ "kube-system" "kube-public" "kube-node-lease" ];
   };
 

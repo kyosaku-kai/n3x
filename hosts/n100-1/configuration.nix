@@ -86,9 +86,9 @@
 
     # K3s required ports
     allowedTCPPorts = [
-      6443  # Kubernetes API server
-      2379  # etcd client requests
-      2380  # etcd peer communication
+      6443 # Kubernetes API server
+      2379 # etcd client requests
+      2380 # etcd peer communication
       10250 # Kubelet API
       10251 # kube-scheduler
       10252 # kube-controller-manager
@@ -97,7 +97,7 @@
 
     # Flannel VXLAN
     allowedUDPPorts = [
-      8472  # Flannel VXLAN
+      8472 # Flannel VXLAN
       51820 # WireGuard (if using flannel-backend=wireguard-native)
       51821 # WireGuard (additional)
     ];

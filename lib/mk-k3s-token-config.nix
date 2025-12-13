@@ -3,23 +3,26 @@
 
 {
   # Function to create K3s token configuration for servers and agents
-  mkK3sTokenConfig = {
-    role, # "server" or "agent"
-    serverUrl ? null, # Required for agents and secondary servers
-    tokenFile ? "/run/secrets/k3s-token",
-    clusterInit ? false, # Only true for first server
-    nodeName ? null,
-    nodeIp ? null,
-    disableComponents ? [ "traefik" "servicelb" "local-storage" ],
-    flannelBackend ? "wireguard-native",
-    clusterCidr ? "10.42.0.0/16",
-    serviceCidr ? "10.43.0.0/16",
-    clusterDns ? "10.43.0.10",
-    extraFlags ? [],
-    labels ? {},
-    taints ? [],
-    ...
-  }@args:
+  mkK3sTokenConfig =
+    { role
+    , # "server" or "agent"
+      serverUrl ? null
+    , # Required for agents and secondary servers
+      tokenFile ? "/run/secrets/k3s-token"
+    , clusterInit ? false
+    , # Only true for first server
+      nodeName ? null
+    , nodeIp ? null
+    , disableComponents ? [ "traefik" "servicelb" "local-storage" ]
+    , flannelBackend ? "wireguard-native"
+    , clusterCidr ? "10.42.0.0/16"
+    , serviceCidr ? "10.43.0.0/16"
+    , clusterDns ? "10.43.0.10"
+    , extraFlags ? [ ]
+    , labels ? { }
+    , taints ? [ ]
+    , ...
+    }@args:
     let
       # Base K3s configuration
       baseConfig = {
@@ -35,24 +38,28 @@
       buildExtraFlags = [
         # Node identification
       ] ++ lib.optional (nodeName != null) "--node-name=${nodeName}"
-        ++ lib.optional (nodeIp != null) "--node-ip=${nodeIp}"
-        ++ lib.optionals (role == "server") ([
-          "--cluster-cidr=${clusterCidr}"
-          "--service-cidr=${serviceCidr}"
-          "--cluster-dns=${clusterDns}"
-          "--flannel-backend=${flannelBackend}"
-        ] ++ map (component: "--disable=${component}") disableComponents)
-        ++ extraFlags;
+      ++ lib.optional (nodeIp != null) "--node-ip=${nodeIp}"
+      ++ lib.optionals (role == "server") ([
+        "--cluster-cidr=${clusterCidr}"
+        "--service-cidr=${serviceCidr}"
+        "--cluster-dns=${clusterDns}"
+        "--flannel-backend=${flannelBackend}"
+      ] ++ map (component: "--disable=${component}") disableComponents)
+      ++ extraFlags;
 
       # Generate node labels as flags
-      labelFlags = lib.mapAttrsToList (key: value:
-        "--node-label=${key}=${value}"
-      ) labels;
+      labelFlags = lib.mapAttrsToList
+        (key: value:
+          "--node-label=${key}=${value}"
+        )
+        labels;
 
       # Generate node taints as flags
-      taintFlags = map (taint:
-        "--node-taint=${taint}"
-      ) taints;
+      taintFlags = map
+        (taint:
+          "--node-taint=${taint}"
+        )
+        taints;
     in
     {
       # K3s service configuration
@@ -84,25 +91,26 @@
     };
 
   # Function for primary server configuration
-  mkK3sServerPrimary = {
-    nodeName,
-    nodeIp,
-    advertiseAddress ? nodeIp,
-    tlsSan ? [],
-    ...
-  }@args:
-    mkK3sTokenConfig {
-      role = "server";
-      clusterInit = true;
-      inherit nodeName nodeIp;
-      extraFlags = [
-        "--advertise-address=${advertiseAddress}"
-      ] ++ map (san: "--tls-san=${san}") ([ nodeIp advertiseAddress ] ++ tlsSan);
-      labels = {
-        "node-role.kubernetes.io/control-plane" = "true";
-        "node-role.kubernetes.io/master" = "true";
-      } // (args.labels or {});
-    } // {
+  mkK3sServerPrimary =
+    { nodeName
+    , nodeIp
+    , advertiseAddress ? nodeIp
+    , tlsSan ? [ ]
+    , ...
+    }@args:
+    mkK3sTokenConfig
+      {
+        role = "server";
+        clusterInit = true;
+        inherit nodeName nodeIp;
+        extraFlags = [
+          "--advertise-address=${advertiseAddress}"
+        ] ++ map (san: "--tls-san=${san}") ([ nodeIp advertiseAddress ] ++ tlsSan);
+        labels = {
+          "node-role.kubernetes.io/control-plane" = "true";
+          "node-role.kubernetes.io/master" = "true";
+        } // (args.labels or { });
+      } // {
       # Additional primary server configuration
       systemd.services.k3s-post-start = {
         description = "K3s primary server post-start configuration";
@@ -132,14 +140,14 @@
     };
 
   # Function for secondary server configuration
-  mkK3sServerSecondary = {
-    nodeName,
-    nodeIp,
-    primaryServerUrl,
-    advertiseAddress ? nodeIp,
-    tlsSan ? [],
-    ...
-  }@args:
+  mkK3sServerSecondary =
+    { nodeName
+    , nodeIp
+    , primaryServerUrl
+    , advertiseAddress ? nodeIp
+    , tlsSan ? [ ]
+    , ...
+    }@args:
     mkK3sTokenConfig {
       role = "server";
       serverUrl = primaryServerUrl;
@@ -151,19 +159,20 @@
       labels = {
         "node-role.kubernetes.io/control-plane" = "true";
         "node-role.kubernetes.io/master" = "true";
-      } // (args.labels or {});
+      } // (args.labels or { });
     };
 
   # Function for agent/worker configuration
-  mkK3sAgent = {
-    nodeName,
-    nodeIp,
-    serverUrl,
-    labels ? {},
-    taints ? [],
-    dedicatedRole ? null, # e.g., "storage", "compute", "edge"
-    ...
-  }@args:
+  mkK3sAgent =
+    { nodeName
+    , nodeIp
+    , serverUrl
+    , labels ? { }
+    , taints ? [ ]
+    , dedicatedRole ? null
+    , # e.g., "storage", "compute", "edge"
+      ...
+    }@args:
     let
       roleLabels = lib.optionalAttrs (dedicatedRole != null) {
         "node-role.kubernetes.io/${dedicatedRole}" = "true";
@@ -183,16 +192,16 @@
     };
 
   # Function to generate kubeconfig for external access
-  mkKubeconfig = {
-    serverUrl,
-    clusterName ? "n3x",
-    userName ? "admin",
-    namespace ? "default",
-    certificateAuthorityFile ? "/etc/rancher/k3s/server/tls/server-ca.crt",
-    clientCertificateFile ? "/etc/rancher/k3s/server/tls/client-admin.crt",
-    clientKeyFile ? "/etc/rancher/k3s/server/tls/client-admin.key",
-    ...
-  }:
+  mkKubeconfig =
+    { serverUrl
+    , clusterName ? "n3x"
+    , userName ? "admin"
+    , namespace ? "default"
+    , certificateAuthorityFile ? "/etc/rancher/k3s/server/tls/server-ca.crt"
+    , clientCertificateFile ? "/etc/rancher/k3s/server/tls/client-admin.crt"
+    , clientKeyFile ? "/etc/rancher/k3s/server/tls/client-admin.key"
+    , ...
+    }:
     ''
       apiVersion: v1
       kind: Config

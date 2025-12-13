@@ -14,17 +14,17 @@
 
     # Kernel modules required for k3s and Longhorn
     kernelModules = [
-      "overlay"      # Required for containerd
+      "overlay" # Required for containerd
       "br_netfilter" # Required for Kubernetes networking
-      "iscsi_tcp"    # Required for Longhorn iSCSI
-      "dm_crypt"     # Required for encrypted volumes
+      "iscsi_tcp" # Required for Longhorn iSCSI
+      "dm_crypt" # Required for encrypted volumes
     ];
 
     # Kernel parameters for better performance
     kernelParams = [
       "mitigations=off" # Disable CPU vulnerability mitigations for better performance (edge environment)
-      "quiet"           # Reduce boot verbosity
-      "loglevel=3"      # Only show critical messages during boot
+      "quiet" # Reduce boot verbosity
+      "loglevel=3" # Only show critical messages during boot
     ];
 
     # Note: K3s-specific kernel settings are in modules/roles/k3s-common.nix
@@ -40,7 +40,11 @@
     initrd = {
       # Include only necessary modules in initrd
       availableKernelModules = [
-        "xhci_pci" "ahci" "nvme" "usbhid" "sd_mod"
+        "xhci_pci"
+        "ahci"
+        "nvme"
+        "usbhid"
+        "sd_mod"
       ];
 
       # Network modules for network boot if needed
@@ -57,22 +61,22 @@
   # Minimal system packages
   environment = {
     # Remove default packages for minimal footprint
-    defaultPackages = lib.mkForce [];
+    defaultPackages = lib.mkForce [ ];
 
     # Essential system packages only
     systemPackages = with pkgs; [
-      vim           # Editor
-      git           # Version control
-      htop          # System monitoring
-      tmux          # Terminal multiplexer
-      curl          # HTTP client
-      jq            # JSON processor
-      dig           # DNS utilities
-      netcat        # Network debugging
-      iptables      # Firewall management (required for k3s)
-      iproute2      # Network configuration
-      util-linux    # System utilities
-      coreutils     # Core utilities
+      vim # Editor
+      git # Version control
+      htop # System monitoring
+      tmux # Terminal multiplexer
+      curl # HTTP client
+      jq # JSON processor
+      dig # DNS utilities
+      netcat # Network debugging
+      iptables # Firewall management (required for k3s)
+      iproute2 # Network configuration
+      util-linux # System utilities
+      coreutils # Core utilities
     ];
 
     # Disable command-not-found for smaller footprint

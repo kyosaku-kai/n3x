@@ -8,7 +8,7 @@
 
   # System identification
   networking.hostName = "jetson-2";
-  networking.hostId = "abcd0002";  # Required for ZFS if used
+  networking.hostId = "abcd0002"; # Required for ZFS if used
 
   # Network configuration
   networking = {
@@ -115,7 +115,7 @@
     # jetson-stats
 
     # Container debugging
-    cri-tools  # Provides crictl
+    cri-tools # Provides crictl
     # ctr is provided by containerd
   ];
 
@@ -153,17 +153,17 @@
 
     # Allow K3s traffic
     allowedTCPPorts = [
-      6443   # K3s API
-      10250  # Kubelet
-      10255  # Kubelet read-only
-      9100   # Node exporter
-      2379   # etcd client
-      2380   # etcd peer
+      6443 # K3s API
+      10250 # Kubelet
+      10255 # Kubelet read-only
+      9100 # Node exporter
+      2379 # etcd client
+      2380 # etcd peer
     ];
 
     allowedUDPPorts = [
-      8472   # Flannel VXLAN
-      51820  # WireGuard (if used)
+      8472 # Flannel VXLAN
+      51820 # WireGuard (if used)
     ];
 
     # Allow pod network and cluster CIDR

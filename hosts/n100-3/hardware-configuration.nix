@@ -44,7 +44,7 @@
   powerManagement.cpuFreqGovernor = lib.mkDefault "ondemand";
 
   # Hardware video acceleration (if needed)
-  hardware.opengl = {
+  hardware.graphics = {
     enable = true;
     extraPackages = with pkgs; [
       intel-media-driver

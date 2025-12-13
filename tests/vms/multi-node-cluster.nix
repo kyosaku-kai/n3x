@@ -37,7 +37,8 @@ let
   k3sToken = "test-cluster-token-insecure";
   tokenFile = pkgs.writeText "k3s-token" k3sToken;
 
-in {
+in
+{
   # Test script that creates and verifies the cluster
   testScript = ''
     #!${pkgs.python3}/bin/python3
@@ -157,10 +158,10 @@ in {
       };
 
       networking.firewall.allowedTCPPorts = [
-        6443   # K3s API
-        2379   # etcd client
-        2380   # etcd peer
-        10250  # Kubelet
+        6443 # K3s API
+        2379 # etcd client
+        2380 # etcd peer
+        10250 # Kubelet
       ];
     };
 
@@ -192,7 +193,7 @@ in {
       };
 
       networking.firewall.allowedTCPPorts = [
-        10250  # Kubelet
+        10250 # Kubelet
       ];
     };
 
@@ -224,7 +225,7 @@ in {
       };
 
       networking.firewall.allowedTCPPorts = [
-        10250  # Kubelet
+        10250 # Kubelet
       ];
     };
   };

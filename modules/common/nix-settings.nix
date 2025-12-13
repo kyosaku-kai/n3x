@@ -119,11 +119,11 @@
   # System packages for Nix management
   environment.systemPackages = with pkgs; [
     nix-output-monitor # Better build output
-    nix-tree           # Explore nix store dependencies
-    nix-diff           # Diff nix derivations
-    nixpkgs-fmt        # Format nix files
-    nil                # Nix LSP for development
-    cachix             # Push to cachix binary caches
+    nix-tree # Explore nix store dependencies
+    nix-diff # Diff nix derivations
+    nixpkgs-fmt # Format nix files
+    nil # Nix LSP for development
+    cachix # Push to cachix binary caches
   ];
 
   # Nix daemon configuration
@@ -175,8 +175,8 @@
       Type = "oneshot";
       ExecStart = "${pkgs.nix}/bin/nix-store --optimise";
       CPUWeight = 20; # Very low priority
-      IOWeight = 20;  # Very low I/O priority
-      Nice = 19;      # Lowest priority nice level
+      IOWeight = 20; # Very low I/O priority
+      Nice = 19; # Lowest priority nice level
     };
   };
 

@@ -62,14 +62,14 @@
   # Firewall rules for k3s agent
   networking.firewall = {
     allowedTCPPorts = [
-      10250  # kubelet API
-      10255  # kubelet read-only (deprecated but sometimes needed)
+      10250 # kubelet API
+      10255 # kubelet read-only (deprecated but sometimes needed)
     ];
 
     allowedUDPPorts = [
-      8472   # Flannel VXLAN
-      51820  # Flannel WireGuard
-      51821  # Flannel WireGuard IPv6
+      8472 # Flannel VXLAN
+      51820 # Flannel WireGuard
+      51821 # Flannel WireGuard IPv6
     ];
 
     # Allow all traffic from cluster networks
@@ -100,14 +100,17 @@
   # Systemd service configuration for k3s agent
   systemd.services.k3s = {
     wants = [ "network-online.target" ];
-    after = [ "network-online.target" "sops-nix.service" ];  # Wait for secrets
+    after = [ "network-online.target" "sops-nix.service" ]; # Wait for secrets
 
     # Restart configuration
+    unitConfig = {
+      StartLimitIntervalSec = "10min";
+      StartLimitBurst = 6;
+    };
+
     serviceConfig = {
       Restart = lib.mkForce "always";
       RestartSec = "10s";
-      StartLimitInterval = "10min";
-      StartLimitBurst = 6;
 
       # Resource limits
       LimitNOFILE = 1048576;
@@ -117,7 +120,7 @@
       LimitMEMLOCK = "infinity";
 
       # CPU and Memory limits (adjust based on hardware)
-      CPUWeight = 100;  # Normal priority for agents
+      CPUWeight = 100; # Normal priority for agents
       MemoryMax = "6G"; # Limit memory usage (less than server)
       MemorySwapMax = "2G"; # Limit swap usage
     };
@@ -298,7 +301,7 @@
 
   # Additional packages for agent management
   environment.systemPackages = with pkgs; [
-    crictl  # Container runtime interface (CRI) CLI
+    crictl # Container runtime interface (CRI) CLI
   ];
 
   # Create required directories

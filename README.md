@@ -4,7 +4,7 @@
 
 ## Project Status
 
-**Current Phase**: Implementation complete, ready for VM testing and hardware deployment.
+**Current Phase**: Implementation complete + emulation testing framework integrated.
 
 All core modules, configurations, and testing framework have been implemented:
 - ✅ Complete flake structure with modular NixOS configurations
@@ -15,6 +15,7 @@ All core modules, configurations, and testing framework have been implemented:
 - ✅ Kyverno and Longhorn storage integration
 - ✅ Sops-nix secrets management
 - ✅ Comprehensive VM testing framework
+- ✅ **Emulation testing framework** (nested virtualization, network simulation)
 
 See CLAUDE.md for detailed implementation status and next steps.
 
@@ -459,6 +460,70 @@ For comprehensive Jetson Orin Nano documentation including kernel management, L4
 - Rollback: Boot into previous NixOS generation
 - Monitoring: Deploy Prometheus/Grafana via k3s manifests
 
+## Testing Hierarchy
+
+n3x uses a multi-layer testing approach to validate configurations before hardware deployment:
+
+| Layer | Tool | Speed | Use Case |
+|-------|------|-------|----------|
+| **1. Fast Automated** | `nixosTest` | Seconds | Unit tests, single-node validation, CI/CD |
+| **2. Emulation** | Nested virtualization | Minutes | Multi-node clusters, network simulation, integration |
+| **3. Manual VMs** | `tests/vms/` | Minutes | Interactive debugging, exploration |
+| **4. Bare-metal** | Physical hardware | Hours | Final production validation |
+
+### Fast Automated Tests (nixosTest)
+
+Quick, reproducible tests for CI/CD pipelines:
+
+```bash
+# Run all checks
+nix flake check
+
+# Run specific test
+nix build .#checks.x86_64-linux.k3s-single-server
+
+# Interactive debugging
+nix build .#checks.x86_64-linux.k3s-single-server.driverInteractive
+./result/bin/nixos-test-driver
+```
+
+### Emulation Testing (Nested Virtualization)
+
+For complex multi-node scenarios, network simulation, and ARM64 validation:
+
+```bash
+# Build and run the emulation environment
+nix build .#packages.x86_64-linux.emulation-vm
+./result/bin/run-emulator-vm-vm
+
+# Inside the outer VM:
+virsh list --all                           # List inner VMs
+virsh start n100-1                         # Start a VM
+virsh console n100-1                       # Access VM console
+/etc/tc-simulate-constraints.sh lossy      # Apply network constraints
+```
+
+**Features**:
+- Production n3x configs running as libvirt VMs in nested virtualization
+- OVS switch fabric with QoS and traffic control profiles
+- Network constraint simulation (latency, packet loss, bandwidth limits)
+- ARM64 emulation via QEMU TCG for Jetson config validation
+
+See [tests/emulation/README.md](tests/emulation/README.md) for comprehensive documentation.
+
+### Manual VM Testing
+
+For interactive debugging and exploration:
+
+```bash
+# Build and run VMs manually
+./tests/run-vm-tests.sh interactive
+
+# Or directly
+nix build .#nixosConfigurations.vm-k3s-server.config.system.build.vm
+./result/bin/run-vm-k3s-server-vm
+```
+
 ## Common Commands Reference
 
 ### Deployment Commands
@@ -559,12 +624,18 @@ With implementation complete, the recommended path to deployment:
      - `k3s-multi-node`: 3-node cluster (1 server + 2 agents)
    - **Networking tests:**
      - `network-bonding`: Network bonding configuration
-     - `k3s-networking`: **Pod-to-pod communication, DNS, service discovery** ⭐ NEW
+     - `k3s-networking`: Pod-to-pod communication, DNS, service discovery
    - **Storage stack tests:**
      - `longhorn-prerequisites`: Longhorn readiness (kernel modules, iSCSI)
-     - `kyverno-deployment`: **Kyverno install + PATH patching validation** ⭐ NEW
+     - `kyverno-deployment`: Kyverno install + PATH patching validation
    - Manual testing: `./tests/run-vm-tests.sh`
    - Individual test: `nix build .#checks.x86_64-linux.TEST_NAME`
+
+1b. **Emulation Testing** (optional, see tests/emulation/README.md)
+   - For complex multi-node integration scenarios
+   - Network resilience testing with traffic control
+   - ARM64 config validation without Jetson hardware
+   - Build: `nix build .#packages.x86_64-linux.emulation-vm`
 
 2. **Secrets Configuration** (see docs/SECRETS-SETUP.md)
    - Generate age keys for admin and all hosts
@@ -596,4 +667,6 @@ With implementation complete, the recommended path to deployment:
 - **[Secrets Management Tutorial](docs/SECRETS-SETUP.md)** - Detailed secrets setup walkthrough
 - **[Secrets Quick Reference](secrets/README.md)** - Practical guide for deployed systems
 - **[VM Testing Guide](tests/README.md)** - Testing framework documentation
+- **[Emulation Testing Guide](tests/emulation/README.md)** - Nested virtualization and network simulation
 - **[Kubernetes Manifests](manifests/README.md)** - Kyverno and Longhorn deployment procedures
+- **[Integration Plan](VSIM-INTEGRATION-PLAN.md)** - vsim integration roadmap and session tracking

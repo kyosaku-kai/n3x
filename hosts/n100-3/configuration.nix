@@ -83,7 +83,7 @@
 
     # Flannel VXLAN
     allowedUDPPorts = [
-      8472  # Flannel VXLAN
+      8472 # Flannel VXLAN
       51820 # WireGuard (if using flannel-backend=wireguard-native)
       51821 # WireGuard (additional)
     ];

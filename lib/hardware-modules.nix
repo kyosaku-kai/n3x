@@ -3,11 +3,11 @@
 
 {
   # Detect hardware type based on system information
-  detectHardware = {
-    cpuinfo ? "/proc/cpuinfo",
-    dmiinfo ? "/sys/class/dmi/id/product_name",
-    ...
-  }:
+  detectHardware =
+    { cpuinfo ? "/proc/cpuinfo"
+    , dmiinfo ? "/sys/class/dmi/id/product_name"
+    , ...
+    }:
     let
       # Read CPU information
       cpuModel = lib.optionalString (builtins.pathExists cpuinfo)
@@ -19,20 +19,20 @@
 
       # Detect if running on Intel N100
       isN100 = lib.strings.hasInfix "N100" cpuModel ||
-               lib.strings.hasInfix "N95" cpuModel ||
-               lib.strings.hasInfix "N200" cpuModel ||
-               lib.strings.hasInfix "N305" cpuModel;
+        lib.strings.hasInfix "N95" cpuModel ||
+        lib.strings.hasInfix "N200" cpuModel ||
+        lib.strings.hasInfix "N305" cpuModel;
 
       # Detect if running on Jetson
       isJetson = lib.strings.hasInfix "NVIDIA Jetson" productName ||
-                 lib.strings.hasInfix "Orin" productName ||
-                 builtins.pathExists "/proc/device-tree/compatible";
+        lib.strings.hasInfix "Orin" productName ||
+        builtins.pathExists "/proc/device-tree/compatible";
 
       # Detect virtualization
       isVM = lib.strings.hasInfix "QEMU" productName ||
-             lib.strings.hasInfix "VirtualBox" productName ||
-             lib.strings.hasInfix "VMware" productName ||
-             lib.strings.hasInfix "KVM" productName;
+        lib.strings.hasInfix "VirtualBox" productName ||
+        lib.strings.hasInfix "VMware" productName ||
+        lib.strings.hasInfix "KVM" productName;
     in
     {
       inherit isN100 isJetson isVM;
@@ -59,10 +59,10 @@
 
     # Intel-specific kernel parameters
     boot.kernelParams = [
-      "intel_idle.max_cstate=3"  # Limit C-states for lower latency
+      "intel_idle.max_cstate=3" # Limit C-states for lower latency
       "processor.max_cstate=3"
-      "intel_pstate=active"       # Use Intel P-state driver
-      "mitigations=off"          # Disable mitigations for performance (evaluate security needs)
+      "intel_pstate=active" # Use Intel P-state driver
+      "mitigations=off" # Disable mitigations for performance (evaluate security needs)
     ];
 
     # Enable Intel microcode updates
@@ -112,7 +112,7 @@
     # NVIDIA GPU support
     hardware.nvidia = {
       modesetting.enable = true;
-      powerManagement.enable = false;  # Not supported on Jetson
+      powerManagement.enable = false; # Not supported on Jetson
       open = false;
       package = pkgs.nvidia-jetpack;
     };
@@ -157,14 +157,15 @@
   };
 
   # Generate hardware configuration based on profile
-  mkHardwareConfig = {
-    profile, # "n100", "jetson", "vm", or "generic"
-    enableGpu ? true,
-    enablePowerManagement ? true,
-    kernelModules ? [],
-    kernelParams ? [],
-    ...
-  }@args:
+  mkHardwareConfig =
+    { profile
+    , # "n100", "jetson", "vm", or "generic"
+      enableGpu ? true
+    , enablePowerManagement ? true
+    , kernelModules ? [ ]
+    , kernelParams ? [ ]
+    , ...
+    }@args:
     let
       baseConfig = {
         boot.initrd.kernelModules = kernelModules;
@@ -175,8 +176,8 @@
         n100 = n100Optimizations;
         jetson = jetsonOptimizations;
         vm = vmOptimizations;
-        generic = {};
-      }.${profile} or {};
+        generic = { };
+      }.${profile} or { };
     in
     lib.mkMerge [
       baseConfig
@@ -192,20 +193,23 @@
     ];
 
   # Network interface naming helper
-  predictableInterfaceNames = {
-    enable ? true,
-    customNames ? {}, # e.g., { "00:11:22:33:44:55" = "lan0"; }
-    ...
-  }:
+  predictableInterfaceNames =
+    { enable ? true
+    , customNames ? { }
+    , # e.g., { "00:11:22:33:44:55" = "lan0"; }
+      ...
+    }:
     if enable then {
       # Use predictable network interface names
       networking.usePredictableInterfaceNames = true;
 
       # Custom udev rules for specific MAC addresses
       services.udev.extraRules = lib.concatStringsSep "\n" (
-        lib.mapAttrsToList (mac: name:
-          ''SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="${mac}", NAME="${name}"''
-        ) customNames
+        lib.mapAttrsToList
+          (mac: name:
+            ''SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="${mac}", NAME="${name}"''
+          )
+          customNames
       );
     } else {
       # Use traditional interface names (eth0, eth1, etc.)
@@ -214,15 +218,15 @@
     };
 
   # Storage device helper for different hardware
-  storageDevice = {
-    profile,
-    preferNvme ? true,
-    ...
-  }:
-    {
-      n100 = if preferNvme then "/dev/nvme0n1" else "/dev/sda";
-      jetson = "/dev/mmcblk0";  # eMMC or SD card
-      vm = "/dev/vda";           # VirtIO disk
-      generic = "/dev/sda";      # Fallback to SATA
-    }.${profile} or "/dev/sda";
+  storageDevice =
+    { profile
+    , preferNvme ? true
+    , ...
+    }:
+      {
+        n100 = if preferNvme then "/dev/nvme0n1" else "/dev/sda";
+        jetson = "/dev/mmcblk0"; # eMMC or SD card
+        vm = "/dev/vda"; # VirtIO disk
+        generic = "/dev/sda"; # Fallback to SATA
+      }.${profile} or "/dev/sda";
 }

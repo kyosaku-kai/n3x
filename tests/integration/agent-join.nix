@@ -21,9 +21,9 @@ pkgs.testers.runNixOSTest {
 
       # VM resource allocation for server
       virtualisation = {
-        memorySize = 4096;  # 4GB RAM for K3s control plane
+        memorySize = 4096; # 4GB RAM for K3s control plane
         cores = 2;
-        diskSize = 20480;   # 20GB disk
+        diskSize = 20480; # 20GB disk
       };
 
       # K3s server configuration
@@ -50,13 +50,13 @@ pkgs.testers.runNixOSTest {
         firewall = {
           enable = true;
           allowedTCPPorts = [
-            6443   # Kubernetes API server
-            10250  # Kubelet API
-            2379   # etcd client
-            2380   # etcd peer
+            6443 # Kubernetes API server
+            10250 # Kubelet API
+            2379 # etcd client
+            2380 # etcd peer
           ];
           allowedUDPPorts = [
-            8472   # Flannel VXLAN
+            8472 # Flannel VXLAN
           ];
         };
         interfaces.eth1.ipv4.addresses = [{
@@ -81,9 +81,9 @@ pkgs.testers.runNixOSTest {
 
       # VM resource allocation for agent
       virtualisation = {
-        memorySize = 2048;  # 2GB RAM for agent
+        memorySize = 2048; # 2GB RAM for agent
         cores = 2;
-        diskSize = 20480;   # 20GB disk
+        diskSize = 20480; # 20GB disk
       };
 
       # K3s agent configuration
@@ -107,10 +107,10 @@ pkgs.testers.runNixOSTest {
         firewall = {
           enable = true;
           allowedTCPPorts = [
-            10250  # Kubelet API
+            10250 # Kubelet API
           ];
           allowedUDPPorts = [
-            8472   # Flannel VXLAN
+            8472 # Flannel VXLAN
           ];
         };
         interfaces.eth1.ipv4.addresses = [{

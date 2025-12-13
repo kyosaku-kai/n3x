@@ -8,16 +8,16 @@
     k3s
     kubectl
     kubernetes-helm
-    nfs-utils       # For NFS storage if needed
-    openiscsi       # For iSCSI (Longhorn)
-    cryptsetup      # For encrypted volumes
-    util-linux      # For mount and other utilities
-    cifs-utils      # For SMB/CIFS if needed
-    jq              # For JSON processing in scripts
-    yq              # For YAML processing
-    htop            # For monitoring
-    iotop           # For I/O monitoring
-    iftop           # For network monitoring
+    nfs-utils # For NFS storage if needed
+    openiscsi # For iSCSI (Longhorn)
+    cryptsetup # For encrypted volumes
+    util-linux # For mount and other utilities
+    cifs-utils # For SMB/CIFS if needed
+    jq # For JSON processing in scripts
+    yq # For YAML processing
+    htop # For monitoring
+    iotop # For I/O monitoring
+    iftop # For network monitoring
   ];
 
   # Required kernel modules for k3s and container storage
@@ -39,7 +39,7 @@
     # Storage
     "dm_thin_pool"
     "dm_crypt"
-    "rbd"           # Ceph RBD if needed
+    "rbd" # Ceph RBD if needed
 
     # iSCSI for Longhorn
     "iscsi_tcp"
@@ -79,7 +79,7 @@
 
     # NFS client support
     nfs.server.enable = false; # Disable NFS server by default
-    rpcbind.enable = true;     # Required for NFS client
+    rpcbind.enable = true; # Required for NFS client
   };
 
   # Create required directories
@@ -119,7 +119,7 @@
   };
 
   # Bash completion for kubectl and helm
-  programs.bash.enableCompletion = true;
+  programs.bash.completion.enable = true;
   environment.etc."bash_completion.d/kubectl" = {
     text = ''
       source <(${pkgs.kubectl}/bin/kubectl completion bash)

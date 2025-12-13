@@ -104,20 +104,22 @@ in
       };
 
       # Bind physical interfaces to bond
-      networks = listToAttrs (map (iface: {
-        name = "10-${iface}";
-        value = {
-          matchConfig.Name = iface;
-          networkConfig = {
-            Bond = cfg.bondName;
+      networks = listToAttrs (map
+        (iface: {
+          name = "10-${iface}";
+          value = {
+            matchConfig.Name = iface;
+            networkConfig = {
+              Bond = cfg.bondName;
 
-            # Disable DHCP on slave interfaces
-            DHCP = "no";
-            IPv6AcceptRA = false;
-            LinkLocalAddressing = "no";
+              # Disable DHCP on slave interfaces
+              DHCP = "no";
+              IPv6AcceptRA = false;
+              LinkLocalAddressing = "no";
+            };
           };
-        };
-      }) cfg.interfaces);
+        })
+        cfg.interfaces);
     };
 
     # Disable NetworkManager if it's enabled (conflicts with systemd-networkd)
@@ -127,12 +129,14 @@ in
     networking.useNetworkd = true;
 
     # Ensure interfaces used for bonding don't get configured elsewhere
-    networking.interfaces = listToAttrs (map (iface: {
-      name = iface;
-      value = {
-        useDHCP = mkForce false;
-      };
-    }) cfg.interfaces);
+    networking.interfaces = listToAttrs (map
+      (iface: {
+        name = iface;
+        value = {
+          useDHCP = mkForce false;
+        };
+      })
+      cfg.interfaces);
 
     # Add monitoring and debugging tools
     environment.systemPackages = with pkgs; [

@@ -11,32 +11,32 @@
     # Intel-specific kernel modules
     initrd.availableKernelModules = [
       # Storage
-      "xhci_pci"    # USB 3.0
-      "ahci"        # SATA
-      "nvme"        # NVMe SSD
-      "usbhid"      # USB HID devices
-      "sd_mod"      # SCSI disk
-      "sr_mod"      # SCSI CDROM
+      "xhci_pci" # USB 3.0
+      "ahci" # SATA
+      "nvme" # NVMe SSD
+      "usbhid" # USB HID devices
+      "sd_mod" # SCSI disk
+      "sr_mod" # SCSI CDROM
 
       # Intel specific
       "intel_agp"
-      "i915"        # Intel graphics (if using)
+      "i915" # Intel graphics (if using)
 
       # Network (for dual NIC models)
-      "igc"         # Intel 2.5Gb Ethernet
-      "e1000e"      # Intel Gigabit Ethernet
-      "r8169"       # Realtek Ethernet (common on mini PCs)
+      "igc" # Intel 2.5Gb Ethernet
+      "e1000e" # Intel Gigabit Ethernet
+      "r8169" # Realtek Ethernet (common on mini PCs)
     ];
 
     kernelModules = [
       # CPU
-      "kvm-intel"           # Intel virtualization
-      "intel_rapl"          # Power monitoring
-      "intel_powerclamp"    # Power management
+      "kvm-intel" # Intel virtualization
+      "intel_rapl" # Power monitoring
+      "intel_powerclamp" # Power management
 
       # Performance
-      "coretemp"            # Temperature monitoring
-      "intel_pstate"        # CPU frequency scaling
+      "coretemp" # Temperature monitoring
+      "intel_pstate" # CPU frequency scaling
 
       # MSR module for CPU features
       "msr"
@@ -51,19 +51,19 @@
     # Kernel parameters optimized for N100
     kernelParams = [
       # Intel specific optimizations
-      "intel_pstate=active"                 # Enable Intel P-State driver
-      "intel_idle.max_cstate=1"             # Limit C-states for lower latency
-      "processor.max_cstate=1"              # Consistent performance
+      "intel_pstate=active" # Enable Intel P-State driver
+      "intel_idle.max_cstate=1" # Limit C-states for lower latency
+      "processor.max_cstate=1" # Consistent performance
 
       # Disable mitigations for better performance (acceptable in edge environment)
       "mitigations=off"
 
       # IOMMU for better device isolation (if supported)
       "intel_iommu=on"
-      "iommu=pt"                           # Pass-through mode for better performance
+      "iommu=pt" # Pass-through mode for better performance
 
       # Power management
-      "pcie_aspm=off"                      # Disable PCIe power management for stability
+      "pcie_aspm=off" # Disable PCIe power management for stability
 
       # CPU frequency governor
       "cpufreq.default_governor=performance"
@@ -73,7 +73,7 @@
       "nmi_watchdog=0"
 
       # Network optimizations
-      "net.ifnames=0"                      # Use traditional interface names (eth0, eth1)
+      "net.ifnames=0" # Use traditional interface names (eth0, eth1)
 
       # Serial console (useful for debugging)
       "console=ttyS0,115200n8"
@@ -124,7 +124,7 @@
     bluetooth.enable = false;
 
     # Sound (not needed on headless servers)
-    pulseaudio.enable = false;
+    # Note: pulseaudio is a service, not a hardware setting
   };
 
   # Power management optimized for always-on operation
@@ -218,14 +218,14 @@
 
   # Intel-specific packages
   environment.systemPackages = with pkgs; [
-    intel-gpu-tools     # Intel GPU debugging tools
-    powertop           # Power consumption analysis
-    cpufrequtils       # CPU frequency utilities
-    lm_sensors         # Hardware sensors
-    smartmontools      # Disk health monitoring
-    nvme-cli           # NVMe management
-    pciutils           # PCI utilities
-    usbutils           # USB utilities
+    intel-gpu-tools # Intel GPU debugging tools
+    powertop # Power consumption analysis
+    cpufrequtils # CPU frequency utilities
+    lm_sensors # Hardware sensors
+    smartmontools # Disk health monitoring
+    nvme-cli # NVMe management
+    pciutils # PCI utilities
+    usbutils # USB utilities
   ];
 
   # Hardware monitoring
@@ -252,6 +252,7 @@
 
   # Disable unnecessary features for mini PCs
   services.xserver.enable = false;
+  services.pulseaudio.enable = false;
 
   # Enable serial console
   systemd.services."serial-getty@ttyS0" = {

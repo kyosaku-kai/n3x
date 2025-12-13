@@ -20,20 +20,20 @@
     # Server configuration
     extraFlags = toString [
       # Cluster configuration
-      "--cluster-init"                        # Initialize new cluster (first server only)
-      "--disable-cloud-controller"            # We're not in a cloud
-      "--disable-network-policy"               # Use Kyverno instead
+      "--cluster-init" # Initialize new cluster (first server only)
+      "--disable-cloud-controller" # We're not in a cloud
+      "--disable-network-policy" # Use Kyverno instead
 
       # Embedded components to disable (we'll deploy better alternatives)
-      "--disable=traefik"                      # Will use nginx-ingress or similar
-      "--disable=servicelb"                    # Will use MetalLB
-      "--disable=local-storage"                # Will use Longhorn
+      "--disable=traefik" # Will use nginx-ingress or similar
+      "--disable=servicelb" # Will use MetalLB
+      "--disable=local-storage" # Will use Longhorn
 
       # Etcd configuration
       "--etcd-arg=quota-backend-bytes=8589934592" # 8GB etcd quota
-      "--etcd-arg=auto-compaction-retention=1h"   # Auto-compact every hour
-      "--etcd-arg=heartbeat-interval=500"         # 500ms heartbeat
-      "--etcd-arg=election-timeout=5000"          # 5s election timeout
+      "--etcd-arg=auto-compaction-retention=1h" # Auto-compact every hour
+      "--etcd-arg=heartbeat-interval=500" # 500ms heartbeat
+      "--etcd-arg=election-timeout=5000" # 5s election timeout
 
       # API server configuration
       "--kube-apiserver-arg=max-requests-inflight=800"
@@ -61,12 +61,12 @@
       "--kubelet-arg=kube-reserved=cpu=500m,memory=1Gi"
 
       # Network configuration (will be overridden by per-host config)
-      "--cluster-cidr=10.42.0.0/16"           # Pod network
-      "--service-cidr=10.43.0.0/16"           # Service network
-      "--cluster-dns=10.43.0.10"              # CoreDNS service IP
+      "--cluster-cidr=10.42.0.0/16" # Pod network
+      "--service-cidr=10.43.0.0/16" # Service network
+      "--cluster-dns=10.43.0.10" # CoreDNS service IP
 
       # TLS configuration
-      "--tls-san=k3s.local"                    # Add cluster domain to cert
+      "--tls-san=k3s.local" # Add cluster domain to cert
 
       # Data directory
       "--data-dir=/var/lib/k3s"
@@ -93,9 +93,9 @@
   # Firewall rules for k3s server
   networking.firewall = {
     allowedTCPPorts = [
-      6443  # Kubernetes API server
-      2379  # etcd client
-      2380  # etcd peer
+      6443 # Kubernetes API server
+      2379 # etcd client
+      2380 # etcd peer
       10250 # kubelet API
       10251 # kube-scheduler
       10252 # kube-controller-manager
@@ -104,7 +104,7 @@
     ];
 
     allowedUDPPorts = [
-      8472  # Flannel VXLAN
+      8472 # Flannel VXLAN
       51820 # Flannel WireGuard
       51821 # Flannel WireGuard IPv6
     ];
@@ -133,14 +133,17 @@
   # Systemd service configuration for k3s server
   systemd.services.k3s = {
     wants = [ "network-online.target" ];
-    after = [ "network-online.target" "sops-nix.service" ];  # Wait for secrets
+    after = [ "network-online.target" "sops-nix.service" ]; # Wait for secrets
 
     # Restart configuration
+    unitConfig = {
+      StartLimitIntervalSec = "10min";
+      StartLimitBurst = 6;
+    };
+
     serviceConfig = {
       Restart = lib.mkForce "always";
       RestartSec = "10s";
-      StartLimitInterval = "10min";
-      StartLimitBurst = 6;
 
       # Resource limits
       LimitNOFILE = 1048576;
@@ -327,8 +330,8 @@
 
   # Additional packages for server management
   environment.systemPackages = with pkgs; [
-    etcd            # etcd client for management
-    sqlite          # For viewing k3s database
+    etcd # etcd client for management
+    sqlite # For viewing k3s database
   ];
 
   # Create kubeconfig directory

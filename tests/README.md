@@ -1,358 +1,300 @@
-# n3x VM Testing
+# n3x Testing Framework
 
-This directory contains VM configurations and test scripts for validating the n3x cluster setup before deploying to physical hardware.
+This directory contains the testing infrastructure for validating the n3x k3s cluster configuration.
 
 ## Overview
 
-The VM testing framework allows you to:
-- Test individual node configurations (server/agent)
-- Validate multi-node cluster deployment
-- Test networking, bonding, and K3s configurations
-- Verify Longhorn storage prerequisites
-- Debug issues in a safe, isolated environment
+The testing framework uses NixOS `nixosTest` for automated integration tests. Each test boots real VMs, configures services, and verifies functionality automatically.
 
-## Automated Integration Tests
-
-The repository includes comprehensive automated tests using the NixOS `nixosTest` framework. These tests boot VMs, configure services, and verify functionality automatically.
-
-### Running Tests
-
-```bash
-# Run all tests (takes a while)
-nix flake check
-
-# Run a specific test
-nix build .#checks.x86_64-linux.k3s-single-server
-nix build .#checks.x86_64-linux.k3s-agent-join
-nix build .#checks.x86_64-linux.k3s-multi-node
-nix build .#checks.x86_64-linux.network-bonding
-nix build .#checks.x86_64-linux.longhorn-prerequisites
-
-# Interactive debugging (opens Python REPL for test control)
-nix build .#checks.x86_64-linux.k3s-single-server.driverInteractive
-./result/bin/nixos-test-driver
-```
-
-### Available Tests
-
-| Test Name | Description | What It Validates | Priority |
-|-----------|-------------|-------------------|----------|
-| **Core K3s Functionality** ||||
-| `k3s-single-server` | Single control plane | K3s server initialization, API availability, system pods, workload deployment | HIGH |
-| `k3s-agent-join` | 2-node cluster | Agent registration, cluster joining, workload scheduling | HIGH |
-| `k3s-multi-node` | 3-node cluster | Multi-node formation, workload distribution across nodes | HIGH |
-| **Networking Validation** ||||
-| `network-bonding` | Network bonding | Bond interface creation, slave configuration, active-backup mode | MEDIUM |
-| `k3s-networking` | **Cross-node networking** ⭐ | **Pod-to-pod communication, Flannel overlay, DNS resolution, service discovery** | **CRITICAL** |
-| **Storage Stack** ||||
-| `longhorn-prerequisites` | Storage readiness | Kernel modules, iSCSI, filesystem support, required utilities | HIGH |
-| `kyverno-deployment` | **NixOS compatibility** ⭐ | **Kyverno Helm install, admission controller, PATH mutation policy for Longhorn** | **CRITICAL** |
-
-⭐ = Critical tests added after initial implementation - validate "the right things"
-
-**See [TEST-COVERAGE.md](TEST-COVERAGE.md) for detailed analysis of what each test validates and why it matters.**
-
-## Directory Structure
-
-```
-tests/
-├── vms/
-│   ├── default.nix           # Base VM configuration
-│   ├── k3s-server-vm.nix     # K3s control plane VM
-│   ├── k3s-agent-vm.nix      # K3s worker node VM
-│   └── multi-node-cluster.nix # Multi-node cluster test
-├── run-vm-tests.sh           # Test runner script
-└── README.md                 # This file
-```
+**Key Design Decision**: Tests use nixosTest multi-node approach where each "node" IS a k3s cluster node - no nested virtualization required. This works on all platforms (WSL2, Darwin, Cloud).
 
 ## Quick Start
 
-### Running All Tests
+```bash
+# Run all flake checks (includes formatting and all tests)
+nix flake check
+
+# Run a specific k3s test
+nix build '.#checks.x86_64-linux.k3s-cluster-formation' --print-build-logs
+nix build '.#checks.x86_64-linux.k3s-storage' --print-build-logs
+nix build '.#checks.x86_64-linux.k3s-network' --print-build-logs
+nix build '.#checks.x86_64-linux.k3s-network-constraints' --print-build-logs
+
+# Interactive debugging (opens Python REPL for test control)
+nix build '.#checks.x86_64-linux.k3s-cluster-formation.driverInteractive'
+./result/bin/nixos-test-driver
+```
+
+## Available Tests
+
+### Primary Tests (Phase 4A - nixosTest Multi-Node)
+
+These tests use nixosTest nodes directly as k3s cluster nodes. They work on all platforms.
+
+| Test | Description | Run Command |
+|------|-------------|-------------|
+| `k3s-cluster-formation` | 2 servers + 1 agent cluster formation, node joining, workload deployment | `nix build '.#checks.x86_64-linux.k3s-cluster-formation'` |
+| `k3s-storage` | Storage prerequisites, local-path PVC provisioning, StatefulSet volumes | `nix build '.#checks.x86_64-linux.k3s-storage'` |
+| `k3s-network` | CoreDNS, flannel VXLAN, service discovery, pod network connectivity | `nix build '.#checks.x86_64-linux.k3s-network'` |
+| `k3s-network-constraints` | Cluster behavior under degraded network (latency, loss, bandwidth limits) | `nix build '.#checks.x86_64-linux.k3s-network-constraints'` |
+
+### Emulation Tests (vsim - Nested Virtualization)
+
+These tests use nested virtualization for complex scenarios. They require native Linux with KVM.
+
+| Test | Description | Run Command |
+|------|-------------|-------------|
+| `emulation-vm-boots` | Outer VM with libvirtd, OVS, dnsmasq, inner VM definitions | `nix build '.#checks.x86_64-linux.emulation-vm-boots'` |
+| `network-resilience` | TC profile infrastructure for network constraint scenarios | `nix build '.#checks.x86_64-linux.network-resilience'` |
+| `vsim-k3s-cluster` | Full cluster formation with pre-installed inner VM images | `nix build '.#checks.x86_64-linux.vsim-k3s-cluster'` |
+
+### Validation Checks
+
+| Check | Description | Run Command |
+|-------|-------------|-------------|
+| `nixpkgs-fmt` | Nix code formatting validation | `nix build '.#checks.x86_64-linux.nixpkgs-fmt'` |
+| `build-all` | Validates all configurations build | `nix build '.#checks.x86_64-linux.build-all'` |
+
+## Platform Compatibility
+
+### Platform Support Matrix
+
+| Platform | nixosTest Multi-Node | vsim (Nested Virt) | Notes |
+|----------|---------------------|-------------------|-------|
+| Native Linux | YES | YES | Full support |
+| WSL2 (Windows 11) | YES | NO | Hyper-V limits to 2 nesting levels |
+| Darwin (macOS) | YES* | NO | Requires Lima/UTM VM host |
+| AWS/Cloud | YES | Varies | Requires KVM-enabled instances |
+
+*Requires running inside a Linux VM (Lima or UTM)
+
+### WSL2 (Windows 11)
+
+WSL2 works with nixosTest multi-node tests out of the box:
 
 ```bash
-# From the n3x root directory
-./tests/run-vm-tests.sh
+# Verify KVM is available
+ls -la /dev/kvm
+
+# Run tests
+nix build '.#checks.x86_64-linux.k3s-cluster-formation' --print-build-logs
 ```
 
-### Running Specific Tests
+**Limitation**: Triple-nested virtualization (vsim tests) does NOT work on WSL2 due to Hyper-V Enlightened VMCS limiting virtualization to 2 levels. See `docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md`.
+
+### Darwin (macOS arm64/x86_64)
+
+macOS requires a Linux VM to run nixosTest. Options:
+
+#### Option 1: Lima (Recommended for arm64)
 
 ```bash
-# Test only the K3s server VM
-./tests/run-vm-tests.sh server
+# Install Lima
+brew install lima
 
-# Test only the K3s agent VM
-./tests/run-vm-tests.sh agent
+# Create NixOS VM with KVM support
+lima create --arch=aarch64 --vm-type=vz nixos.yaml
 
-# Test multi-node cluster
-./tests/run-vm-tests.sh cluster
+# Shell into Lima VM
+lima
+
+# Inside Lima VM, run tests
+cd /path/to/n3x
+nix build '.#checks.x86_64-linux.k3s-cluster-formation' --print-build-logs
 ```
 
-### Interactive VM Sessions
+Example `nixos.yaml` for Lima:
+```yaml
+arch: aarch64
+vmType: vz
+rosetta:
+  enabled: true
+images:
+- location: "https://hydra.nixos.org/build/XXXXX/download/1/nixos-minimal-YY.YY-aarch64-linux.iso"
+  arch: aarch64
+mounts:
+- location: "~"
+  writable: true
+```
 
-Start an interactive VM for manual testing:
+#### Option 2: UTM
+
+1. Download NixOS ARM64 ISO from hydra.nixos.org
+2. Create new VM in UTM with virtualization enabled
+3. Install NixOS, enable nix flakes
+4. Clone n3x and run tests
+
+#### Cross-Compilation Note
+
+For arm64 Macs testing x86_64 configurations:
+- Native arm64 tests work directly
+- x86_64 tests require Rosetta 2 or cross-compilation setup
+- Consider using `aarch64-linux` checks when available
+
+### AWS/Cloud
+
+For cloud CI/CD, use instances with KVM support:
+
+#### AWS
+- Use `.metal` instances (e.g., `c5.metal`, `m5.metal`) for bare-metal KVM
+- Or use Nitro instances with `/dev/kvm` access (e.g., `c5.xlarge` with nested virt enabled)
+
+#### NixOS AMI Setup
 
 ```bash
-./tests/run-vm-tests.sh interactive
+# Launch NixOS AMI (community AMIs available)
+# Or build custom AMI with:
+nix build '.#packages.x86_64-linux.amazon-image'
+
+# After launch, ensure KVM module is loaded
+sudo modprobe kvm_intel  # or kvm_amd
+ls -la /dev/kvm
 ```
 
-## Building VMs Manually
-
-### Build a Single VM
-
-```bash
-# Build the K3s server VM
-nix build .#nixosConfigurations.vm-k3s-server.config.system.build.vm
-
-# Run the VM
-./result/bin/run-vm-k3s-server-vm
-```
-
-### Build and Run with Options
-
-```bash
-# Build with specific memory and CPU settings
-nix build .#nixosConfigurations.vm-k3s-server.config.system.build.vm \
-  --arg memorySize 8192 \
-  --arg cores 4
-
-# Run with QEMU options
-QEMU_OPTS="-m 8192 -smp 4" ./result/bin/run-vm-k3s-server-vm
-```
-
-## VM Configurations
-
-### Base VM (`default.nix`)
-- 4GB RAM, 2 CPU cores
-- 20GB disk
-- SSH enabled (root/test)
-- Port forwarding for K3s services
-- Minimal NixOS configuration
-
-### K3s Server VM (`k3s-server-vm.nix`)
-- 4GB RAM, 2 CPU cores
-- 30GB disk
-- K3s control plane configuration
-- etcd for cluster state
-- Automatic verification script
-
-### K3s Agent VM (`k3s-agent-vm.nix`)
-- 2GB RAM, 2 CPU cores
-- 20GB disk
-- K3s worker node configuration
-- Container runtime configured
-- Storage drivers enabled
-
-### Multi-node Cluster (`multi-node-cluster.nix`)
-- 1 control plane node (4GB RAM)
-- 2 worker nodes (2GB RAM each)
-- Internal network for cluster communication
-- Automated test script
-
-## Accessing VMs
-
-### SSH Access
-
-All VMs have SSH enabled with default credentials:
-- Username: `root`
-- Password: `test`
-
-Connect to a running VM:
-```bash
-# Default SSH port is forwarded to 2222
-ssh -p 2222 root@localhost
-```
-
-### K3s API Access
-
-The K3s API is forwarded to the host:
-```bash
-# Access K3s API from host
-kubectl --kubeconfig=/path/to/kubeconfig get nodes
-```
-
-### Serial Console
-
-For debugging boot issues:
-```bash
-# Start VM with serial console
-./result/bin/run-vm-k3s-server-vm -nographic
-```
-
-## Testing Scenarios
-
-### 1. Basic Functionality Test
-
-```bash
-# Build and start server VM
-nix build .#nixosConfigurations.vm-k3s-server.config.system.build.vm
-./result/bin/run-vm-k3s-server-vm &
-
-# Wait for VM to boot
-sleep 60
-
-# SSH into VM and check K3s
-ssh -p 2222 root@localhost "k3s kubectl get nodes"
-```
-
-### 2. Cluster Formation Test
-
-```bash
-# Start control plane
-nix build .#nixosConfigurations.vm-control-plane.config.system.build.vm
-./result/bin/run-vm-control-plane-vm &
-
-# Start workers
-nix build .#nixosConfigurations.vm-worker-1.config.system.build.vm
-./result/bin/run-vm-worker-1-vm &
-
-nix build .#nixosConfigurations.vm-worker-2.config.system.build.vm
-./result/bin/run-vm-worker-2-vm &
-
-# Check cluster status
-ssh -p 2222 root@control-plane "k3s kubectl get nodes"
-```
-
-### 3. Storage Test
-
-```bash
-# Deploy Longhorn in VM
-ssh -p 2222 root@localhost <<EOF
-k3s kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/master/deploy/longhorn.yaml
-k3s kubectl get pods -n longhorn-system
-EOF
-```
-
-### 4. Network Policy Test
-
-```bash
-# Test network policies and Multus CNI
-ssh -p 2222 root@localhost <<EOF
-# Apply network policy
-k3s kubectl apply -f /path/to/network-policy.yaml
-
-# Test connectivity
-k3s kubectl run test --image=busybox --rm -it -- ping google.com
-EOF
-```
-
-## Troubleshooting
-
-### VM Won't Start
-
-Check QEMU/KVM requirements:
-```bash
-# Check KVM support
-lsmod | grep kvm
-
-# Check QEMU installation
-which qemu-system-x86_64
-```
-
-### Out of Memory
-
-Adjust VM memory in the configuration:
-```nix
-virtualisation.memorySize = 8192;  # 8GB
-```
-
-### Network Issues
-
-Check firewall rules:
-```bash
-# In VM
-iptables -L -n
-systemctl status firewalld
-```
-
-### K3s Not Starting
-
-Check K3s logs:
-```bash
-# In VM
-journalctl -u k3s -f
-k3s check-config
-```
-
-## Performance Tuning
-
-### VM Performance Options
+#### Self-Hosted GitLab Runner on NixOS
 
 ```nix
-virtualisation = {
-  # Increase resources
-  memorySize = 8192;
-  cores = 4;
+# configuration.nix for GitLab runner
+{ config, pkgs, ... }:
+{
+  # Enable KVM
+  boot.kernelModules = [ "kvm-intel" ];  # or kvm-amd
 
-  # Enable KVM acceleration
-  qemu.options = [
-    "-enable-kvm"
-    "-cpu host"
-  ];
+  # GitLab runner
+  services.gitlab-runner = {
+    enable = true;
+    services.default = {
+      registrationConfigFile = "/etc/gitlab-runner/token";
+      executor = "shell";
+      tagList = [ "kvm" "nix" ];
+    };
+  };
 
-  # Use virtio for better I/O
-  qemu.networkingOptions = [
-    "-device virtio-net-pci"
-  ];
-};
-```
+  # Nix configuration
+  nix.settings = {
+    experimental-features = [ "nix-command" "flakes" ];
+  };
 
-### Host System Tuning
-
-```bash
-# Increase QEMU memory lock limit
-echo "* soft memlock unlimited" >> /etc/security/limits.conf
-echo "* hard memlock unlimited" >> /etc/security/limits.conf
-
-# Enable huge pages
-echo 1024 > /proc/sys/vm/nr_hugepages
+  # User permissions for KVM
+  users.users.gitlab-runner.extraGroups = [ "kvm" ];
+}
 ```
 
 ## CI/CD Integration
 
-### GitHub Actions Example
+### GitLab CI
+
+The repository includes `.gitlab-ci.yml` with:
+- Validation stage: flake check, formatting
+- Test stage: individual k3s tests (cluster-formation, storage, network, constraints)
+- Integration stage: emulation tests, full test suite
+
+Runner requirements:
+- Nix with flakes enabled
+- `/dev/kvm` access
+- Tag: `kvm`
+
+### GitHub Actions
 
 ```yaml
-name: VM Tests
+name: n3x Tests
 on: [push, pull_request]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v20
-      - run: ./tests/run-vm-tests.sh all
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v24
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Run k3s cluster formation test
+        run: nix build '.#checks.x86_64-linux.k3s-cluster-formation' --print-build-logs
 ```
 
-### Local Pre-commit Hook
+Note: GitHub-hosted runners may not have KVM. Use self-hosted runners for full test suite.
+
+## Directory Structure
+
+```
+tests/
+├── integration/           # nixosTest integration tests
+│   ├── k3s-cluster-formation.nix   # Primary cluster test
+│   ├── k3s-storage.nix             # Storage infrastructure
+│   ├── k3s-network.nix             # Network validation
+│   ├── k3s-network-constraints.nix # Network degradation
+│   ├── network-resilience.nix      # TC infrastructure (vsim)
+│   └── vsim-k3s-cluster.nix        # Full vsim cluster
+├── emulation/             # vsim nested virtualization environment
+│   ├── embedded-system.nix         # Outer VM configuration
+│   └── lib/                        # Helper functions
+├── vms/                   # Manual VM configurations
+│   ├── k3s-server-vm.nix
+│   └── k3s-agent-vm.nix
+├── run-vm-tests.sh        # Manual test runner script
+└── README.md              # This file
+```
+
+## Interactive Debugging
+
+For debugging test failures:
 
 ```bash
-#!/bin/bash
-# .git/hooks/pre-commit
-./tests/run-vm-tests.sh server
+# Build interactive test driver
+nix build '.#checks.x86_64-linux.k3s-cluster-formation.driverInteractive'
+./result/bin/nixos-test-driver
+
+# In Python REPL:
+>>> start_all()
+>>> server1.wait_for_unit("k3s")
+>>> server1.succeed("kubectl get nodes")
+>>> server1.shell_interact()  # Drop into shell
 ```
 
-## Next Steps
+## Troubleshooting
 
-After successful VM testing:
+### KVM Not Available
 
-1. **Deploy to Physical Hardware**
-   - Use `nixos-anywhere` for bare-metal provisioning
-   - Apply the same configurations tested in VMs
+```bash
+# Check if KVM module is loaded
+lsmod | grep kvm
 
-2. **Production Configuration**
-   - Replace test tokens with secure ones
-   - Configure proper networking (VLANs, bonding)
-   - Set up monitoring and logging
+# Load KVM module
+sudo modprobe kvm_intel  # Intel
+sudo modprobe kvm_amd    # AMD
 
-3. **Scale Testing**
-   - Add more worker VMs to test scaling
-   - Test failover scenarios
-   - Benchmark storage performance
+# Check permissions
+ls -la /dev/kvm
+# Add user to kvm group if needed
+sudo usermod -aG kvm $USER
+```
+
+### Test Timeouts
+
+Tests have default timeouts. For slow systems:
+
+```bash
+# Increase test timeout
+NIX_TEST_TIMEOUT=3600 nix build '.#checks.x86_64-linux.k3s-cluster-formation'
+```
+
+### Out of Memory
+
+Reduce parallel builds or increase VM memory:
+
+```bash
+# Build with less parallelism
+nix build '.#checks.x86_64-linux.k3s-storage' --max-jobs 1
+```
+
+### WSL2 Nested Virtualization Failure
+
+vsim tests (emulation-vm-boots, network-resilience) will fail on WSL2. Use nixosTest multi-node tests instead.
 
 ## Additional Resources
 
-- [NixOS VM Testing](https://nixos.org/manual/nixos/stable/#sec-nixos-tests)
-- [QEMU Documentation](https://www.qemu.org/documentation/)
-- [K3s Documentation](https://docs.k3s.io/)
+- [NixOS Testing Library](https://nixos.wiki/wiki/NixOS_Testing_library)
+- [nix.dev Integration Testing](https://nix.dev/tutorials/nixos/integration-testing-using-virtual-machines.html)
+- [Hyper-V Nested Virtualization Analysis](../docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md)
 - [n3x Main README](../README.md)

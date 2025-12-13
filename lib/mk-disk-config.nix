@@ -3,19 +3,19 @@
 
 {
   # Function to create a standard disk configuration
-  mkDiskConfig = {
-    device ? "/dev/nvme0n1",
-    diskSize ? "512G",
-    swapSize ? "8G",
-    rootSize ? "50G",
-    varSize ? "50G",
-    tmpSize ? "10G",
-    containerSize ? "100G",
-    useZfs ? false,
-    zfsPool ? "rpool",
-    encryption ? false,
-    ...
-  }@args:
+  mkDiskConfig =
+    { device ? "/dev/nvme0n1"
+    , diskSize ? "512G"
+    , swapSize ? "8G"
+    , rootSize ? "50G"
+    , varSize ? "50G"
+    , tmpSize ? "10G"
+    , containerSize ? "100G"
+    , useZfs ? false
+    , zfsPool ? "rpool"
+    , encryption ? false
+    , ...
+    }@args:
     let
       # Calculate remaining space for Longhorn
       # This is a placeholder - actual implementation would need proper size calculation
@@ -135,7 +135,8 @@
             inherit device;
             content = {
               type = "gpt";
-              partitions = if useZfs
+              partitions =
+                if useZfs
                 then basePartitions // zfsPartition
                 else basePartitions // ext4Partitions;
             };
@@ -216,11 +217,11 @@
     };
 
   # Function to create a simple VM disk configuration
-  mkVMDiskConfig = {
-    device ? "/dev/vda",
-    diskSize ? "50G",
-    ...
-  }@args:
+  mkVMDiskConfig =
+    { device ? "/dev/vda"
+    , diskSize ? "50G"
+    , ...
+    }@args:
     {
       disko.devices = {
         disk = {

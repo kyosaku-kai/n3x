@@ -18,8 +18,8 @@
   # Additional interfaces via USB adapters
 
   # CPU configuration
-  nix.settings.max-jobs = lib.mkDefault 6;  # 6-core ARM Cortex-A78AE
-  nix.settings.cores = lib.mkDefault 12;    # Can handle 2 threads per core
+  nix.settings.max-jobs = lib.mkDefault 6; # 6-core ARM Cortex-A78AE
+  nix.settings.cores = lib.mkDefault 12; # Can handle 2 threads per core
 
   # Platform
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";

@@ -68,7 +68,7 @@
     ];
 
     allowedUDPPorts = [
-      8472  # Flannel VXLAN
+      8472 # Flannel VXLAN
       51820 # Flannel WireGuard
       51821 # Flannel WireGuard IPv6
     ];
@@ -101,11 +101,14 @@
     after = [ "network-online.target" ];
 
     # Restart configuration
+    unitConfig = {
+      StartLimitIntervalSec = lib.mkDefault "10min";
+      StartLimitBurst = lib.mkDefault 6;
+    };
+
     serviceConfig = {
       Restart = lib.mkForce "always";
       RestartSec = lib.mkDefault "10s";
-      StartLimitInterval = lib.mkDefault "10min";
-      StartLimitBurst = lib.mkDefault 6;
 
       # Resource limits (NixOS k3s module sets LimitNPROC="infinity" by default)
       LimitNOFILE = lib.mkDefault 1048576;
@@ -231,9 +234,9 @@
 
   # Additional packages for agent nodes
   environment.systemPackages = with pkgs; [
-    containerd    # Container runtime (for debugging)
-    cri-tools    # CRI debugging tools
-    runc         # Low-level container runtime
+    containerd # Container runtime (for debugging)
+    cri-tools # CRI debugging tools
+    runc # Low-level container runtime
   ];
 
   # Monitoring and cleanup services

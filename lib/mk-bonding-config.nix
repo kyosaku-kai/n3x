@@ -3,17 +3,17 @@
 
 {
   # Function to create bonding configuration with sensible defaults
-  mkBondingConfig = {
-    interfaces ? [ "enp1s0" "enp2s0" ],
-    bondName ? "bond0",
-    mode ? "active-backup",
-    ipAddress ? null,
-    gateway ? null,
-    vlanConfigs ? [],
-    miimon ? 100,
-    primary ? null,
-    ...
-  }@args:
+  mkBondingConfig =
+    { interfaces ? [ "enp1s0" "enp2s0" ]
+    , bondName ? "bond0"
+    , mode ? "active-backup"
+    , ipAddress ? null
+    , gateway ? null
+    , vlanConfigs ? [ ]
+    , miimon ? 100
+    , primary ? null
+    , ...
+    }@args:
     let
       # Convert mode string to systemd-networkd format
       bondMode = {
@@ -27,31 +27,35 @@
       }.${mode} or mode;
 
       # Generate VLAN configurations
-      vlanNetdevs = lib.listToAttrs (map (vlan: {
-        name = "20-vlan-${toString vlan.id}";
-        value = {
-          netdevConfig = {
-            Kind = "vlan";
-            Name = "${bondName}.${toString vlan.id}";
+      vlanNetdevs = lib.listToAttrs (map
+        (vlan: {
+          name = "20-vlan-${toString vlan.id}";
+          value = {
+            netdevConfig = {
+              Kind = "vlan";
+              Name = "${bondName}.${toString vlan.id}";
+            };
+            vlanConfig.Id = vlan.id;
           };
-          vlanConfig.Id = vlan.id;
-        };
-      }) vlanConfigs);
+        })
+        vlanConfigs);
 
-      vlanNetworks = lib.listToAttrs (map (vlan: {
-        name = "20-vlan-${toString vlan.id}-network";
-        value = {
-          matchConfig.Name = "${bondName}.${toString vlan.id}";
-          address = lib.optional (vlan.ipAddress != null) vlan.ipAddress;
-          networkConfig = {
-            DHCP = if vlan.dhcp or false then "yes" else "no";
-            IPv6AcceptRA = false;
-            LinkLocalAddressing = "no";
-          } // lib.optionalAttrs (vlan.gateway != null) {
-            Gateway = vlan.gateway;
+      vlanNetworks = lib.listToAttrs (map
+        (vlan: {
+          name = "20-vlan-${toString vlan.id}-network";
+          value = {
+            matchConfig.Name = "${bondName}.${toString vlan.id}";
+            address = lib.optional (vlan.ipAddress != null) vlan.ipAddress;
+            networkConfig = {
+              DHCP = if vlan.dhcp or false then "yes" else "no";
+              IPv6AcceptRA = false;
+              LinkLocalAddressing = "no";
+            } // lib.optionalAttrs (vlan.gateway != null) {
+              Gateway = vlan.gateway;
+            };
           };
-        };
-      }) vlanConfigs);
+        })
+        vlanConfigs);
     in
     {
       # Enable systemd-networkd
@@ -60,7 +64,7 @@
 
       # Kernel modules for bonding
       boot.kernelModules = [ "bonding" ] ++ (
-        if (lib.elem mode [ "balance-tlb" "balance-alb" ]) then [ "arp_monitor" ] else []
+        if (lib.elem mode [ "balance-tlb" "balance-alb" ]) then [ "arp_monitor" ] else [ ]
       );
 
       systemd.network = {
@@ -89,18 +93,20 @@
         } // vlanNetdevs;
 
         # Physical interface configurations
-        networks = (lib.listToAttrs (map (iface: {
-          name = "10-${iface}";
-          value = {
-            matchConfig.Name = iface;
-            networkConfig = {
-              Bond = bondName;
-              DHCP = "no";
-              IPv6AcceptRA = false;
-              LinkLocalAddressing = "no";
+        networks = (lib.listToAttrs (map
+          (iface: {
+            name = "10-${iface}";
+            value = {
+              matchConfig.Name = iface;
+              networkConfig = {
+                Bond = bondName;
+                DHCP = "no";
+                IPv6AcceptRA = false;
+                LinkLocalAddressing = "no";
+              };
             };
-          };
-        }) interfaces)) // {
+          })
+          interfaces)) // {
           # Bond interface network configuration
           "15-${bondName}" = {
             matchConfig.Name = bondName;
@@ -118,15 +124,17 @@
       };
 
       # Disable DHCP on physical interfaces through networking.interfaces
-      networking.interfaces = lib.listToAttrs (map (iface: {
-        name = iface;
-        value = {
-          useDHCP = lib.mkForce false;
-        };
-      }) interfaces);
+      networking.interfaces = lib.listToAttrs (map
+        (iface: {
+          name = iface;
+          value = {
+            useDHCP = lib.mkForce false;
+          };
+        })
+        interfaces);
 
       # Monitoring and debugging tools
-      environment.systemPackages = with (import <nixpkgs> {}); [
+      environment.systemPackages = with (import <nixpkgs> { }); [
         ethtool
         iproute2
         tcpdump
@@ -141,42 +149,44 @@
     };
 
   # Function to create a simple dual-NIC bonding setup for HA
-  mkHABondingConfig = {
-    interfaces ? [ "enp1s0" "enp2s0" ],
-    ipAddress,
-    gateway ? "10.0.1.1",
-    nameservers ? [ "10.0.1.1" "1.1.1.1" ],
-    enableStorageVlan ? false,
-    storageVlanId ? 100,
-    storageIpAddress ? null,
-    ...
-  }@args:
-    mkBondingConfig {
-      inherit interfaces ipAddress gateway;
-      mode = "active-backup";
-      primary = lib.head interfaces;
-      vlanConfigs = lib.optional enableStorageVlan {
-        id = storageVlanId;
-        ipAddress = storageIpAddress;
-        dhcp = false;
-      };
-    } // {
+  mkHABondingConfig =
+    { interfaces ? [ "enp1s0" "enp2s0" ]
+    , ipAddress
+    , gateway ? "10.0.1.1"
+    , nameservers ? [ "10.0.1.1" "1.1.1.1" ]
+    , enableStorageVlan ? false
+    , storageVlanId ? 100
+    , storageIpAddress ? null
+    , ...
+    }@args:
+    mkBondingConfig
+      {
+        inherit interfaces ipAddress gateway;
+        mode = "active-backup";
+        primary = lib.head interfaces;
+        vlanConfigs = lib.optional enableStorageVlan {
+          id = storageVlanId;
+          ipAddress = storageIpAddress;
+          dhcp = false;
+        };
+      } // {
       networking.nameservers = nameservers;
     };
 
   # Function to create a performance-optimized bonding setup
-  mkPerformanceBondingConfig = {
-    interfaces ? [ "enp1s0" "enp2s0" ],
-    ipAddress,
-    gateway ? "10.0.1.1",
-    useLACP ? true,
-    ...
-  }@args:
-    mkBondingConfig {
-      inherit interfaces ipAddress gateway;
-      mode = if useLACP then "802.3ad" else "balance-alb";
-      miimon = if useLACP then 100 else 50;
-    } // {
+  mkPerformanceBondingConfig =
+    { interfaces ? [ "enp1s0" "enp2s0" ]
+    , ipAddress
+    , gateway ? "10.0.1.1"
+    , useLACP ? true
+    , ...
+    }@args:
+    mkBondingConfig
+      {
+        inherit interfaces ipAddress gateway;
+        mode = if useLACP then "802.3ad" else "balance-alb";
+        miimon = if useLACP then 100 else 50;
+      } // {
       # Performance tuning
       boot.kernel.sysctl = {
         "net.core.netdev_max_backlog" = 5000;

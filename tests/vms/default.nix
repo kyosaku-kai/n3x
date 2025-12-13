@@ -12,23 +12,23 @@
   # VM-specific configuration
   virtualisation = {
     # Memory allocation for the VM
-    memorySize = 4096; # 4GB RAM for testing k3s
+    memorySize = lib.mkDefault 4096; # 4GB RAM for testing k3s
 
     # Disk size for the VM
-    diskSize = 20480; # 20GB disk
+    diskSize = lib.mkDefault 20480; # 20GB disk
 
     # Enable graphics for debugging (disable for headless)
     graphics = lib.mkDefault false;
 
     # CPU cores
-    cores = 2;
+    cores = lib.mkDefault 2;
 
     # Use UEFI boot like real hardware
     useEFIBoot = true;
 
     # Enable nested virtualization for container workloads
     qemu.options = [
-      "-cpu host,+vmx"  # Intel VT-x
+      "-cpu host,+vmx" # Intel VT-x
       "-enable-kvm"
     ];
 
@@ -40,26 +40,20 @@
     ];
 
     # Shared directories between host and VM
-    sharedDirectories = {
-      # Share the nix store for faster builds
-      nix-store = {
-        source = "/nix/store";
-        target = "/nix/store";
-      };
-    };
+    # Using default nix-store sharing configuration from qemu-vm.nix
 
     # Forward ports from the VM to the host
     forwardPorts = [
-      { from = "host"; host.port = 6443; guest.port = 6443; }  # K3s API
+      { from = "host"; host.port = 6443; guest.port = 6443; } # K3s API
       { from = "host"; host.port = 10250; guest.port = 10250; } # Kubelet API
-      { from = "host"; host.port = 8080; guest.port = 80; }     # HTTP
-      { from = "host"; host.port = 8443; guest.port = 443; }    # HTTPS
+      { from = "host"; host.port = 8080; guest.port = 80; } # HTTP
+      { from = "host"; host.port = 8443; guest.port = 443; } # HTTPS
     ];
   };
 
   # Basic networking setup for VM
   networking = {
-    hostName = "vm-test";
+    hostName = lib.mkDefault "vm-test";
     useDHCP = false;
     interfaces.eth0.useDHCP = true;
 
@@ -67,13 +61,13 @@
     firewall = {
       enable = true;
       allowedTCPPorts = [
-        22    # SSH
-        6443  # K3s API
+        22 # SSH
+        6443 # K3s API
         10250 # Kubelet
-        80    # HTTP
-        443   # HTTPS
-        2379  # etcd client
-        2380  # etcd peer
+        80 # HTTP
+        443 # HTTPS
+        2379 # etcd client
+        2380 # etcd peer
       ];
     };
   };
@@ -82,8 +76,8 @@
   services.openssh = {
     enable = true;
     settings = {
-      PermitRootLogin = "yes";
-      PasswordAuthentication = true;
+      PermitRootLogin = lib.mkForce "yes";
+      PasswordAuthentication = lib.mkForce true;
     };
   };
 

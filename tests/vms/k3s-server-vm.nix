@@ -6,7 +6,7 @@
 
 {
   imports = [
-    ./default.nix  # Base VM configuration
+    ./default.nix # Base VM configuration
     ../../modules/common/base.nix
     ../../modules/common/nix-settings.nix
     ../../modules/common/networking.nix
@@ -19,9 +19,9 @@
 
   # Increase resources for server node
   virtualisation = {
-    memorySize = 4096;  # 4GB RAM for control plane
+    memorySize = 4096; # 4GB RAM for control plane
     cores = 2;
-    diskSize = 30720;   # 30GB disk for server with etcd
+    diskSize = 30720; # 30GB disk for server with etcd
   };
 
   # K3s server-specific test configuration
@@ -32,7 +32,7 @@
     # Use SQLite for single-node testing (switch to etcd for HA testing)
     extraFlags = [
       "--write-kubeconfig-mode 0644"
-      "--disable traefik"  # We'll deploy our own ingress
+      "--disable traefik" # We'll deploy our own ingress
       "--disable servicelb" # We'll use MetalLB
       "--cluster-cidr 10.42.0.0/16"
       "--service-cidr 10.43.0.0/16"
@@ -42,14 +42,14 @@
     tokenFile = pkgs.writeText "k3s-token" "test-token-do-not-use-in-production";
 
     # Server-specific settings for testing
-    serverAddr = "";  # Empty for first server
-    clusterInit = true;  # Initialize new cluster
+    serverAddr = ""; # Empty for first server
+    clusterInit = true; # Initialize new cluster
   };
 
   # Additional test utilities for server nodes
   environment.systemPackages = with pkgs; [
-    etcd  # For inspecting etcd if using HA mode
-    sqlite  # For inspecting SQLite database
+    etcd # For inspecting etcd if using HA mode
+    sqlite # For inspecting SQLite database
   ];
 
   # Test script to verify server is running
@@ -85,9 +85,9 @@
 
   # Open additional ports for K3s server
   networking.firewall.allowedTCPPorts = [
-    2379  # etcd client
-    2380  # etcd peer
-    6443  # K3s API
+    2379 # etcd client
+    2380 # etcd peer
+    6443 # K3s API
     10250 # Kubelet metrics
     10251 # kube-scheduler
     10252 # kube-controller-manager
@@ -96,6 +96,6 @@
   ];
 
   networking.firewall.allowedUDPPorts = [
-    8472  # Flannel VXLAN
+    8472 # Flannel VXLAN
   ];
 }

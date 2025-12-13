@@ -5,13 +5,14 @@
 #   nix build .#checks.x86_64-linux.k3s-single-server
 #   nix build .#checks.x86_64-linux.k3s-single-server.driverInteractive  # For debugging
 
-{ pkgs, lib, ... }:
+{ pkgs, lib, inputs, ... }:
 
 pkgs.testers.runNixOSTest {
   name = "k3s-single-server";
 
   nodes = {
     server = { config, pkgs, modulesPath, ... }: {
+      _module.args = { inherit inputs; };
       imports = [
         ../../modules/common/base.nix
         ../../modules/common/nix-settings.nix
@@ -21,9 +22,9 @@ pkgs.testers.runNixOSTest {
 
       # VM resource allocation
       virtualisation = {
-        memorySize = 4096;  # 4GB RAM for K3s control plane
+        memorySize = 4096; # 4GB RAM for K3s control plane
         cores = 2;
-        diskSize = 20480;   # 20GB disk
+        diskSize = 20480; # 20GB disk
       };
 
       # K3s server configuration
@@ -39,11 +40,11 @@ pkgs.testers.runNixOSTest {
 
         # K3s configuration flags
         extraFlags = [
-          "--write-kubeconfig-mode=0644"  # Allow non-root kubectl access
-          "--disable=traefik"              # We'll deploy our own ingress
-          "--disable=servicelb"            # We'll use MetalLB
-          "--cluster-cidr=10.42.0.0/16"   # Pod network CIDR
-          "--service-cidr=10.43.0.0/16"   # Service network CIDR
+          "--write-kubeconfig-mode=0644" # Allow non-root kubectl access
+          "--disable=traefik" # We'll deploy our own ingress
+          "--disable=servicelb" # We'll use MetalLB
+          "--cluster-cidr=10.42.0.0/16" # Pod network CIDR
+          "--service-cidr=10.43.0.0/16" # Service network CIDR
         ];
       };
 
@@ -51,13 +52,13 @@ pkgs.testers.runNixOSTest {
       networking.firewall = {
         enable = true;
         allowedTCPPorts = [
-          6443   # Kubernetes API server
-          10250  # Kubelet API
-          2379   # etcd client requests
-          2380   # etcd peer communication
+          6443 # Kubernetes API server
+          10250 # Kubelet API
+          2379 # etcd client requests
+          2380 # etcd peer communication
         ];
         allowedUDPPorts = [
-          8472   # Flannel VXLAN overlay network
+          8472 # Flannel VXLAN overlay network
         ];
       };
 

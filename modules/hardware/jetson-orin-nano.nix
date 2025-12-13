@@ -24,7 +24,8 @@
     flashScriptOverrides = {
       flashArgs = [
         "--no-systemimg"
-        "-c" "bootloader/t186ref/cfg/flash_t234_qspi.xml"
+        "-c"
+        "bootloader/t186ref/cfg/flash_t234_qspi.xml"
       ];
     };
   };
@@ -73,15 +74,15 @@
 
     # Kernel parameters for stability
     kernelParams = [
-      "console=ttyTCU0,115200"  # Serial console (HDMI doesn't work for console)
+      "console=ttyTCU0,115200" # Serial console (HDMI doesn't work for console)
       "earlycon=tegra_comb_uart,mmio32,0x0c168000"
-      "mem_encrypt=off"  # Disable memory encryption for compatibility
-      "iommu.passthrough=1"  # IOMMU passthrough for better compatibility
+      "mem_encrypt=off" # Disable memory encryption for compatibility
+      "iommu.passthrough=1" # IOMMU passthrough for better compatibility
 
       # Performance tuning
-      "isolcpus=5"  # Isolate CPU core 5 for critical workloads
-      "rcu_nocbs=5"  # Offload RCU callbacks from isolated core
-      "nohz_full=5"  # Disable timer ticks on isolated core
+      "isolcpus=5" # Isolate CPU core 5 for critical workloads
+      "rcu_nocbs=5" # Offload RCU callbacks from isolated core
+      "nohz_full=5" # Disable timer ticks on isolated core
 
       # Container and k3s optimizations
       "cgroup_enable=cpuset"
@@ -136,7 +137,7 @@
 
     # Power management
     tlp = {
-      enable = lib.mkDefault false;  # Jetson has its own power management
+      enable = lib.mkDefault false; # Jetson has its own power management
     };
 
     # Fan control (Jetson has PWM fan control)
@@ -171,7 +172,7 @@
 
     # Network tools
     ethtool
-    iw  # Wireless tools if using WiFi module
+    iw # Wireless tools if using WiFi module
   ];
 
   # Jetson-specific udev rules
@@ -197,13 +198,13 @@
   '';
 
   # Create gpio group for GPIO access
-  users.groups.gpio = {};
+  users.groups.gpio = { };
 
   # Memory and swap configuration
   zramSwap = {
     enable = true;
     algorithm = "zstd";
-    memoryPercent = 25;  # Use 25% of RAM for compressed swap
+    memoryPercent = 25; # Use 25% of RAM for compressed swap
   };
 
   # Network and system optimizations for edge computing
@@ -221,21 +222,21 @@
     # Memory management for containers
     "vm.max_map_count" = 262144;
     # Note: vm.swappiness configured in base.nix
-    "vm.min_free_kbytes" = 65536;  # 64MB minimum free memory
+    "vm.min_free_kbytes" = 65536; # 64MB minimum free memory
 
     # Note: fs.inotify.*, fs.file-max, fs.nr_open are configured in k3s-common.nix
 
     # ARM64 specific optimizations
-    "kernel.perf_event_paranoid" = -1;  # Allow performance monitoring
+    "kernel.perf_event_paranoid" = -1; # Allow performance monitoring
   };
 
   # Filesystem support
   boot.supportedFilesystems = [ "ext4" "btrfs" "xfs" "vfat" "ntfs" ];
 
   # Enable hardware acceleration where applicable
-  hardware.opengl = {
+  hardware.graphics = {
     enable = true;
-    driSupport32Bit = false;  # Jetson is ARM64 only
+    enable32Bit = false; # Jetson is ARM64 only
   };
 
   # Jetson-specific power profiles
@@ -270,7 +271,7 @@
   ];
 
   # Documentation
-  documentation.doc.enable = lib.mkDefault false;  # Save space on edge device
+  documentation.doc.enable = lib.mkDefault false; # Save space on edge device
   documentation.man.enable = lib.mkDefault false;
   documentation.info.enable = lib.mkDefault false;
 
@@ -294,10 +295,10 @@
   # };
 
   # Hardware watchdog
-  systemd.watchdog = {
-    device = "/dev/watchdog";
-    runtimeTime = "30s";
-    rebootTime = "10min";
-    kexecTime = "10min";
+  systemd.settings.Manager = {
+    WatchdogDevice = "/dev/watchdog";
+    RuntimeWatchdogSec = "30s";
+    RebootWatchdogSec = "10min";
+    KExecWatchdogSec = "10min";
   };
 }
