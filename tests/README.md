@@ -37,6 +37,8 @@ These tests use nixosTest nodes directly as k3s cluster nodes. They work on all 
 | `k3s-storage` | Storage prerequisites, local-path PVC provisioning, StatefulSet volumes | `nix build '.#checks.x86_64-linux.k3s-storage'` |
 | `k3s-network` | CoreDNS, flannel VXLAN, service discovery, pod network connectivity | `nix build '.#checks.x86_64-linux.k3s-network'` |
 | `k3s-network-constraints` | Cluster behavior under degraded network (latency, loss, bandwidth limits) | `nix build '.#checks.x86_64-linux.k3s-network-constraints'` |
+| `k3s-bond-failover` | Bond active-backup failover/failback while k3s remains operational | `nix build '.#checks.x86_64-linux.k3s-bond-failover'` |
+| `k3s-vlan-negative` | Validates VLAN misconfiguration causes expected failures | `nix build '.#checks.x86_64-linux.k3s-vlan-negative'` |
 
 ### Emulation Tests (vsim - Nested Virtualization)
 
@@ -54,6 +56,187 @@ These tests use nested virtualization for complex scenarios. They require native
 |-------|-------------|-------------|
 | `nixpkgs-fmt` | Nix code formatting validation | `nix build '.#checks.x86_64-linux.nixpkgs-fmt'` |
 | `build-all` | Validates all configurations build | `nix build '.#checks.x86_64-linux.build-all'` |
+
+## Network Profiles
+
+The test framework supports multiple network configurations via **parameterized test builders**. This allows testing different network topologies without code duplication.
+
+### Available Profiles
+
+Located in `tests/lib/network-profiles/`:
+
+| Profile | Description | Use Case | VLANs | Bonding |
+|---------|-------------|----------|-------|---------|
+| **simple** | Single flat network via eth1 | Baseline testing, CI/CD quick validation | No | No |
+| **vlans** | 802.1Q VLAN tagging on eth1 trunk | VLAN validation before hardware deployment | Yes (100, 200) | No |
+| **bonding-vlans** | Bonding + VLAN tagging | Full production parity testing | Yes (100, 200) | Yes |
+
+### Network Profile Tests
+
+Tests using parameterized builder (`tests/lib/mk-k3s-cluster-test.nix`):
+
+```bash
+# Simple profile (baseline)
+nix build '.#checks.x86_64-linux.k3s-cluster-simple'
+
+# VLAN tagging (production parity)
+nix build '.#checks.x86_64-linux.k3s-cluster-vlans'
+
+# Bonding + VLANs (complete production simulation)
+nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'
+```
+
+### VLAN Configuration Details
+
+The **vlans** and **bonding-vlans** profiles configure:
+
+- **VLAN 200** (Cluster Network)
+  - IP range: 192.168.200.0/24
+  - Used by: k3s API, flannel VXLAN, cluster communication
+  - Interface: `eth1.200` (vlans) or `bond0.200` (bonding-vlans)
+
+- **VLAN 100** (Storage Network)
+  - IP range: 192.168.100.0/24
+  - Used by: Longhorn, iSCSI, storage replication
+  - Interface: `eth1.100` (vlans) or `bond0.100` (bonding-vlans)
+
+### Adding Custom Network Profiles
+
+Create a new profile in `tests/lib/network-profiles/custom.nix`:
+
+```nix
+{ lib }:
+{
+  nodeIPs = { n100-1 = "..."; n100-2 = "..."; n100-3 = "..."; };
+  serverApi = "https://...";
+  clusterCidr = "10.42.0.0/16";
+  serviceCidr = "10.43.0.0/16";
+
+  nodeConfig = nodeName: { config, pkgs, lib, ... }: {
+    # Network configuration for each node
+    networking.interfaces.eth1.ipv4.addresses = [ ... ];
+  };
+
+  k3sExtraFlags = nodeName: [
+    "--node-ip=..."
+    "--flannel-iface=eth1"
+  ];
+}
+```
+
+Then add to `flake.nix`:
+
+```nix
+k3s-cluster-custom = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+  inherit pkgs lib;
+  networkProfile = "custom";
+};
+```
+
+### Why Parameterized Tests?
+
+**Benefits**:
+- **No code duplication** - Test logic defined once, network configs separate
+- **Easy extension** - Add new profiles without touching test code
+- **Production parity** - VLAN tests match future hardware deployment
+- **Maintainability** - Changes to test logic apply to all profiles
+
+**Nix-Idiomatic Pattern**:
+Uses module system composition instead of branching or code duplication.
+
+### Specialized Tests
+
+#### Bond Failover Test (`k3s-bond-failover`)
+
+Tests that bonding active-backup mode correctly handles NIC failures while k3s remains operational.
+
+**Test Scenarios**:
+1. Verify initial bond state (eth1 as primary/active)
+2. Simulate primary NIC failure (`ip link set eth1 down`)
+3. Verify automatic failover to backup (eth2 becomes active)
+4. Verify k3s API remains accessible during failover
+5. Restore primary NIC (`ip link set eth1 up`)
+6. Verify failback to primary (eth1 becomes active again with `PrimaryReselectPolicy=always`)
+7. Verify all 3 nodes remain Ready throughout the cycle
+
+**Configuration**:
+- Uses `bonding-vlans` network profile
+- Bond mode: `active-backup`
+- miimon: 100ms, UpDelaySec/DownDelaySec: 200ms
+
+```bash
+nix build '.#checks.x86_64-linux.k3s-bond-failover'
+```
+
+#### VLAN Negative Test (`k3s-vlan-negative`)
+
+Validates that VLAN misconfigurations cause expected failures. This is a "negative test" - it proves assertions work by expecting failure.
+
+**Scenario**:
+- n100-1: VLAN 200 (correct)
+- n100-2: VLAN 201 (wrong)
+- n100-3: VLAN 202 (wrong)
+
+All nodes use the same IP range (192.168.200.x) but different VLAN tags.
+
+**Expected Behavior**:
+1. All nodes boot successfully
+2. n100-1 initializes k3s and becomes Ready
+3. n100-2 and n100-3 fail to join cluster (connection refused/timeout)
+4. Test passes by verifying cluster formation fails as expected
+
+**nixosTest Limitation Note**: In nixosTest's virtual network, VLAN tags are applied but may not enforce true L2 isolation (no switch enforcement). The test documents this and validates configuration correctness rather than traffic isolation.
+
+```bash
+nix build '.#checks.x86_64-linux.k3s-vlan-negative'
+```
+
+### Profile-Specific Assertions
+
+The parameterized test builder (`mk-k3s-cluster-test.nix`) includes profile-aware assertions that verify network configuration correctness.
+
+#### PHASE 2: Interface and IP Assertions
+
+| Profile | Verified Interfaces | Verified IPs |
+|---------|---------------------|--------------|
+| `simple` | `eth1` | `192.168.1.x` |
+| `vlans` | `eth1.200`, `eth1.100` | `192.168.200.x`, `192.168.100.x` |
+| `bonding-vlans` | `bond0`, `bond0.200`, `bond0.100` | `192.168.200.x`, `192.168.100.x` |
+
+#### PHASE 2.5: VLAN Tag Verification
+
+For `vlans` and `bonding-vlans` profiles:
+- Verifies `ip -d link show` contains `vlan id 200` for cluster VLAN
+- Verifies `ip -d link show` contains `vlan id 100` for storage VLAN
+
+#### PHASE 2.6: Storage Network Validation
+
+For `vlans` and `bonding-vlans` profiles:
+- Verifies each node has correct storage IP (192.168.100.1-3)
+- Tests ping connectivity from each node to all other nodes on storage network
+
+#### PHASE 2.7: Cross-VLAN Isolation Check
+
+For `vlans` and `bonding-vlans` profiles (best-effort in nixosTest):
+1. **ARP table inspection** - Verifies ARP entries learned on correct interfaces
+2. **Routing table verification** - Asserts cluster network routes via `.200` interface, storage via `.100`
+3. **IP cross-contamination check** - Verifies cluster VLAN has no storage IPs and vice versa
+
+**Note**: True L2 isolation testing requires OVS emulation or physical hardware.
+
+### Test Coverage Matrix
+
+| Validation | simple | vlans | bonding-vlans | bond-failover | vlan-negative |
+|------------|--------|-------|---------------|---------------|---------------|
+| Interface exists | ✓ | ✓ | ✓ | ✓ | ✓ |
+| IP assignment | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VLAN ID verification | - | ✓ | ✓ | ✓ | ✓ |
+| Storage network ping | - | ✓ | ✓ | ✓ | - |
+| Routing table segregation | - | ✓ | ✓ | ✓ | - |
+| IP cross-contamination | - | ✓ | ✓ | ✓ | - |
+| K3s cluster formation | ✓ | ✓ | ✓ | ✓ | partial |
+| Bond failover/failback | - | - | - | ✓ | - |
+| VLAN misconfiguration detection | - | - | - | - | ✓ |
 
 ## Platform Compatibility
 
@@ -219,21 +402,30 @@ Note: GitHub-hosted runners may not have KVM. Use self-hosted runners for full t
 
 ```
 tests/
-├── integration/           # nixosTest integration tests
+├── integration/               # nixosTest integration tests
 │   ├── k3s-cluster-formation.nix   # Primary cluster test
 │   ├── k3s-storage.nix             # Storage infrastructure
 │   ├── k3s-network.nix             # Network validation
 │   ├── k3s-network-constraints.nix # Network degradation
+│   ├── k3s-bond-failover.nix       # Bond failover/failback test
+│   ├── k3s-vlan-negative.nix       # VLAN misconfiguration test
 │   ├── network-resilience.nix      # TC infrastructure (vsim)
 │   └── vsim-k3s-cluster.nix        # Full vsim cluster
-├── emulation/             # vsim nested virtualization environment
+├── lib/                       # Test library functions
+│   ├── mk-k3s-cluster-test.nix     # Parameterized test builder
+│   └── network-profiles/           # Network profile definitions
+│       ├── simple.nix              # Single flat network
+│       ├── vlans.nix               # 802.1Q VLAN tagging
+│       ├── bonding-vlans.nix       # Bonding + VLANs
+│       └── vlans-broken.nix        # Intentionally broken (negative test)
+├── emulation/                 # vsim nested virtualization environment
 │   ├── embedded-system.nix         # Outer VM configuration
 │   └── lib/                        # Helper functions
-├── vms/                   # Manual VM configurations
+├── vms/                       # Manual VM configurations
 │   ├── k3s-server-vm.nix
 │   └── k3s-agent-vm.nix
-├── run-vm-tests.sh        # Manual test runner script
-└── README.md              # This file
+├── run-vm-tests.sh            # Manual test runner script
+└── README.md                  # This file
 ```
 
 ## Interactive Debugging
@@ -291,6 +483,87 @@ nix build '.#checks.x86_64-linux.k3s-storage' --max-jobs 1
 ### WSL2 Nested Virtualization Failure
 
 vsim tests (emulation-vm-boots, network-resilience) will fail on WSL2. Use nixosTest multi-node tests instead.
+
+### Bond Failover Test Failures
+
+If `k3s-bond-failover` fails:
+
+1. **"Expected eth1 as active slave"** - Check bond configuration:
+   ```bash
+   # In test driver
+   n100_1.succeed("cat /proc/net/bonding/bond0")
+   ```
+   Verify `eth1` is listed as primary and active-backup mode is enabled.
+
+2. **"Failover to eth2 did not occur"** - Check miimon timing:
+   ```bash
+   n100_1.succeed("cat /proc/net/bonding/bond0 | grep -i mii")
+   ```
+   The `DownDelaySec` (200ms) may need adjustment for slower systems.
+
+3. **"k3s API inaccessible after failover"** - Cluster may need more time to stabilize. Check etcd health:
+   ```bash
+   n100_1.succeed("k3s kubectl get endpoints kubernetes")
+   ```
+
+### VLAN Negative Test Behavior
+
+The `k3s-vlan-negative` test may pass even when nodes appear to communicate. This is expected in nixosTest:
+
+- **nixosTest shares a virtual network bridge** - VLANs are tagged but not isolated at L2
+- The test verifies configuration correctness (VLAN IDs are applied)
+- For true isolation testing, use OVS emulation or physical hardware
+
+### Profile-Specific Assertion Failures
+
+If PHASE 2.x assertions fail:
+
+1. **Missing interface** (e.g., "Missing eth1.200"):
+   ```bash
+   # Check systemd-networkd status
+   n100_1.succeed("networkctl status")
+   n100_1.succeed("journalctl -u systemd-networkd -n 50")
+   ```
+
+2. **Missing IP** (e.g., "Missing 192.168.200.x"):
+   ```bash
+   # Check if DHCP or static config applied
+   n100_1.succeed("ip addr show")
+   n100_1.succeed("networkctl status eth1.200")
+   ```
+
+3. **Routing table mismatch**:
+   ```bash
+   n100_1.succeed("ip route show")
+   # Expected: 192.168.200.0/24 dev eth1.200 (or bond0.200)
+   ```
+
+### etcd Election Timing
+
+K3s HA clusters use etcd which requires leader election. Timing variance is normal:
+
+- Cluster formation typically takes 60-120 seconds
+- Tests have generous timeouts (300s for node ready)
+- If tests timeout, check etcd logs:
+  ```bash
+  n100_1.succeed("journalctl -u k3s -n 100 | grep -i etcd")
+  ```
+
+### Test Caching Behavior
+
+`nix build` uses caching. Tests that previously passed may not re-execute:
+
+| Indicator | Cached (not run) | Actually ran |
+|-----------|------------------|--------------|
+| Duration | 6-10 seconds | 2-15 minutes |
+| VM boot logs | None | `systemd[1]: Initializing...` |
+| Test commands | None | `must succeed:`, `wait_for` |
+
+To force test re-execution:
+```bash
+# Force rebuild (ignores cache)
+nix build '.#checks.x86_64-linux.k3s-cluster-vlans' --rebuild
+```
 
 ## Additional Resources
 

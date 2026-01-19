@@ -240,28 +240,66 @@ flowchart TB
 
 n3x uses a multi-layer testing approach. Choose the right layer for your needs:
 
-| Layer | Tool | Speed | Use Case |
-|-------|------|-------|----------|
-| **1. Fast Automated** | `nixosTest` | Seconds | Unit tests, single-node validation, CI/CD |
-| **2. Emulation** | This framework | Minutes | Multi-node clusters, network simulation, integration |
-| **3. Manual VMs** | `tests/vms/` | Minutes | Interactive debugging, exploration |
-| **4. Bare-metal** | Physical hardware | Hours | Final production validation |
+| Layer | Tool | Speed | Use Case | Platforms |
+|-------|------|-------|----------|-----------|
+| **1. Fast Automated** | `nixosTest` multi-node | Seconds-Minutes | Multi-node k3s clusters, CI/CD, VLAN testing | All (WSL2, Darwin, Cloud) |
+| **2. Emulation** | This framework (OVS + nested virt) | Minutes | Interactive testing, OVS topology visualization | Native Linux only |
+| **3. Manual VMs** | `tests/vms/` | Minutes | Interactive debugging, exploration | All platforms |
+| **4. Bare-metal** | Physical hardware | Hours | Final production validation | N/A |
 
-### Use Emulation When You Need To:
+### Use OVS Emulation Framework When You Need To:
 
-1. **Test multi-node k3s clusters** - Simulate 3+ node clusters with realistic networking
-2. **Validate network resilience** - Test with latency, packet loss, bandwidth limits
-3. **Test resource constraints** - Validate behavior on embedded hardware profiles
-4. **Pre-deployment integration testing** - Verify complete cluster setup before hardware
-5. **Reproduce cluster issues** - Debug distributed system problems in controlled environment
-6. **Test ARM64 configs** - Validate Jetson configurations without physical hardware
+1. **Interactive network testing** - SSH into VMs, run commands manually, explore behavior
+2. **OVS topology visualization** - See switch fabric with `ovs-vsctl show`
+3. **Test specific switch configurations** - Validate OpenFlow rules, VLAN trunk behavior
+4. **ARM64 cross-architecture validation** - Test Jetson configs via QEMU TCG (very slow)
+5. **Resource constraint scenarios** - Test behavior under extreme memory/CPU limits
 
-### Don't Use Emulation For:
+**Platform Requirement**: Native Linux with KVM nested virtualization only.
 
-- Quick single-component tests (use `nixosTest`)
-- Performance benchmarking (nested virtualization adds overhead)
-- Final production validation (use bare-metal)
-- Simple configuration changes (use interactive VMs)
+### Use nixosTest Multi-Node For:
+
+1. **Automated CI/CD testing** - Fast, reproducible, works on all platforms
+2. **Multi-node k3s cluster validation** - 2+ servers, agents, cluster formation
+3. **VLAN tagging testing** - Validate 802.1Q VLANs before hardware deployment
+   ```bash
+   nix build '.#checks.x86_64-linux.k3s-cluster-vlans'           # VLAN tagging
+   nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'   # Bonding + VLANs
+   ```
+4. **Network constraints testing** - tc/netem directly on nodes (no OVS needed)
+   ```bash
+   nix build '.#checks.x86_64-linux.k3s-network-constraints'
+   ```
+5. **Storage and networking integration** - PVC, Longhorn prerequisites, CoreDNS
+   ```bash
+   nix build '.#checks.x86_64-linux.k3s-storage'
+   nix build '.#checks.x86_64-linux.k3s-network'
+   ```
+
+**Platform Support**: WSL2, Darwin (via Lima/UTM), Cloud VMs, Native Linux.
+
+### Don't Use Emulation Framework For:
+
+- **CI/CD pipelines** - Use `nixosTest` multi-node instead (faster, works everywhere)
+- **VLAN testing** - Use `k3s-cluster-vlans` nixosTest (production parity without nesting)
+- **Performance benchmarking** - Nested virtualization adds significant overhead
+- **Final production validation** - Use bare-metal hardware
+- **WSL2 or macOS development** - Use `nixosTest` multi-node (emulation won't work)
+
+### Key Insight: Both Approaches Are Complementary
+
+The emulation framework (OVS + nested virt) and nixosTest multi-node serve **different purposes**:
+
+| Feature | OVS Emulation | nixosTest Multi-Node |
+|---------|---------------|---------------------|
+| **Primary Use** | Interactive testing, visualization | Automated CI/CD, validation |
+| **Network Sim** | OVS switch fabric with topology | Direct node connections |
+| **VLAN Support** | OVS VLAN trunks (manual setup) | 802.1Q VLAN tagging (automated) |
+| **Platform** | Native Linux only | All platforms |
+| **Speed** | Slower (3-level nesting) | Faster (1-2 levels) |
+| **Best For** | Exploration, debugging | Continuous integration |
+
+**Use both**: Run `k3s-cluster-vlans` in CI, then use emulation framework for interactive debugging on bare metal Linux.
 
 ---
 

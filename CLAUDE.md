@@ -23,12 +23,15 @@ This file provides project-specific rules and task tracking for Claude Code when
 ## Project Status and Next Tasks
 
 ### Current Status
-- **Phase**: Phase 5 COMPLETE - Emulation Platform Documentation
-- **Repository State**: Core modules complete, testing infrastructure mature
-- **Branch**: `simint` (ahead of main with testing infrastructure)
-- **Architecture Decision**: nixosTest multi-node (no nested libvirt) - works on all platforms
-- **Key Doc**: [docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md](docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md)
-- **Next Phase**: Phase 6 (Secrets Preparation)
+- **Phase**: Phase 6 ✅ VALIDATED (VLAN Infrastructure), Phase 7 Optional (CI Validation)
+- **Repository State**: All 3 VLAN network profile tests passing on WSL2/Hyper-V
+- **Branch**: `simint` (key commits: `080eeb3` HA fix, `f4dc6cc` bonding fix, `8e70f85` VLAN profiles)
+- **Implementation**: ✅ Complete - 3 network profiles with parameterized test builder
+- **Runtime Testing**: ✅ VALIDATED (2026-01-17)
+  - `k3s-cluster-simple` - PASSED (flat network baseline)
+  - `k3s-cluster-vlans` - PASSED (VLAN 200/100 tagging, nodes show 192.168.200.x IPs)
+  - `k3s-cluster-bonding-vlans` - PASSED (bond0 + VLAN tagging)
+- **Next Action**: Phase 8 (Secrets Preparation) or Phase 7 (CI) based on priority
 
 ### Completed Implementation Tasks
 
@@ -388,6 +391,178 @@ The original vsim approach was thoroughly investigated:
 - [nix.dev - Integration Testing](https://nix.dev/tutorials/nixos/integration-testing-using-virtual-machines.html)
 - [Red Hat Nested Virtualization](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_and_managing_virtualization/creating-nested-virtual-machines_configuring-and-managing-virtualization)
 
+---
+
+#### Phase 6: VLAN Tagging Test Infrastructure ✅ (Implemented 2026-01-17)
+
+**Status**: Implementation complete, awaiting runtime validation
+
+**Goal**: Add 802.1Q VLAN tagging support to nixosTest integration tests for production parity.
+
+**Key Decision**: Use Nix's module system and parameterization to maintain both OVS emulation and nixosTest approaches without code duplication.
+
+**Testing Guide**: [docs/VLAN-TESTING-GUIDE.md](docs/VLAN-TESTING-GUIDE.md) - **START HERE FOR TESTING**
+
+**Implemented**:
+- [x] Created `tests/lib/network-profiles/` with three profiles:
+  - `simple.nix` - Single flat network (baseline, current behavior)
+  - `vlans.nix` - 802.1Q VLAN tagging on eth1 trunk (VLAN 200 cluster, VLAN 100 storage)
+  - `bonding-vlans.nix` - Bonding + VLANs (full production parity)
+- [x] Created `tests/lib/mk-k3s-cluster-test.nix` - Parameterized test builder
+  - Accepts `networkProfile` parameter
+  - Separates test logic from network configuration
+  - Enables easy addition of new profiles without code duplication
+- [x] Updated `flake.nix` with three new test variants:
+  - `k3s-cluster-simple` - Baseline validation
+  - `k3s-cluster-vlans` - VLAN tagging validation
+  - `k3s-cluster-bonding-vlans` - Production parity validation
+- [x] Updated `tests/emulation/README.md` - Clarified use cases for OVS vs nixosTest
+- [x] Updated `tests/README.md` - Added comprehensive network profiles section
+
+**Architecture**:
+```nix
+# Network profiles define topology
+tests/lib/network-profiles/
+├── simple.nix           # Single flat network
+├── vlans.nix            # 802.1Q VLAN tagging
+└── bonding-vlans.nix    # Bonding + VLANs
+
+# Parameterized builder generates tests
+mk-k3s-cluster-test.nix { networkProfile = "vlans"; }
+  → Loads profile
+  → Applies network config to nodes
+  → Runs standard k3s cluster tests
+```
+
+**VLAN Configuration**:
+- **VLAN 200** (Cluster): 192.168.200.0/24 - k3s API, flannel, cluster communication
+- **VLAN 100** (Storage): 192.168.100.0/24 - Longhorn, iSCSI, storage replication
+- VLANs configured via systemd.network with 8021q kernel module
+
+**Run Tests**:
+```bash
+nix build '.#checks.x86_64-linux.k3s-cluster-simple'          # Baseline
+nix build '.#checks.x86_64-linux.k3s-cluster-vlans'           # VLAN tagging
+nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'   # Full production
+```
+
+**Benefits**:
+- **Production Parity**: VLAN tests match future external switch deployment
+- **No Duplication**: Test logic defined once, network configs composed via modules
+- **Platform Support**: Works on WSL2, Darwin, Cloud (no nested virt required)
+- **Maintainable**: New profiles added without touching test code
+- **Nix-Idiomatic**: Uses module system composition, not branching
+
+**OVS Emulation Preserved**:
+The OVS emulation framework remains available for interactive testing on native Linux. Both approaches are complementary:
+- **nixosTest multi-node**: Automated CI/CD, VLAN validation, all platforms
+- **OVS emulation**: Interactive debugging, topology visualization, native Linux only
+
+---
+
+##### Testing Status & Validation Checklist
+
+**Implementation**: ✅ Complete (Commits: `8e70f85`, `080eeb3`, `f4dc6cc`)
+**Runtime Validation**: ✅ Complete (2026-01-17)
+
+| Test Variant | Status | Platform Tested | Notes |
+|--------------|--------|-----------------|-------|
+| k3s-cluster-simple | ✅ PASSED | WSL2 (Hyper-V) | Flat network baseline, ~90s |
+| k3s-cluster-vlans | ✅ PASSED | WSL2 (Hyper-V) | VLAN 200 IPs verified (192.168.200.x) |
+| k3s-cluster-bonding-vlans | ✅ PASSED | WSL2 (Hyper-V) | Bond + VLAN tagging works |
+
+**Key Fixes Applied**:
+1. `080eeb3` - Fixed k3s HA cluster formation (lib.recursiveUpdate for extraFlags merge)
+2. `f4dc6cc` - Fixed bondConfig invalid ActiveSlave option (moved PrimarySlave to slave network config)
+
+**Validation Criteria** (all met):
+- ✅ All 3 tests build without Nix errors
+- ✅ VLANs correctly configured (eth1.200 for cluster, eth1.100 for storage)
+- ✅ k3s cluster forms over VLAN interfaces (verified INTERNAL-IP shows 192.168.200.x)
+- ✅ Bonding + VLANs work together (bond0.200, bond0.100)
+- ✅ All 3 nodes reach Ready state
+- ✅ CoreDNS and local-path-provisioner pods reach Running state
+
+**Quick Test Commands**:
+```bash
+# Standard test runs (uses cache)
+nix build '.#checks.x86_64-linux.k3s-cluster-simple'
+nix build '.#checks.x86_64-linux.k3s-cluster-vlans'
+nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'
+
+# Force rebuild (bypasses cache, ~2-3 min each)
+nix build '.#checks.x86_64-linux.k3s-cluster-simple' --rebuild
+```
+
+**Known Behavior & Flakiness**:
+- etcd HA election adds timing variance (~60-120s for cluster formation)
+- Tests may occasionally timeout due to etcd quorum timing; retrying usually works
+- Nameserver limits warning is benign (using 1.1.1.1, 8.8.8.8, 9.9.9.9)
+
+**Test Flakiness Analysis** (2026-01-17 investigation):
+- Root cause: **Host system load**, not timeout values
+- When running `--rebuild` or during system load, VMs get less CPU time
+- etcd leader election can stall, causing k8s API "ServiceUnavailable" errors
+- Tests have generous timeouts (300s for node ready, 240s for primary server)
+- Observed failure: 734s elapsed before timeout at system pod check (120s)
+- Retries typically pass (3/3 passed on clean re-run within same session)
+- Mitigation: Run tests on idle system; use cache when possible (`--rebuild` bypasses cache)
+
+---
+
+#### Phase 7: CI Validation Infrastructure ⏳
+
+**Status**: Phase 2 Complete - Attic design ready for DevOps team deployment
+
+**Goal**: Validate VLAN tests in GitHub Actions CI before manual testing.
+
+**Plan Document**: [docs/plans/CI-VALIDATION-PLAN.md](docs/plans/CI-VALIDATION-PLAN.md)
+
+**Design Document**: [docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md](docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md) ← **HANDOFF READY**
+
+**Phase 2 Deliverable** (2026-01-17):
+- ✅ Created comprehensive Attic infrastructure design document (48 pages)
+- ✅ Architecture diagrams (high-level, network topology, data flow)
+- ✅ Component specifications (Attic server, RDS, S3, ALB, security)
+- ✅ 9 decision matrices with detailed pros/cons
+- ✅ Specific infrastructure questions for DevOps team
+- ✅ Implementation checklist (7-10 hour deployment estimate)
+- ✅ Cost projections: $16/mo (shared infra) to $58/mo (dedicated)
+- ✅ Monitoring, security, DR plans included
+- ✅ Pulumi module skeleton for Go implementation
+
+**Next Action**: DevOps team reviews ATTIC-INFRASTRUCTURE-DESIGN.md, answers infrastructure questions, schedules deployment
+
+**Key Decisions Needed**:
+- [ ] Cache provider (Magic Nix Cache vs Cachix)
+- [ ] Test execution strategy (parallel vs sequential)
+- [ ] Trigger strategy (on push, PR, scheduled, manual)
+- [ ] Scope (just VLAN tests or all checks)
+
+**Estimated Costs** (with proper caching):
+- Development: ~$17 for 2 weeks
+- Maintenance: ~$3.60/month
+- Per run: ~$0.12 (3 tests × 5 min with cache)
+
+**Timeline**: 12-15 hours across multiple sessions
+
+**Approach**: Interactive design-first
+1. Phase 1: Research & Cost Analysis
+2. Phase 2: Cache Strategy Design
+3. Phase 3: Portable CI Architecture
+4. Phase 4: GitHub Actions Implementation
+5. Phase 5: GitLab CI Port
+
+**Why CI First?**:
+- Automated validation without local KVM setup
+- Proper binary caching benefits future work
+- Portable architecture for work GitLab CI
+- Cost-effective with Magic Nix Cache ($0.12/run)
+
+**Next Session**: Review CI-VALIDATION-PLAN.md, begin Phase 1 research
+
+---
+
 ### Quick Reference
 
 **Build & Run Emulation VM**:
@@ -413,9 +588,9 @@ ovs-vsctl show                             # OVS topology
 
 ---
 
-### Later Phases (After Testing Infrastructure)
+### Later Phases (After Testing Validation)
 
-#### Phase 6: Secrets Preparation
+#### Phase 8: Secrets Preparation
 1. **Generate Encryption Keys**
    - Generate age keys for admin and all physical hosts
    - Document public keys in secrets/public-keys.txt
@@ -426,7 +601,7 @@ ovs-vsctl show                             # OVS topology
    - Encrypt tokens using sops
    - Validate decryption works with age keys
 
-#### Phase 7: Hardware Deployment
+#### Phase 9: Hardware Deployment
 1. **Initial Provisioning**
    - Deploy first N100 server node using nixos-anywhere
    - Verify successful boot and SSH access
@@ -439,7 +614,7 @@ ovs-vsctl show                             # OVS topology
    - Verify all nodes join cluster successfully
    - Test cross-node communication
 
-#### Phase 8: Kubernetes Stack Deployment
+#### Phase 10: Kubernetes Stack Deployment
 1. **Core Components**
    - Install Kyverno from manifests/
    - Verify PATH patching policy applies to pods
@@ -452,7 +627,7 @@ ovs-vsctl show                             # OVS topology
    - Validate storage network traffic separation
    - Benchmark storage performance
 
-#### Phase 9: Production Hardening
+#### Phase 11: Production Hardening
 1. **Security**
    - Configure proper TLS certificates for K3s
    - Rotate default tokens to production values

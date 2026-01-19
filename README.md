@@ -4,7 +4,7 @@
 
 ## Project Status
 
-**Current Phase**: Implementation complete + emulation testing framework integrated.
+**Current Phase**: VLAN test infrastructure implemented, awaiting runtime validation.
 
 All core modules, configurations, and testing framework have been implemented:
 - ✅ Complete flake structure with modular NixOS configurations
@@ -14,10 +14,13 @@ All core modules, configurations, and testing framework have been implemented:
 - ✅ Disko-based disk partitioning for multiple layouts
 - ✅ Kyverno and Longhorn storage integration
 - ✅ Sops-nix secrets management
-- ✅ Comprehensive VM testing framework
-- ✅ **Emulation testing framework** (nested virtualization, network simulation)
+- ✅ Comprehensive VM testing framework with **parameterized network profiles**
+- ✅ **VLAN tagging test infrastructure** (802.1Q production parity testing)
+- ✅ Emulation testing framework (nested virtualization, network simulation)
 
-See CLAUDE.md for detailed implementation status and next steps.
+**Next**: Test VLAN infrastructure (see [docs/VLAN-TESTING-GUIDE.md](docs/VLAN-TESTING-GUIDE.md))
+
+See CLAUDE.md for detailed implementation status and testing checklist.
 
 ## Hardware Platform Support
 
@@ -473,19 +476,32 @@ n3x uses a multi-layer testing approach to validate configurations before hardwa
 
 ### Fast Automated Tests (nixosTest)
 
-Quick, reproducible tests for CI/CD pipelines:
+Quick, reproducible tests for CI/CD pipelines with multiple network profiles:
 
 ```bash
 # Run all checks
 nix flake check
 
-# Run specific test
-nix build .#checks.x86_64-linux.k3s-single-server
+# Parameterized cluster tests (different network topologies)
+nix build '.#checks.x86_64-linux.k3s-cluster-simple'          # Single flat network
+nix build '.#checks.x86_64-linux.k3s-cluster-vlans'           # 802.1Q VLAN tagging
+nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'   # Bonding + VLANs
+
+# Other integration tests
+nix build '.#checks.x86_64-linux.k3s-storage'        # Storage stack validation
+nix build '.#checks.x86_64-linux.k3s-network'        # Network connectivity
 
 # Interactive debugging
-nix build .#checks.x86_64-linux.k3s-single-server.driverInteractive
+nix build '.#checks.x86_64-linux.k3s-cluster-vlans.driverInteractive'
 ./result/bin/nixos-test-driver
 ```
+
+**Network Profiles**: The test framework supports multiple network configurations via parameterized builders:
+- **simple**: Single flat network (baseline)
+- **vlans**: 802.1Q VLAN tagging (cluster/storage separation)
+- **bonding-vlans**: Bonding + VLANs (production parity)
+
+See [docs/VLAN-TESTING-GUIDE.md](docs/VLAN-TESTING-GUIDE.md) for comprehensive testing instructions.
 
 ### Emulation Testing (Nested Virtualization)
 

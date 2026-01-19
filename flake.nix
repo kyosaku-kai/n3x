@@ -102,6 +102,9 @@
         config.allowUnfree = true;
       };
 
+      # Standard library
+      lib = pkgs.lib;
+
       # Package set for aarch64
       pkgsAarch64 = import nixpkgs {
         system = systems.jetson;
@@ -495,6 +498,41 @@
         # Tests cluster behavior under degraded network conditions (latency, packet loss, bandwidth limits)
         # Uses tc/netem directly on nixosTest node interfaces - works on all platforms
         k3s-network-constraints = pkgs.callPackage ./tests/integration/k3s-network-constraints.nix { inherit inputs; };
+
+        # Parameterized K3s cluster tests with different network profiles
+        # These use the shared test builder (tests/lib/mk-k3s-cluster-test.nix)
+
+        # Simple network profile - single flat network (baseline)
+        k3s-cluster-simple = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "simple";
+        };
+
+        # VLAN tagging profile - 802.1Q VLANs on single trunk
+        # Tests VLAN tagging with separate cluster (VLAN 200) and storage (VLAN 100) networks
+        k3s-cluster-vlans = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "vlans";
+        };
+
+        # Bonding + VLANs profile - full production parity
+        # Tests bonding (active-backup) with VLAN tagging for complete production simulation
+        k3s-cluster-bonding-vlans = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "bonding-vlans";
+        };
+
+        # Bond failover test - validates active-backup failover behavior
+        # Tests that k3s cluster remains operational during NIC failover/failback
+        k3s-bond-failover = pkgs.callPackage ./tests/integration/k3s-bond-failover.nix {
+          inherit pkgs lib inputs;
+        };
+
+        # VLAN negative test - validates that VLAN misconfigurations fail appropriately
+        # Tests that nodes with wrong VLAN IDs cannot form a cluster
+        k3s-vlan-negative = pkgs.callPackage ./tests/integration/k3s-vlan-negative.nix {
+          inherit pkgs lib inputs;
+        };
       };
     };
 }

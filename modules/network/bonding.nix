@@ -84,19 +84,18 @@ in
           Mode = cfg.mode;
           MIIMonitorSec = "${toString cfg.miimon}ms";
 
-          # Add primary interface if specified (for active-backup mode)
-          ${if cfg.primary != null then "PrimaryReselectPolicy" else null} =
-            if cfg.primary != null then "always" else null;
-          ${if cfg.primary != null then "ActiveSlave" else null} = cfg.primary;
+          # PrimaryReselectPolicy for active-backup mode (determines when to switch back to primary)
+          PrimaryReselectPolicy = if cfg.primary != null then "always" else "better";
 
           # LACP settings for 802.3ad mode
-          ${if cfg.mode == "802.3ad" then "LACPTransmitRate" else null} =
-            if cfg.mode == "802.3ad" then cfg.lacp_rate else null;
-
+        } // (if cfg.mode == "802.3ad" then {
+          LACPTransmitRate = cfg.lacp_rate;
+        } else { })
+        // (if elem cfg.mode [ "balance-xor" "802.3ad" "balance-tlb" ] then {
           # Hash policy for applicable modes
-          ${if elem cfg.mode [ "balance-xor" "802.3ad" "balance-tlb" ] then "TransmitHashPolicy" else null} =
-            if elem cfg.mode [ "balance-xor" "802.3ad" "balance-tlb" ] then cfg.xmit_hash_policy else null;
-
+          TransmitHashPolicy = cfg.xmit_hash_policy;
+        } else { })
+        // {
           # Additional settings for robustness
           UpDelaySec = "200ms";
           DownDelaySec = "200ms";
@@ -116,7 +115,12 @@ in
               DHCP = "no";
               IPv6AcceptRA = false;
               LinkLocalAddressing = "no";
-            };
+
+              # Mark the primary interface for active-backup mode
+              # PrimarySlave goes in the slave's .network config, not the bond's .netdev
+            } // (if cfg.primary == iface then {
+              PrimarySlave = true;
+            } else { });
           };
         })
         cfg.interfaces);
