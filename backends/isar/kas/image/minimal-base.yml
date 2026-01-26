@@ -1,0 +1,9 @@
+# Minimal Base Image configuration
+# Builds a minimal Debian Trixie base with k3s prerequisites only
+#
+# Usage: kas-container --isar build kas/base.yml:kas/machine/<target>.yml:kas/image/minimal-base.yml
+
+header:
+  version: 14
+
+target: isar-k3s-image-base

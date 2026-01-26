@@ -342,6 +342,150 @@ secrets/keys/*.age
 !secrets/**/*.yaml
 ```
 
+## Multi-Deployment Setup (Forking for Work/Personal)
+
+When forking n3x for a separate deployment (e.g., work vs personal), each deployment needs its own set of age keys and re-encrypted secrets. **Keys should NEVER be shared between deployments.**
+
+### Why Separate Keys?
+
+- **Security isolation**: Compromise of one environment doesn't affect others
+- **Access control**: Different people/teams manage different deployments
+- **Audit trail**: Clear separation of who can access what
+- **No key coordination**: Each deployment is fully independent
+
+### Fork Setup Procedure
+
+1. **Fork the repository** (or create a new branch for isolated deployment)
+
+2. **Generate new keys for your deployment**:
+   ```bash
+   # Create keys directory (gitignored)
+   mkdir -p secrets/keys
+
+   # Generate admin key
+   age-keygen -o secrets/keys/admin.age
+
+   # Generate host keys (adjust hostnames as needed)
+   age-keygen -o secrets/keys/myhost-1.age
+   age-keygen -o secrets/keys/myhost-2.age
+   age-keygen -o secrets/keys/myhost-3.age
+   ```
+
+3. **Extract public keys**:
+   ```bash
+   for f in secrets/keys/*.age; do
+     echo "=== $(basename $f) ==="
+     grep "public key:" "$f"
+   done
+   ```
+
+4. **Update `.sops.yaml` with YOUR public keys**:
+   ```yaml
+   keys:
+     - &admin age1YOUR_ADMIN_PUBLIC_KEY_HERE
+     - &myhost-1 age1YOUR_HOST1_PUBLIC_KEY_HERE
+     - &myhost-2 age1YOUR_HOST2_PUBLIC_KEY_HERE
+     - &myhost-3 age1YOUR_HOST3_PUBLIC_KEY_HERE
+   ```
+
+5. **Generate new secrets** (DO NOT reuse upstream tokens):
+   ```bash
+   # Generate fresh tokens
+   SERVER_TOKEN=$(openssl rand -hex 32)
+   AGENT_TOKEN=$(openssl rand -hex 32)
+
+   # Create unencrypted tokens file
+   cat > secrets/k3s/tokens.yaml <<EOF
+   # K3s cluster tokens - encrypted with sops
+   server-token: "$SERVER_TOKEN"
+   agent-token: "$AGENT_TOKEN"
+   EOF
+
+   # Set the key for encryption
+   export SOPS_AGE_KEY_FILE=secrets/keys/admin.age
+
+   # Encrypt the file
+   sops -e -i secrets/k3s/tokens.yaml
+   ```
+
+6. **Verify encryption works**:
+   ```bash
+   # Should decrypt successfully with your admin key
+   export SOPS_AGE_KEY_FILE=secrets/keys/admin.age
+   sops -d secrets/k3s/tokens.yaml
+
+   # Should also decrypt with host keys
+   export SOPS_AGE_KEY_FILE=secrets/keys/myhost-1.age
+   sops -d secrets/k3s/tokens.yaml
+   ```
+
+7. **Back up your private keys** to a secure location (password manager, offline storage, etc.)
+
+8. **Commit the encrypted secrets** (but NOT the private keys):
+   ```bash
+   git add secrets/.sops.yaml secrets/k3s/tokens.yaml
+   git commit -m "Initialize secrets for my-deployment environment"
+   ```
+
+### Key Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ UPSTREAM (original n3x)                                      │
+│   secrets/keys/admin.age    → upstream admin key (PRIVATE)  │
+│   secrets/k3s/tokens.yaml   → encrypted to upstream keys    │
+│   .sops.yaml                → upstream public keys          │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ YOUR FORK                                                    │
+│   secrets/keys/admin.age    → YOUR admin key (PRIVATE)      │
+│   secrets/k3s/tokens.yaml   → encrypted to YOUR keys        │
+│   .sops.yaml                → YOUR public keys              │
+│                                                              │
+│   ⚠️ NEVER copy upstream private keys!                       │
+│   ⚠️ ALWAYS generate fresh keys and tokens!                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Merging Upstream Changes
+
+When pulling updates from upstream:
+
+1. **Merge everything EXCEPT secrets**:
+   ```bash
+   git fetch upstream
+   git merge upstream/main --no-commit
+
+   # Restore YOUR secrets (don't take upstream's)
+   git checkout HEAD -- secrets/.sops.yaml secrets/k3s/tokens.yaml
+
+   git commit -m "Merge upstream, preserve local secrets"
+   ```
+
+2. If upstream adds NEW secret files, you'll need to encrypt them with your keys:
+   ```bash
+   # Check for new secret files from upstream
+   git diff upstream/main --name-only -- 'secrets/**/*.yaml'
+
+   # For each new file, decrypt with upstream's example and re-encrypt with your keys
+   # (Or create from scratch following the upstream pattern)
+   ```
+
+### Testing Without Secrets (nixosTest)
+
+The n3x test infrastructure bypasses sops entirely for CI/CD and local testing:
+
+- `tests/lib/mk-k3s-cluster-test.nix`: Uses inline test tokens
+- `tests/emulation/lib/mkInnerVMImage.nix`: Uses hardcoded test tokens
+
+This design means:
+- **Tests work without ANY age keys**
+- **CI/CD needs no secrets access**
+- **Fork testing works immediately** (no key setup required for `nix flake check`)
+
+Only real hardware deployment requires proper sops key setup.
+
 ## References
 
 - [sops-nix Documentation](https://github.com/Mic92/sops-nix)

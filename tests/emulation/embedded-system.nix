@@ -230,7 +230,13 @@ in
       };
 
       # Fast shutdown timeouts for testing environment
-      systemd.settings.Manager.DefaultTimeoutStopSec = "10s";
+      # NOTE: Using systemd.extraConfig instead of systemd.settings.Manager because
+      # systemd.settings was introduced in nixpkgs ~24.05+, and n3x's current nixpkgs
+      # revision doesn't have this option.
+      # TODO: Convert to systemd.settings.Manager.DefaultTimeoutStopSec = "10s"
+      #       when nixpkgs is updated.
+      # ERROR being worked around: "The option `systemd.settings' does not exist"
+      systemd.extraConfig = "DefaultTimeoutStopSec=10s";
 
       #############################################################################
       # LIBVIRT CONFIGURATION

@@ -1,0 +1,25 @@
+# Simple Network Profile Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Configures k3s with simple flat network (single eth1, no VLANs, no bonding).
+#   Suitable for basic testing and development.
+#
+# USAGE:
+#   kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml:kas/network/simple.yml
+#
+# IP CONFIGURATION:
+#   Default: 192.168.1.1
+#   Override with NETPLAN_NODE_IP in local.conf
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  network-simple: |
+    # Simple network profile - single flat network on eth1
+    IMAGE_INSTALL:append = " netplan-k3s-config"
+    NETPLAN_PROFILE = "simple"
+    NETPLAN_NODE_IP = "192.168.1.1"

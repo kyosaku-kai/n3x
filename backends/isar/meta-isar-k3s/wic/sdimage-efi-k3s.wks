@@ -1,0 +1,14 @@
+# K3s optimized EFI disk image
+#
+# Based on sdimage-efi.wks but with extra space for k3s runtime.
+# k3s extracts ~200MB of embedded binaries on first run to /var/lib/rancher/k3s/data/
+# We add 512MB extra space to accommodate this plus container images.
+
+part /boot --source bootimg-efi-isar --sourceparams "loader=grub-efi" --ondisk sda --label efi --part-type EF00 --align 1024
+
+# Add 512MB extra space for k3s runtime binaries and container images
+part / --source rootfs --ondisk sda --fstype ext4 --mkfs-extraopts "-T default" --label platform --align 1024 --use-uuid --exclude-path boot/ --extra-space 512M
+
+include expand-padding.wks.inc
+
+bootloader --ptable gpt --timeout 3 --append "rootwait console=ttyS0,115200 console=tty0"

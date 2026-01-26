@@ -49,7 +49,8 @@ let
   make-disk-image = import "${inputs.nixpkgs}/nixos/lib/make-disk-image.nix";
 
   # Paths relative to baseDir (tests/emulation)
-  hostsDir = baseDir + "/../../hosts";
+  # hosts/ is at backends/nixos/hosts/, not under tests/
+  hostsDir = baseDir + "/../../backends/nixos/hosts";
   innerVmBaseModule = baseDir + "/lib/inner-vm-base.nix";
 
   # Build NixOS configuration for the inner VM

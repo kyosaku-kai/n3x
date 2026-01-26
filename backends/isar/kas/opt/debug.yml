@@ -1,0 +1,12 @@
+# Debug build fragment
+# Usage: kas-container build kas/base.yml:kas/machine/<target>.yml:kas/opt/debug.yml
+
+header:
+  version: 14
+
+local_conf_header:
+  debug: |
+    # Debug configuration
+    # Include debug symbols and extra tools
+    IMAGE_INSTALL:append = " gdb strace"
+    DEBUG_BUILD = "1"

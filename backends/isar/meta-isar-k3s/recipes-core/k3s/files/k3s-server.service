@@ -1,0 +1,66 @@
+# =============================================================================
+# K3s Server Systemd Service Unit
+# =============================================================================
+#
+# This service runs K3s in server (control plane) mode. It starts automatically
+# on boot and manages the Kubernetes control plane components:
+#   - API Server: Kubernetes REST API endpoint
+#   - Scheduler: Assigns pods to nodes
+#   - Controller Manager: Runs cluster controllers
+#   - etcd: Cluster state database (embedded by default)
+#
+# CONFIGURATION:
+#   Edit /etc/default/k3s-server to set K3S_SERVER_OPTS
+#   Or add YAML files to /etc/rancher/k3s/config.yaml.d/
+#
+# COMMANDS:
+#   systemctl start k3s-server    # Start the service
+#   systemctl stop k3s-server     # Stop the service
+#   systemctl status k3s-server   # Check service status
+#   journalctl -u k3s-server      # View logs
+#
+# =============================================================================
+
+[Unit]
+Description=K3s Lightweight Kubernetes Server
+Documentation=https://k3s.io
+
+# Wait for network before starting (required for cluster communication)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# Type=notify: Service signals systemd when it's ready
+Type=notify
+
+# Load environment variables from configuration files
+# The '-' prefix means the file is optional (no error if missing)
+EnvironmentFile=-/etc/default/k3s-server
+EnvironmentFile=-/etc/rancher/k3s/k3s-server.env
+
+# Process management settings for container workloads
+KillMode=process
+Delegate=yes
+
+# Resource limits optimized for running containers
+# Setting these to infinity avoids accounting overhead in cgroups
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+
+# Startup and restart behavior
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+
+# Pre-start check: Disable NetworkManager cloud-setup if present
+# (Can interfere with K3s networking)
+ExecStartPre=/bin/sh -xc '! /usr/bin/systemctl is-enabled --quiet nm-cloud-setup.service 2>/dev/null'
+
+# Main command: Start K3s in server mode with configured options
+ExecStart=/usr/bin/k3s server $K3S_SERVER_OPTS
+
+[Install]
+# Start on normal multi-user boot
+WantedBy=multi-user.target

@@ -1,0 +1,57 @@
+# =============================================================================
+# A/B Rootfs EFI Disk Image for SWUpdate OTA
+# =============================================================================
+#
+# Creates a GPT partitioned EFI disk with dual rootfs partitions for A/B OTA
+# updates using SWUpdate.
+#
+# Partition Layout:
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │ GPT                                                                       │
+# ├──────────┬───────────────┬───────────────┬──────────────────────────────┤
+# │ EFI      │ APP           │ APP_b         │ data                         │
+# │ (ESP)    │ rootfs-a      │ rootfs-b      │ persistent                   │
+# │ 256MB    │ 2GB           │ 2GB           │ remaining                    │
+# │ vfat     │ ext4          │ ext4          │ ext4                         │
+# │ /boot    │ / (active)    │ (inactive)    │ /data                        │
+# └──────────┴───────────────┴───────────────┴──────────────────────────────┘
+#
+# Usage with kas:
+#   kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/feature/swupdate.yml
+#
+# SWUpdate Flow:
+#   1. System boots from APP (rootfs-a)
+#   2. SWUpdate applies update to APP_b (rootfs-b)
+#   3. SWUpdate sets grubenv rootfs_slot=b
+#   4. System reboots into APP_b
+#   5. Next update goes to APP (now inactive)
+#
+# GRUB Configuration:
+#   The EFI partition contains GRUB bootloader and grubenv file.
+#   GRUB reads rootfs_slot from grubenv to select boot partition.
+#   grubenv location: /boot/efi/EFI/BOOT/grubenv
+#
+# =============================================================================
+
+# EFI System Partition (ESP)
+# Contains GRUB-EFI bootloader and grubenv for A/B switching
+part /boot --source bootimg-efi-isar --sourceparams "loader=grub-efi" --ondisk sda --label efi --part-type EF00 --align 1024
+
+# Rootfs A (APP) - Primary partition, initially active
+# This is where the image rootfs is installed during initial flash
+part / --source rootfs --ondisk sda --fstype ext4 --mkfs-extraopts "-T default" --label APP --align 1024 --use-uuid --exclude-path boot/ --fixed-size 2G
+
+# Rootfs B (APP_b) - Secondary partition, initially empty
+# SWUpdate writes updates here; formatted but no content initially
+# Note: --no-table not available; this creates empty ext4 partition
+part --ondisk sda --fstype ext4 --mkfs-extraopts "-T default" --label APP_b --align 1024 --fixed-size 2G
+
+# Persistent data partition
+# Survives OTA updates; used for configuration, logs, k3s data
+# Note: --fixed-size required for partitions without --source; can expand later via growpart
+part /data --ondisk sda --fstype ext4 --mkfs-extraopts "-T default" --label data --align 1024 --use-uuid --fixed-size 1G
+
+# Bootloader configuration
+# GPT required for EFI; timeout allows boot interruption for debugging
+# configfile points to A/B aware GRUB config that reads grubenv for slot selection
+bootloader --ptable gpt --timeout 3 --configfile grub-ab.cfg --append "rootwait console=ttyS0,115200 console=tty0"

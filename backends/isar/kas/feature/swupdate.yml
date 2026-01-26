@@ -1,0 +1,51 @@
+# SWUpdate OTA feature overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Enables SWUpdate OTA capability with A/B rootfs partition layout.
+#   Adds SWUpdate package/configuration and uses A/B partition WKS template.
+#
+# USAGE:
+#   Append to kas build command for QEMU targets:
+#     kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/minimal-base.yml:kas/feature/swupdate.yml
+#
+#   For testing with VM backdoor:
+#     kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/minimal-base.yml:kas/feature/swupdate.yml:kas/test-overlay.yml
+#
+# PARTITION LAYOUT:
+#   Uses sdimage-efi-ab.wks which creates:
+#   - EFI partition (256MB) - GRUB + grubenv for A/B switching
+#   - APP partition (2GB) - rootfs slot A (active by default)
+#   - APP_b partition (2GB) - rootfs slot B (initially empty)
+#   - data partition (remaining) - persistent storage
+#
+# OTA WORKFLOW:
+#   1. SWUpdate writes update to inactive partition (APP_b if on APP)
+#   2. SWUpdate sets grubenv rootfs_slot=b
+#   3. System reboots into updated partition
+#   4. Next update targets the now-inactive partition
+#
+# HARDWARE COMPATIBILITY:
+#   The SWUPDATE_HW_COMPAT variable is used for bundle verification.
+#   Override in machine configs for actual hardware targets.
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  swupdate-config: |
+    # Include SWUpdate configuration package (pulls swupdate from Debian)
+    IMAGE_INSTALL:append = " swupdate-config"
+
+    # Use A/B rootfs partition layout for OTA
+    WKS_FILE = "sdimage-efi-ab.wks"
+
+    # Hardware compatibility string for SWUpdate bundles
+    # Override per-machine: SWUPDATE_HW_COMPAT:qemuamd64 = "qemu-amd64"
+    SWUPDATE_HW_COMPAT ?= "isar-k3s"
+
+    # Generate ext4 image in addition to WIC (for update bundles)
+    # The raw handler can write ext4 images directly to partitions
+    IMAGE_FSTYPES:append = " ext4"

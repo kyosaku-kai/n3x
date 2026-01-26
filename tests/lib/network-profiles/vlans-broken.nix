@@ -8,15 +8,19 @@
 #   predictable failures, validating our test assertions work correctly.
 #
 # MISCONFIGURATION:
-#   n100-1: Uses correct VLAN ID (200) for cluster
-#   n100-2: Uses WRONG VLAN ID (201) for cluster - intentionally broken
-#   n100-3: Uses WRONG VLAN ID (202) for cluster - intentionally broken
+#   server-1: Uses correct VLAN ID (200) for cluster
+#   server-2: Uses WRONG VLAN ID (201) for cluster - intentionally broken
+#   agent-1/2: Uses WRONG VLAN IDs (202/203) for cluster - intentionally broken
 #
 # EXPECTED BEHAVIOR:
 #   - Nodes boot successfully
-#   - n100-1 starts k3s and becomes Ready
-#   - n100-2 and n100-3 CANNOT communicate with n100-1 (different VLANs)
+#   - server-1 starts k3s and becomes Ready
+#   - Other nodes CANNOT communicate with server-1 (different VLANs)
 #   - Cluster formation FAILS (nodes can't join)
+#
+# UNIFIED NETWORK SCHEMA (A4):
+#   This profile intentionally VIOLATES the unified schema to test failure detection.
+#   Normal schema requires consistent VLAN IDs; this profile uses different IDs per node.
 #
 # USAGE:
 #   Used by k3s-vlan-negative test to verify failure detection
@@ -27,41 +31,46 @@ let
   # Single source of truth for IPs
   # Note: IPs are in same subnet but VLANs are different!
   # This simulates misconfiguration where IPs are correct but VLAN tags are wrong
+  # NOTE: These are TEST VM names. Physical hosts use different naming.
   clusterIPs = {
-    n100-1 = "192.168.200.1";
-    n100-2 = "192.168.200.2";
-    n100-3 = "192.168.200.3";
+    server-1 = "192.168.200.1";
+    server-2 = "192.168.200.2";
+    agent-1 = "192.168.200.3";
+    agent-2 = "192.168.200.4";
   };
 
   storageIPs = {
-    n100-1 = "192.168.100.1";
-    n100-2 = "192.168.100.2";
-    n100-3 = "192.168.100.3";
+    server-1 = "192.168.100.1";
+    server-2 = "192.168.100.2";
+    agent-1 = "192.168.100.3";
+    agent-2 = "192.168.100.4";
   };
 
   # INTENTIONAL MISCONFIGURATION: Different VLAN IDs per node
   # This simulates a common configuration error where nodes are
   # accidentally configured with different VLAN IDs
   clusterVlanIds = {
-    n100-1 = 200; # Correct
-    n100-2 = 201; # WRONG - different VLAN, can't reach n100-1
-    n100-3 = 202; # WRONG - different VLAN, can't reach n100-1
+    server-1 = 200; # Correct
+    server-2 = 201; # WRONG - different VLAN, can't reach server-1
+    agent-1 = 202; # WRONG - different VLAN, can't reach server-1
+    agent-2 = 203; # WRONG - different VLAN, can't reach server-1
   };
 
   # Storage VLAN - also mismatched for consistency
   storageVlanIds = {
-    n100-1 = 100; # Correct
-    n100-2 = 101; # WRONG
-    n100-3 = 102; # WRONG
+    server-1 = 100; # Correct
+    server-2 = 101; # WRONG
+    agent-1 = 102; # WRONG
+    agent-2 = 103; # WRONG
   };
 in
 {
   # Export for test scripts
   inherit clusterIPs storageIPs clusterVlanIds storageVlanIds;
 
-  # Server API endpoint - n100-2 and n100-3 will try to reach this but can't
+  # Server API endpoint - server-2 and agent-1 will try to reach this but can't
   # because they're on different VLANs
-  serverApi = "https://${clusterIPs.n100-1}:6443";
+  serverApi = "https://${clusterIPs.server-1}:6443";
 
   # K3s network CIDRs
   clusterCidr = "10.42.0.0/16";
@@ -154,7 +163,7 @@ in
       clusterIP = clusterIPs.${nodeName};
       clusterVlanId = clusterVlanIds.${nodeName};
       vlanName = "eth1.${toString clusterVlanId}";
-      isServer = nodeName == "n100-1" || nodeName == "n100-2";
+      isServer = nodeName == "server-1" || nodeName == "server-2";
     in
     [
       # Use cluster VLAN for node IP
@@ -164,6 +173,6 @@ in
     ]
     ++ lib.optionals isServer [
       "--advertise-address=${clusterIP}"
-      "--tls-san=${clusterIPs.n100-1}"
+      "--tls-san=${clusterIPs.server-1}"
     ];
 }

@@ -65,6 +65,28 @@ The framework adapts to available hardware capabilities - from simple single-NIC
 
 ## Architecture Overview
 
+### Backend Abstraction Framework
+
+n3x provides unified abstractions that work across multiple OS backends. This allows tests and configurations to be written once and run on either NixOS or ISAR (Debian-based embedded Linux) backends.
+
+| Abstraction | Description | NixOS Backend | ISAR Backend |
+|-------------|-------------|---------------|--------------|
+| **Machine** | Hardware platform: arch + BSP + boot method | `system` + `hardware/<machine>.nix` | `MACHINE` variable + `recipes-bsp/<machine>/` |
+| **Role** | Cluster function: `server` or `agent` | `modules/roles/k3s-server.nix`, `k3s-agent.nix` | `classes/k3s-server.bbclass`, `k3s-agent.bbclass` |
+| **System** | Complete buildable artifact | `nixosConfigurations.<name>` | `kas/<system>.yml` + image recipe |
+| **Network Config** | Interface and IP assignments | NixOS networking module options | netplan YAML via systemd-networkd |
+| **Service Mgmt** | systemd unit management | NixOS service options | ISAR recipe/postinst scripts |
+| **K3s Binary** | Kubernetes distribution | nixpkgs `k3s` package | Static binary from GitHub releases |
+| **Test Harness** | VM test execution | NixOS VM test driver (native) | NixOS VM test driver (with ISAR .wic images) |
+
+**Example Machines:**
+- `qemu-amd64` - x86_64 QEMU VM (BIOS/UEFI boot) for testing
+- `qemu-arm64` - aarch64 QEMU VM (UEFI boot) for emulation testing
+- `n100-bare` - Physical Intel N100 mini-PCs (UEFI boot)
+- `jetson-orin-nano` - NVIDIA Jetson (L4T/cboot boot)
+
+Note: `qemu-amd64` and `n100-bare` are **different machines** even though both are x86_64, because they have different BSP and driver requirements.
+
 ### Core Design Philosophy
 
 The system follows an immutable infrastructure approach similar to Talos Linux but with operational flexibility for edge deployments:

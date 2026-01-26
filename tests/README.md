@@ -57,6 +57,28 @@ These tests use nested virtualization for complex scenarios. They require native
 | `nixpkgs-fmt` | Nix code formatting validation | `nix build '.#checks.x86_64-linux.nixpkgs-fmt'` |
 | `build-all` | Validates all configurations build | `nix build '.#checks.x86_64-linux.build-all'` |
 
+### ARM64/aarch64 Validation (Jetson)
+
+Build validation tests for Jetson (aarch64-linux) configurations. These ensure ARM64 configs build correctly without runtime testing.
+
+| Check | Description | Run Command |
+|-------|-------------|-------------|
+| `jetson-1-build` | Builds jetson-1 NixOS system derivation | `nix build '.#checks.aarch64-linux.jetson-1-build'` |
+| `jetson-2-build` | Builds jetson-2 NixOS system derivation | `nix build '.#checks.aarch64-linux.jetson-2-build'` |
+
+**NOTE**: Building these checks requires an aarch64 builder:
+- Native aarch64 hardware (Jetson, ARM server, Apple Silicon Mac with Lima)
+- Remote aarch64 builder (see [Nix Remote Builders](https://nixos.wiki/wiki/Distributed_build))
+- binfmt-misc emulation (very slow, not recommended for full builds)
+
+```bash
+# On x86_64 with configured aarch64 remote builder:
+nix build '.#checks.aarch64-linux.jetson-1-build' --builders 'ssh://aarch64-builder'
+
+# Verify config evaluates without building (no builder required):
+nix eval '.#nixosConfigurations.jetson-1.config.system.build.toplevel' --no-build
+```
+
 ## Network Profiles
 
 The test framework supports multiple network configurations via **parameterized test builders**. This allows testing different network topologies without code duplication.
@@ -242,14 +264,46 @@ For `vlans` and `bonding-vlans` profiles (best-effort in nixosTest):
 
 ### Platform Support Matrix
 
-| Platform | nixosTest Multi-Node | vsim (Nested Virt) | Notes |
-|----------|---------------------|-------------------|-------|
-| Native Linux | YES | YES | Full support |
-| WSL2 (Windows 11) | YES | NO | Hyper-V limits to 2 nesting levels |
-| Darwin (macOS) | YES* | NO | Requires Lima/UTM VM host |
-| AWS/Cloud | YES | Varies | Requires KVM-enabled instances |
+| Platform | nixosTest Multi-Node | vsim (Nested Virt) | aarch64 Build | Notes |
+|----------|---------------------|-------------------|---------------|-------|
+| Native Linux (x86_64) | YES | YES | Requires builder | Full support |
+| Native Linux (aarch64) | YES | YES | YES | ARM servers, Jetson |
+| WSL2 (Windows 11) | YES | NO | Requires builder | Hyper-V limits to 2 nesting levels |
+| Darwin (macOS arm64) | YES* | NO | YES (native) | Requires Lima/UTM VM host |
+| Darwin (macOS x86_64) | YES* | NO | Requires builder | Requires Lima/UTM VM host |
+| AWS/Cloud | YES | Varies | Graviton instances | Requires KVM-enabled instances |
 
 *Requires running inside a Linux VM (Lima or UTM)
+
+#### aarch64 Builder Options
+
+To build ARM64 (Jetson) configurations from x86_64 hosts:
+
+1. **Remote aarch64 builder** (recommended for CI/CD):
+   ```bash
+   # Configure in /etc/nix/machines or nix.conf
+   # Example: ssh://builder@aarch64-host x86_64-linux,aarch64-linux
+   nix build '.#checks.aarch64-linux.jetson-1-build'
+   ```
+
+2. **Apple Silicon Mac with Lima** (cross-compile):
+   ```bash
+   # Lima runs native aarch64-linux, can serve as builder
+   lima nix build '.#checks.aarch64-linux.jetson-1-build'
+   ```
+
+3. **AWS Graviton instance**:
+   ```bash
+   # Launch aarch64 NixOS AMI on Graviton
+   # Run builds natively
+   ```
+
+4. **binfmt-misc emulation** (very slow, last resort):
+   ```bash
+   # Enable binfmt in NixOS configuration
+   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+   # Warning: Full system builds may take hours
+   ```
 
 ### WSL2 (Windows 11)
 

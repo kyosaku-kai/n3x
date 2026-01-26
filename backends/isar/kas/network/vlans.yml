@@ -1,0 +1,27 @@
+# VLANs Network Profile Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Configures k3s with 802.1Q VLAN tagging on eth1 trunk.
+#   - VLAN 200: Cluster traffic (k3s API, flannel)
+#   - VLAN 100: Storage traffic (Longhorn, iSCSI)
+#
+# USAGE:
+#   kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml:kas/network/vlans.yml
+#
+# IP CONFIGURATION:
+#   Default: 192.168.200.1 (cluster), 192.168.100.1 (storage)
+#   Override with NETPLAN_CLUSTER_IP / NETPLAN_STORAGE_IP in local.conf
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  network-vlans: |
+    # VLANs network profile - 802.1Q tagging on eth1 trunk
+    IMAGE_INSTALL:append = " netplan-k3s-config"
+    NETPLAN_PROFILE = "vlans"
+    NETPLAN_CLUSTER_IP = "192.168.200.1"
+    NETPLAN_STORAGE_IP = "192.168.100.1"

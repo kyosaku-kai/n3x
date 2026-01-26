@@ -1,0 +1,35 @@
+# QEMU ARM64 machine configuration
+# Usage: kas-container --isar build kas/base.yml:kas/machine/qemu-arm64.yml
+# Note: Requires binfmt_misc configured for QEMU user-mode emulation
+#
+# Cross-compilation vs QEMU user-mode emulation:
+#   ISAR_CROSS_COMPILE=1 (default): Use host cross-toolchain for builds
+#     - Faster compilation (native speed)
+#     - May have compatibility issues with some packages
+#     - Requires cross-toolchain packages available
+#
+#   ISAR_CROSS_COMPILE=0: Use QEMU user-mode emulation
+#     - Slower (emulated ARM execution)
+#     - More compatible (runs native ARM binaries directly)
+#     - Required when packages have arm64-specific build scripts
+#
+# For ISAR (Debian-based), most build time is package installation not
+# compilation, so QEMU overhead is minimal. Cross-compile mainly helps
+# when building custom packages from source.
+
+header:
+  version: 14
+  includes:
+    - ../base.yml
+
+machine: qemuarm64
+distro: debian-trixie
+
+# Isar multiconfig target format: mc:{machine}-{distro_short}:{image}
+target: mc:qemuarm64-trixie:isar-image-base
+
+# Note: ISAR_CROSS_COMPILE defaults to 1 (cross-toolchain) in ISAR
+# For maximum compatibility, set to 0 if you encounter build issues:
+# local_conf_header:
+#   qemu-arm64-compat: |
+#     ISAR_CROSS_COMPILE = "0"

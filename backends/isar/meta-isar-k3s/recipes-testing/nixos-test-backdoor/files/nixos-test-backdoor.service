@@ -1,0 +1,30 @@
+[Unit]
+Description=NixOS Test Driver Backdoor Shell
+Documentation=https://nixos.org/manual/nixos/stable/#sec-nixos-tests
+
+# Start early - after basic system is up but before user services
+DefaultDependencies=no
+After=systemd-journald.socket
+After=systemd-udev-settle.service
+Before=multi-user.target
+
+# Only start if virtio-console device exists (i.e., running under test driver)
+ConditionPathExists=/dev/hvc0
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/nixos-test/backdoor.sh
+StandardInput=null
+StandardOutput=null
+StandardError=null
+
+# Run as root for full system access
+User=root
+Group=root
+
+# Keep trying if it fails
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

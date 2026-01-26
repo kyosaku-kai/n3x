@@ -1,0 +1,28 @@
+# =============================================================================
+# Simple Network Profile - Single Flat Network
+# =============================================================================
+#
+# TOPOLOGY:
+#   All nodes on single flat network (192.168.1.0/24)
+#   No VLANs, no bonding - simplest possible configuration
+#
+# USAGE:
+#   Deploy to /etc/netplan/60-k3s-network.yaml
+#   Replace @NODE_IP@ with actual node IP (e.g., 192.168.1.1)
+#
+# QEMU TEST NOTE:
+#   - eth0: QEMU NAT for external access (used by backdoor/test driver)
+#   - eth1: k3s cluster network (configured here)
+#
+# =============================================================================
+
+network:
+  version: 2
+  renderer: networkd
+
+  ethernets:
+    # Keep eth0 unconfigured here - managed by QEMU/DHCP for test access
+    eth1:
+      addresses:
+        - @NODE_IP@/24
+      # No default gateway - eth0 handles external routing

@@ -1,0 +1,16 @@
+# Default arguments for swupdate daemon
+#
+# This file is sourced by /etc/init.d/swupdate or systemd service
+# See: swupdate --help for all options
+#
+# For A/B updates with GRUB, ensure CONFIG_GRUBENV_PATH is set at compile time
+# The Debian package typically uses /boot/efi/EFI/BOOT/grubenv
+
+# Enable verbose output and use config file
+SWUPDATE_ARGS="-v -f /etc/swupdate.cfg"
+
+# For web interface (swupdate-www), uncomment:
+# SWUPDATE_ARGS="-v -f /etc/swupdate.cfg -w"
+
+# For socket interface only (no web), use:
+# SWUPDATE_ARGS="-v -f /etc/swupdate.cfg"

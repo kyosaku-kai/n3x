@@ -1,0 +1,13 @@
+# QEMU x86_64 machine configuration
+# Usage: kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml
+
+header:
+  version: 14
+  includes:
+    - ../base.yml
+
+machine: qemuamd64
+distro: debian-trixie
+
+# Isar multiconfig target format: mc:{machine}-{distro_short}:{image}
+target: mc:qemuamd64-trixie:isar-image-base

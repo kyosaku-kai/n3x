@@ -1,0 +1,48 @@
+# QEMU x86_64 machine configuration - V3C18i emulation profile
+#
+# Purpose: Emulate AMD V3C18i platform as closely as possible in QEMU
+# Usage: kas-container --isar build kas/base.yml:kas/machine/qemu-amd64-v3c18i.yml
+#
+# Emulation notes:
+# - Uses Q35 machine type (modern chipset, closer to AMD platforms)
+# - UEFI boot via OVMF firmware (matches V3C18i UEFI)
+# - Standard serial console (ttyS0) for simplicity
+# - Same WKS file as V3C18i (efi-plus-pcbios for hybrid boot)
+#
+# QEMU launch command:
+#   qemu-system-x86_64 -machine q35 -m 4G -smp 4 -nographic \
+#     -drive if=pflash,format=raw,readonly=on,file=OVMF_CODE.fd \
+#     -drive if=pflash,format=raw,file=OVMF_VARS.fd \
+#     -drive file=<image>.wic,format=raw,if=virtio \
+#     -serial mon:stdio
+#
+# Or simpler with -bios:
+#   qemu-system-x86_64 -machine q35 -m 4G -smp 4 -nographic \
+#     -bios OVMF.fd \
+#     -drive file=<image>.wic,format=raw \
+#     -serial mon:stdio
+
+header:
+  version: 14
+  includes:
+    - ../base.yml
+
+machine: qemuamd64
+distro: debian-trixie
+
+# Isar multiconfig target format: mc:{machine}-{distro_short}:{image}
+target: mc:qemuamd64-trixie:isar-image-base
+
+local_conf_header:
+  qemu-v3c18i-emu: |
+    # V3C18i emulation profile
+    # Use same WKS as real V3C18i for consistent partitioning
+    WKS_FILE = "efi-plus-pcbios"
+
+    # Include AMD microcode (same as real V3C18i)
+    IMAGE_PREINSTALL:append = " amd64-microcode"
+
+    # Serial console on ttyS0 (standard QEMU serial)
+    # Real V3C18i uses ttyS4, but ttyS0 is simpler for QEMU
+    MACHINE_SERIAL = "ttyS0"
+    BAUDRATE_TTY = "115200"

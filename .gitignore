@@ -108,3 +108,8 @@ dist/
 
 # vim session files
 *.vim
+
+# Claude Code session state and logs
+.claude-task-logs/
+.claude-task-state
+.claude/settings.local.json

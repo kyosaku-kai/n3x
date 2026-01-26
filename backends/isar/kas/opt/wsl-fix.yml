@@ -1,0 +1,26 @@
+# WSL2 sync() hang fix overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Enables the gptfdisk-wsl-fix package in the WIC imager to prevent
+#   the sgdisk sync() hang that occurs in WSL2 with 9p mounts.
+#
+# USAGE:
+#   Append to kas build command when building in WSL2:
+#     kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/opt/wsl-fix.yml
+#
+# NOTES:
+#   - Only needed when building in WSL2 with /mnt/c mounted
+#   - Safe to use on non-WSL systems (wrapper checks for library)
+#   - Alternative: Use `kas-build` from devShell which unmounts 9p before build
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  wsl-fix: |
+    # Add gptfdisk-wsl-fix to WIC imager for WSL2 builds
+    # This wraps sgdisk with LD_PRELOAD to disable the problematic sync() call
+    IMAGER_INSTALL:wic += "gptfdisk-wsl-fix"

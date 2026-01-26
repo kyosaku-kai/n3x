@@ -23,15 +23,38 @@ This file provides project-specific rules and task tracking for Claude Code when
 ## Project Status and Next Tasks
 
 ### Current Status
-- **Phase**: Phase 6 ✅ VALIDATED (VLAN Infrastructure), Phase 7 Optional (CI Validation)
-- **Repository State**: All 3 VLAN network profile tests passing on WSL2/Hyper-V
-- **Branch**: `simint` (key commits: `080eeb3` HA fix, `f4dc6cc` bonding fix, `8e70f85` VLAN profiles)
+- **Phase**: Phase 8 ✅ COMPLETE - Ready for Phase 9 (Hardware Deployment)
+- **Repository State**: Clean working tree, all prerequisites validated
+- **Branch**: `simint` (1 commit ahead of origin)
 - **Implementation**: ✅ Complete - 3 network profiles with parameterized test builder
 - **Runtime Testing**: ✅ VALIDATED (2026-01-17)
   - `k3s-cluster-simple` - PASSED (flat network baseline)
   - `k3s-cluster-vlans` - PASSED (VLAN 200/100 tagging, nodes show 192.168.200.x IPs)
   - `k3s-cluster-bonding-vlans` - PASSED (bond0 + VLAN tagging)
-- **Next Action**: Phase 8 (Secrets Preparation) or Phase 7 (CI) based on priority
+- **Secrets Management**: ✅ COMPLETE (2026-01-19) - All keys regenerated and stored in Bitwarden
+- **Multi-Architecture**: ✅ COMPLETE (2026-01-19) - k3s server role works on x86_64 and aarch64
+- **Next Phase**: Phase 9 (Hardware Deployment) - Deploy first N100 node with nixos-anywhere
+
+### Phase 8 Summary (Secrets Management) - Completed 2026-01-19
+
+**Outcome**: Original keys not found on thinky-nixos or Bitwarden. Fresh keys generated and stored.
+
+**Completed**:
+1. ✅ Generated 4 new age keys (admin + n100-1/2/3)
+2. ✅ Updated `.sops.yaml` with new public keys + fixed rule ordering
+3. ✅ Generated new k3s tokens and encrypted with all 4 recipients
+4. ✅ Verified decryption works with all keys
+5. ✅ Stored keys in Bitwarden (folder: Infrastructure/Age-Keys)
+6. ✅ Committed changes (see commits f708bde, e20b70a)
+
+**Key Files**:
+- `secrets/keys/*.age` - Private keys (gitignored, backed up to Bitwarden)
+- `secrets/.sops.yaml` - SOPS configuration with public keys
+- `secrets/k3s/tokens.yaml` - Encrypted k3s tokens
+- `docs/SECRETS-SETUP.md` - Multi-deployment documentation
+
+**Deferred**:
+- `.claude/user-plans/004-bitwarden-infrastructure-organization.md` - Cleanup duplicate/old entries
 
 ### Completed Implementation Tasks
 
@@ -462,18 +485,38 @@ The OVS emulation framework remains available for interactive testing on native 
 
 ##### Testing Status & Validation Checklist
 
-**Implementation**: ✅ Complete (Commits: `8e70f85`, `080eeb3`, `f4dc6cc`)
-**Runtime Validation**: ✅ Complete (2026-01-17)
+**Implementation**: ✅ Complete (Commits: `8e70f85`, `080eeb3`, `f4dc6cc`, `c845d78`)
+**Runtime Validation**: ✅ Complete (2026-01-19)
 
 | Test Variant | Status | Platform Tested | Notes |
 |--------------|--------|-----------------|-------|
-| k3s-cluster-simple | ✅ PASSED | WSL2 (Hyper-V) | Flat network baseline, ~90s |
-| k3s-cluster-vlans | ✅ PASSED | WSL2 (Hyper-V) | VLAN 200 IPs verified (192.168.200.x) |
-| k3s-cluster-bonding-vlans | ✅ PASSED | WSL2 (Hyper-V) | Bond + VLAN tagging works |
+| k3s-cluster-simple | ✅ PASSED | WSL2 (Hyper-V) | Flat network baseline, ~145s |
+| k3s-cluster-vlans | ✅ PASSED | WSL2 (Hyper-V) | VLAN 200 IPs verified (192.168.200.x), ~199s |
+| k3s-cluster-bonding-vlans | ✅ PASSED | WSL2 (Hyper-V) | Bond + VLAN tagging works, ~156s |
+| k3s-bond-failover | ⚠️ LIMITED | WSL2 (Hyper-V) | Test infra limitation (see below) |
+| k3s-vlan-negative | ✅ VALIDATED | WSL2 (Hyper-V) | Misconfiguration correctly detected |
 
 **Key Fixes Applied**:
 1. `080eeb3` - Fixed k3s HA cluster formation (lib.recursiveUpdate for extraFlags merge)
 2. `f4dc6cc` - Fixed bondConfig invalid ActiveSlave option (moved PrimarySlave to slave network config)
+3. `c845d78` - Fixed VLAN ID assertion patterns for iproute2 output format
+
+**Known Test Limitations** (not bugs):
+
+1. **k3s-bond-failover**: Test fails due to nixosTest infrastructure limitation
+   - `virtualisation.vlans = [1 2]` creates two separate virtual networks
+   - When eth1 goes down, eth2 is on a different network - other nodes unreachable
+   - Real hardware doesn't have this problem (both NICs on same switch)
+   - The bonding module itself works correctly
+
+2. **k3s-vlan-negative**: Intentionally has long timeout (~600s)
+   - Validates that misconfigured VLANs prevent cluster formation
+   - Shows `no route to host` errors as expected
+
+3. **Cross-VLAN isolation**: Best-effort in nixosTest
+   - nixosTest shared bridge doesn't enforce 802.1Q isolation
+   - VLAN interfaces are created correctly with proper tags
+   - Real isolation requires OVS emulation or physical hardware
 
 **Validation Criteria** (all met):
 - ✅ All 3 tests build without Nix errors
@@ -510,56 +553,13 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple' --rebuild
 
 ---
 
-#### Phase 7: CI Validation Infrastructure ⏳
+#### Phase 7: CI Validation Infrastructure 🔄 **DEFERRED**
 
-**Status**: Phase 2 Complete - Attic design ready for DevOps team deployment
+**Status**: DEFERRED - will be revisited after Phase 8 and Phase 10
 
-**Goal**: Validate VLAN tests in GitHub Actions CI before manual testing.
+**Reason for Deferral**: Prioritizing secrets management (Phase 8) and k8s deployment (Phase 10) tests first.
 
-**Plan Document**: [docs/plans/CI-VALIDATION-PLAN.md](docs/plans/CI-VALIDATION-PLAN.md)
-
-**Design Document**: [docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md](docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md) ← **HANDOFF READY**
-
-**Phase 2 Deliverable** (2026-01-17):
-- ✅ Created comprehensive Attic infrastructure design document (48 pages)
-- ✅ Architecture diagrams (high-level, network topology, data flow)
-- ✅ Component specifications (Attic server, RDS, S3, ALB, security)
-- ✅ 9 decision matrices with detailed pros/cons
-- ✅ Specific infrastructure questions for DevOps team
-- ✅ Implementation checklist (7-10 hour deployment estimate)
-- ✅ Cost projections: $16/mo (shared infra) to $58/mo (dedicated)
-- ✅ Monitoring, security, DR plans included
-- ✅ Pulumi module skeleton for Go implementation
-
-**Next Action**: DevOps team reviews ATTIC-INFRASTRUCTURE-DESIGN.md, answers infrastructure questions, schedules deployment
-
-**Key Decisions Needed**:
-- [ ] Cache provider (Magic Nix Cache vs Cachix)
-- [ ] Test execution strategy (parallel vs sequential)
-- [ ] Trigger strategy (on push, PR, scheduled, manual)
-- [ ] Scope (just VLAN tests or all checks)
-
-**Estimated Costs** (with proper caching):
-- Development: ~$17 for 2 weeks
-- Maintenance: ~$3.60/month
-- Per run: ~$0.12 (3 tests × 5 min with cache)
-
-**Timeline**: 12-15 hours across multiple sessions
-
-**Approach**: Interactive design-first
-1. Phase 1: Research & Cost Analysis
-2. Phase 2: Cache Strategy Design
-3. Phase 3: Portable CI Architecture
-4. Phase 4: GitHub Actions Implementation
-5. Phase 5: GitLab CI Port
-
-**Why CI First?**:
-- Automated validation without local KVM setup
-- Proper binary caching benefits future work
-- Portable architecture for work GitLab CI
-- Cost-effective with Magic Nix Cache ($0.12/run)
-
-**Next Session**: Review CI-VALIDATION-PLAN.md, begin Phase 1 research
+**Design Document**: [docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md](docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md) ← Ready when needed
 
 ---
 
@@ -588,9 +588,11 @@ ovs-vsctl show                             # OVS topology
 
 ---
 
-### Later Phases (After Testing Validation)
+### Upcoming Phases
 
-#### Phase 8: Secrets Preparation
+#### Phase 8: Secrets Preparation ⏳ **NEXT**
+**Status**: Next priority - includes writing new test suite
+
 1. **Generate Encryption Keys**
    - Generate age keys for admin and all physical hosts
    - Document public keys in secrets/public-keys.txt
@@ -601,20 +603,30 @@ ovs-vsctl show                             # OVS topology
    - Encrypt tokens using sops
    - Validate decryption works with age keys
 
-#### Phase 9: Hardware Deployment
-1. **Initial Provisioning**
+3. **Write Secrets Test Suite** (NEW)
+   - Create `tests/integration/secrets-*.nix` tests
+   - Validate sops-nix decryption in VM environment
+   - Test age key management workflows
+   - Test token rotation scenarios
+
+#### Phase 9: Hardware Deployment 🔄 **DEFERRED**
+**Status**: DEFERRED - will revisit after Phase 8 and 10
+
+1. **Initial Provisioning** (DEFERRED)
    - Deploy first N100 server node using nixos-anywhere
    - Verify successful boot and SSH access
    - Confirm K3s control plane initialization
    - Validate secrets decryption on real hardware
 
-2. **Cluster Expansion**
+2. **Cluster Expansion** (DEFERRED)
    - Deploy second and third N100 nodes
    - Deploy Jetson nodes (if available)
    - Verify all nodes join cluster successfully
    - Test cross-node communication
 
-#### Phase 10: Kubernetes Stack Deployment
+#### Phase 10: Kubernetes Stack Deployment ⏳ **UPCOMING**
+**Status**: After Phase 8 - includes writing new test suite
+
 1. **Core Components**
    - Install Kyverno from manifests/
    - Verify PATH patching policy applies to pods
@@ -627,14 +639,22 @@ ovs-vsctl show                             # OVS topology
    - Validate storage network traffic separation
    - Benchmark storage performance
 
-#### Phase 11: Production Hardening
-1. **Security**
+3. **Write K8s Deployment Test Suite** (NEW)
+   - Create `tests/integration/k8s-*.nix` tests
+   - Test Kyverno policy enforcement
+   - Test Longhorn deployment and PVC lifecycle
+   - Test storage network isolation
+
+#### Phase 11: Production Hardening 🔄 **DEFERRED**
+**Status**: DEFERRED - will revisit after earlier phases complete
+
+1. **Security** (DEFERRED)
    - Configure proper TLS certificates for K3s
    - Rotate default tokens to production values
    - Set up RBAC policies
    - Enable audit logging
 
-2. **Operational Readiness**
+2. **Operational Readiness** (DEFERRED)
    - Deploy monitoring stack (Prometheus/Grafana)
    - Configure alerting rules
    - Implement backup strategies for etcd and Longhorn

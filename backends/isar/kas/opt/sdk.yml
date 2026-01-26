@@ -1,0 +1,11 @@
+# SDK generation fragment
+# Usage: kas-container build kas/base.yml:kas/machine/<target>.yml:kas/opt/sdk.yml
+
+header:
+  version: 14
+
+local_conf_header:
+  sdk: |
+    # Enable SDK generation
+    # SDK includes cross-compilation toolchain for target architecture
+    ISAR_ENABLE_COMPAT_SDK = "1"

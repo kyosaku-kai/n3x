@@ -1,0 +1,69 @@
+# =============================================================================
+# K3s Agent Systemd Service Unit
+# =============================================================================
+#
+# This service runs K3s in agent (worker node) mode. It connects to an existing
+# K3s server and runs container workloads assigned by the cluster scheduler.
+#
+# PREREQUISITES:
+#   Before starting this service, you MUST configure:
+#   1. K3S_URL - The URL of your K3s server (e.g., https://server-ip:6443)
+#   2. K3S_TOKEN - The node-token from the server
+#
+#   Edit /etc/default/k3s-agent to set these values.
+#
+#   To get the token from the server node:
+#     cat /var/lib/rancher/k3s/server/node-token
+#
+# COMMANDS:
+#   systemctl start k3s-agent    # Start the service
+#   systemctl stop k3s-agent     # Stop the service
+#   systemctl status k3s-agent   # Check service status
+#   journalctl -u k3s-agent      # View logs
+#
+# =============================================================================
+
+[Unit]
+Description=K3s Lightweight Kubernetes Agent
+Documentation=https://k3s.io
+
+# Wait for network before starting (required to connect to server)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# Type=notify: Service signals systemd when it's ready
+Type=notify
+
+# Load environment variables from configuration files
+# The '-' prefix means the file is optional (no error if missing)
+# K3S_URL and K3S_TOKEN should be set in /etc/default/k3s-agent
+EnvironmentFile=-/etc/default/k3s-agent
+EnvironmentFile=-/etc/rancher/k3s/k3s-agent.env
+
+# Process management settings for container workloads
+KillMode=process
+Delegate=yes
+
+# Resource limits optimized for running containers
+# Setting these to infinity avoids accounting overhead in cgroups
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+
+# Startup and restart behavior
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+
+# Pre-start check: Disable NetworkManager cloud-setup if present
+# (Can interfere with K3s networking)
+ExecStartPre=/bin/sh -xc '! /usr/bin/systemctl is-enabled --quiet nm-cloud-setup.service 2>/dev/null'
+
+# Main command: Start K3s in agent mode with configured options
+ExecStart=/usr/bin/k3s agent $K3S_AGENT_OPTS
+
+[Install]
+# Start on normal multi-user boot
+WantedBy=multi-user.target

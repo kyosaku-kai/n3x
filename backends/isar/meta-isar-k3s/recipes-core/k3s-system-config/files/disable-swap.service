@@ -1,0 +1,13 @@
+[Unit]
+Description=Disable swap (required for Kubernetes)
+DefaultDependencies=no
+Before=swap.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/swapoff -a
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
