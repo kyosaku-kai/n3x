@@ -138,8 +138,14 @@
 
         is_wsl() { [[ -n "''${WSL_DISTRO_NAME:-}" ]]; }
 
+        # Only get drvfs mounts under /mnt/[a-z] (Windows drive letters)
+        # EXCLUDE /usr/lib/wsl/drivers - it's read-only and shouldn't cause sync() hangs
+        # The sync() hang is caused by dirty data on rw mounts like /mnt/c
         get_9p_mounts() {
-          ${pkgs.util-linux}/bin/mount | ${pkgs.gnugrep}/bin/grep -E 'type 9p' | ${pkgs.gawk}/bin/awk '{print $3}' || true
+          ${pkgs.util-linux}/bin/mount | \
+            ${pkgs.gnugrep}/bin/grep -E 'type 9p' | \
+            ${pkgs.gnugrep}/bin/grep -E ' /mnt/[a-z] ' | \
+            ${pkgs.gawk}/bin/awk '{print $3}' || true
         }
 
         UNMOUNTED_MOUNTS=()
@@ -151,7 +157,8 @@
           mounts=$(get_9p_mounts)
           [[ -z "$mounts" ]] && return 0
 
-          log_warn "Temporarily unmounting 9p filesystems to prevent sync() hang..."
+          log_warn "Temporarily unmounting Windows drive mounts to prevent sync() hang..."
+          log_info "Note: /usr/lib/wsl/drivers is left mounted (read-only, doesn't cause hangs)"
 
           while IFS= read -r mount_point; do
             if [[ -n "$mount_point" ]]; then
@@ -170,7 +177,7 @@
           if ! is_wsl; then return 0; fi
           [[ ''${#UNMOUNTED_MOUNTS[@]} -eq 0 ]] && return 0
 
-          log_info "Remounting 9p filesystems..."
+          log_info "Remounting Windows drive mounts..."
 
           # Standard mount options that preserve execute permissions for Windows binaries
           local drvfs_opts="metadata,uid=$(id -u),gid=$(id -g)"
@@ -179,28 +186,13 @@
           for mount_point in "''${UNMOUNTED_MOUNTS[@]}"; do
             log_info "Remounting: $mount_point"
 
-            if [[ "$mount_point" =~ ^/mnt/[a-z]$ ]]; then
-              local drive_letter="''${mount_point##*/}"
-              drive_letter="''${drive_letter^^}"
-              if sudo ${pkgs.util-linux}/bin/mount -t drvfs "''${drive_letter}:" "$mount_point" -o "$drvfs_opts" 2>/dev/null; then
-                log_success "Remounted via drvfs: $mount_point"
-              else
-                log_warn "Could not remount $mount_point - you may need: wsl --shutdown"
-                remount_failed=true
-              fi
-            elif [[ "$mount_point" == "/usr/lib/wsl/drivers" ]]; then
-              if sudo ${pkgs.util-linux}/bin/mount -t drvfs 'C:\Windows\System32\drivers' "$mount_point" -o ro 2>/dev/null; then
-                log_success "Remounted: $mount_point"
-              else
-                log_warn "Could not remount $mount_point"
-                remount_failed=true
-              fi
-            elif ${pkgs.util-linux}/bin/mount "$mount_point" 2>/dev/null; then
-              log_success "Explicitly mounted: $mount_point"
-            elif ls "$mount_point" >/dev/null 2>&1 && ${pkgs.util-linux}/bin/mount | ${pkgs.gnugrep}/bin/grep -q "on $mount_point "; then
-              log_success "Auto-remounted: $mount_point"
+            # All mounts we unmount are /mnt/[a-z] Windows drives
+            local drive_letter="''${mount_point##*/}"
+            drive_letter="''${drive_letter^^}"
+            if sudo ${pkgs.util-linux}/bin/mount -t drvfs "''${drive_letter}:" "$mount_point" -o "$drvfs_opts" 2>/dev/null; then
+              log_success "Remounted: $mount_point"
             else
-              log_warn "Could not remount $mount_point"
+              log_warn "Could not remount $mount_point - you may need: wsl --shutdown"
               remount_failed=true
             fi
           done
@@ -668,11 +660,12 @@
 
         # Network profiles for K3s cluster tests
         # Available: simple, vlans, bonding-vlans, vlans-broken
+        # UNIFIED: These profiles live in lib/network/ and are consumed by BOTH backends
         networkProfiles = {
-          simple = import ./tests/lib/network-profiles/simple.nix { inherit lib; };
-          vlans = import ./tests/lib/network-profiles/vlans.nix { inherit lib; };
-          bonding-vlans = import ./tests/lib/network-profiles/bonding-vlans.nix { inherit lib; };
-          vlans-broken = import ./tests/lib/network-profiles/vlans-broken.nix { inherit lib; };
+          simple = import ./lib/network/profiles/simple.nix { inherit lib; };
+          vlans = import ./lib/network/profiles/vlans.nix { inherit lib; };
+          bonding-vlans = import ./lib/network/profiles/bonding-vlans.nix { inherit lib; };
+          vlans-broken = import ./lib/network/profiles/vlans-broken.nix { inherit lib; };
         };
       };
 
@@ -694,6 +687,210 @@
             ];
             text = builtins.readFile ./backends/isar/scripts/rebuild-isar-artifacts.sh;
           }}/bin/rebuild-isar-artifacts";
+        };
+
+        # Generate systemd-networkd config files for ISAR from Nix profiles
+        # Usage: nix run '.#generate-networkd-configs'
+        generate-networkd-configs = {
+          type = "app";
+          program = "${pkgs.writeShellApplication {
+            name = "generate-networkd-configs";
+            runtimeInputs = with pkgs; [ coreutils ];
+            text = ''
+              # Generate systemd-networkd config files from Nix network profiles
+              # Output: backends/isar/meta-isar-k3s/recipes-support/systemd-networkd-config/files/
+
+              set -euo pipefail
+
+              # Use current directory - user must run from repo root
+              REPO_ROOT="$(pwd)"
+
+              if [[ ! -f "''${REPO_ROOT}/flake.nix" ]]; then
+                echo "Error: Must be run from repository root (no flake.nix found in $(pwd))"
+                echo "Usage: cd /path/to/n3x && nix run '.#generate-networkd-configs'"
+                exit 1
+              fi
+
+              OUTPUT_DIR="''${REPO_ROOT}/backends/isar/meta-isar-k3s/recipes-support/systemd-networkd-config/files"
+
+              echo "=== Generating systemd-networkd configs ==="
+              echo "Repository: ''${REPO_ROOT}"
+              echo "Output: ''${OUTPUT_DIR}"
+              echo ""
+
+              # Profiles to generate
+              PROFILES=("simple" "vlans" "bonding-vlans")
+
+              # Node names (match what profiles define)
+              NODES=("server-1" "server-2" "agent-1" "agent-2")
+
+              for profile in "''${PROFILES[@]}"; do
+                echo "Profile: ''${profile}"
+                for node in "''${NODES[@]}"; do
+                  node_dir="''${OUTPUT_DIR}/''${profile}/''${node}"
+                  mkdir -p "''${node_dir}"
+
+                  # Generate files using nix eval
+                  files=$(nix eval --impure --json --expr "
+                    let
+                      pkgs = import <nixpkgs> {};
+                      lib = pkgs.lib;
+                      mkNetworkd = import ''${REPO_ROOT}/lib/network/mk-systemd-networkd.nix { inherit lib; };
+                      profile = import ''${REPO_ROOT}/lib/network/profiles/''${profile}.nix { inherit lib; };
+                    in
+                      mkNetworkd.generateProfileFiles profile \"''${node}\"
+                  " 2>/dev/null || echo "{}")
+
+                  if [[ "''${files}" == "{}" ]]; then
+                    echo "  ''${node}: (no files - node not in profile)"
+                    continue
+                  fi
+
+                  # Parse JSON and write files
+                  # Use jq to get keys, then fetch each value separately
+                  for filename in $(echo "''${files}" | ${pkgs.jq}/bin/jq -r 'keys[]'); do
+                    filepath="''${node_dir}/''${filename}"
+                    # Extract the content for this specific file
+                    echo "''${files}" | ${pkgs.jq}/bin/jq -r ".[\"''${filename}\"]" > "''${filepath}"
+                    echo "  ''${node}/''${filename}"
+                  done
+                done
+                echo ""
+              done
+
+              echo "=== Generation complete ==="
+              echo "Files written to: ''${OUTPUT_DIR}"
+              echo ""
+              echo "Next steps:"
+              echo "  1. Review generated files: ls -la ''${OUTPUT_DIR}/*/"
+              echo "  2. Stage changes: git add ''${OUTPUT_DIR}"
+              echo "  3. Commit: git commit -m 'chore: regenerate networkd configs from Nix profiles'"
+            '';
+          }}/bin/generate-networkd-configs";
+        };
+
+        # WSL filesystem remount utility
+        # Usage: nix run '.#wsl-remount'
+        #
+        # Purpose: Recover from kas-build being killed before it could remount /mnt/c.
+        # The kas-build wrapper temporarily unmounts Windows drives (/mnt/c) to prevent
+        # sgdisk sync() hangs during WIC image generation. It remounts on exit via trap.
+        #
+        # IMPORTANT: /usr/lib/wsl/drivers is NO LONGER unmounted (2026-01-27).
+        # It's read-only and doesn't contribute to sync hangs. WSL utilities (clip.exe, etc.)
+        # live on /mnt/c, not /usr/lib/wsl/drivers.
+        #
+        # When mounts break:
+        # 1. If SIGKILL (-9) was used, traps don't run → /mnt/c stays unmounted
+        # 2. Run this utility to attempt remount
+        # 3. If filesystem appears empty, 9p connection is severed → wsl --shutdown required
+        #
+        # Prevention: Use SIGTERM before SIGKILL when terminating kas-build processes.
+        wsl-remount = {
+          type = "app";
+          program = "${pkgs.writeShellApplication {
+            name = "wsl-remount";
+            runtimeInputs = with pkgs; [ util-linux gnugrep gawk coreutils ];
+            text = ''
+              set -euo pipefail
+
+              # ANSI colors
+              RED='\033[0;31m'
+              GREEN='\033[0;32m'
+              YELLOW='\033[1;33m'
+              BLUE='\033[0;34m'
+              NC='\033[0m'
+
+              log_info() { echo -e "''${BLUE}[INFO]''${NC} $*"; }
+              log_success() { echo -e "''${GREEN}[OK]''${NC} $*"; }
+              log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $*"; }
+              log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
+
+              is_wsl() {
+                [[ -n "''${WSL_DISTRO_NAME:-}" ]]
+              }
+
+              if ! is_wsl; then
+                log_error "Not running in WSL - this utility is only for WSL environments"
+                exit 1
+              fi
+
+              echo "=========================================="
+              echo "WSL Filesystem Remount Utility"
+              echo "=========================================="
+              echo ""
+              log_info "WSL Distro: $WSL_DISTRO_NAME"
+              echo ""
+
+              # Check current mount state
+              log_info "Current drvfs/9p mounts:"
+              if mount | grep -E 'drvfs|type 9p' | grep -v wslg; then
+                :
+              else
+                log_warn "No drvfs/9p mounts found (they were unmounted)"
+              fi
+              echo ""
+
+              # Check if /mnt/c has contents
+              if [[ -d /mnt/c/Windows ]]; then
+                log_success "/mnt/c is already mounted and accessible"
+                exit 0
+              fi
+
+              log_warn "/mnt/c is not accessible - attempting remount..."
+              echo ""
+
+              # Standard mount options for Windows binary compatibility
+              drvfs_opts="metadata,uid=$(id -u),gid=$(id -g)"
+
+              # Try to remount /mnt/c
+              log_info "Attempting: sudo mount -t drvfs C: /mnt/c -o $drvfs_opts"
+              if sudo mount -t drvfs "C:" /mnt/c -o "$drvfs_opts" 2>&1; then
+                # Verify it actually worked
+                if [[ -d /mnt/c/Windows ]]; then
+                  log_success "Remounted /mnt/c successfully"
+                else
+                  log_error "/mnt/c mount command succeeded but filesystem is empty"
+                  log_error "The 9p connection to Windows was severed by SIGKILL"
+                  echo ""
+                  log_warn "SOLUTION: Run from PowerShell:"
+                  log_warn "  wsl --shutdown"
+                  log_warn "Then restart WSL"
+                  exit 1
+                fi
+              else
+                log_error "Failed to mount /mnt/c"
+                log_error "The 9p connection to Windows was likely severed"
+                echo ""
+                log_warn "SOLUTION: Run from PowerShell:"
+                log_warn "  wsl --shutdown"
+                log_warn "Then restart WSL"
+                exit 1
+              fi
+
+              # Try to remount /usr/lib/wsl/drivers
+              if [[ -d /usr/lib/wsl/drivers ]] && ! mount | grep -q '/usr/lib/wsl/drivers'; then
+                log_info "Attempting to remount /usr/lib/wsl/drivers..."
+                if sudo mount -t drvfs 'C:\Windows\System32\drivers' /usr/lib/wsl/drivers -o ro 2>&1; then
+                  log_success "Remounted /usr/lib/wsl/drivers"
+                else
+                  log_warn "Could not remount /usr/lib/wsl/drivers (non-critical)"
+                fi
+              fi
+
+              echo ""
+              log_info "Final mount state:"
+              mount | grep -E 'drvfs|type 9p' | grep -v wslg || log_warn "No mounts to show"
+              echo ""
+
+              # Test clipboard integration
+              if [[ -x /mnt/c/Windows/System32/clip.exe ]]; then
+                log_success "clip.exe is accessible - clipboard integration should work"
+              else
+                log_warn "clip.exe not accessible - clipboard integration may be broken"
+              fi
+            '';
+          }}/bin/wsl-remount";
         };
       };
 

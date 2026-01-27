@@ -24,6 +24,11 @@
 #
 # USAGE:
 #   Used by k3s-vlan-negative test to verify failure detection
+#
+# NOTE: This profile retains nodeConfig (unlike other profiles) because
+# mkNixOSConfig cannot handle per-node VLAN IDs - it assumes all nodes
+# share the same VLAN configuration. This intentional non-standard behavior
+# requires custom nodeConfig to implement the per-node VLAN misconfiguration.
 
 { lib }:
 

@@ -29,8 +29,8 @@
 { pkgs, lib, inputs, ... }:
 
 let
-  # Load the intentionally broken VLAN profile
-  profile = import ../lib/network-profiles/vlans-broken.nix { inherit lib; };
+  # Load the intentionally broken VLAN profile from unified location
+  profile = import ../../lib/network/profiles/vlans-broken.nix { inherit lib; };
 
   # Common test token
   testToken = "k3s-vlan-negative-test-token";

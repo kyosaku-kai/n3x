@@ -20,6 +20,61 @@ This file provides project-specific rules and task tracking for Claude Code when
 
 4. **ALWAYS single-quote Nix derivation references** - When running `nix build`, `nix flake check`, or similar commands with derivation paths like `.#thing`, ALWAYS use single quotes: `nix build '.#thing'`. This prevents shell globbing issues in zsh and other shells.
 
+### NixOS Test Driver & QEMU Process Management
+
+5. **Orphaned nix build cleanup** - When a `nix build` process needs to be killed:
+   - Build processes run as `nixbld*` users inside nix-daemon sandboxes
+   - Parent shell/python processes may be reparented to PID 1 (init)
+   - Regular `kill` fails due to different UID
+   - **CRITICAL (WSL): Prefer SIGTERM over SIGKILL to allow cleanup handlers to run**:
+     - `kas-build` wrapper has trap handlers that remount 9p filesystems on exit
+     - SIGKILL (-9) bypasses traps, leaving `/mnt/c` unmounted (breaks clipboard, etc.)
+     - Always try SIGTERM first, wait 5s, then SIGINT, then only SIGKILL as last resort
+   - **Graceful termination procedure**:
+     ```bash
+     # Find orphaned nix build processes
+     ps -ef | grep nixbld | grep -v grep
+
+     # Find the bash wrapper (parent of test-driver, orphaned to PID 1)
+     ps -ef | grep -E "nixbld.*bash" | grep -v grep
+
+     # Try graceful termination first (allows kas-build to remount filesystems)
+     sudo kill -TERM <bash_pid>
+     sleep 5
+
+     # If still running, try interrupt
+     sudo kill -INT <bash_pid>
+     sleep 3
+
+     # LAST RESORT ONLY - will break WSL mounts if kas-build has them unmounted
+     sudo kill -9 <bash_pid>
+
+     # Or kill all processes for a specific build user (same signal priority applies)
+     sudo pkill -TERM -u nixbld1
+     ```
+   - **If SIGKILL was used and mounts are broken**: Run `nix run '.#wsl-remount'` or `wsl --shutdown` from PowerShell
+
+6. **PROACTIVE log monitoring during VM tests** - Do NOT passively wait for test completion:
+   - Use `-L` flag with `nix build` to stream build/test logs
+   - Check `BashOutput` frequently (every 30-60s) for running background builds
+   - Look for early failure indicators:
+     - `refused connection` - network/firewall issues
+     - `connection timed out` - cluster formation problems
+     - `DPT=6443` in kernel logs - firewall blocking k3s API
+     - Repeated `etcdserver: leader changed` - etcd instability
+   - **Kill early if failure pattern detected** - Don't wait for 10-minute timeout if logs show the test will fail
+   - When monitoring, scan for progress indicators:
+     - `[PHASE N]` markers in test output
+     - `k3s.service: Started`
+     - `Node.*Ready` status
+     - `kubectl get nodes` showing expected node count
+
+7. **Session cleanup before starting new tests** - ALWAYS verify no orphaned processes before starting a fresh build:
+   ```bash
+   pgrep -a qemu 2>/dev/null || echo "No QEMU processes"
+   pgrep -a nixos-test-driver 2>/dev/null || echo "No test drivers"
+   ```
+
 ## Project Status and Next Tasks
 
 ### Current Status

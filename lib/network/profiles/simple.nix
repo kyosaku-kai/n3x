@@ -67,34 +67,6 @@ in
   clusterCidr = "10.42.0.0/16";
   serviceCidr = "10.43.0.0/16";
 
-  # Per-node configuration function
-  # Takes nodeName (e.g. "server-1") and returns NixOS module
-  nodeConfig = nodeName: { config, pkgs, lib, ... }: {
-    # Single flat network via cluster interface (eth1)
-    networking.interfaces.${interfaces.cluster}.ipv4.addresses = [{
-      address = nodeIPs.${nodeName};
-      prefixLength = 24;
-    }];
-  };
-
-  # k3s-specific flags for this network profile
-  # Returns list of extraFlags for k3s service
-  k3sExtraFlags = nodeName:
-    let
-      nodeIP = nodeIPs.${nodeName};
-      isServer = nodeName == "server-1" || nodeName == "server-2";
-      clusterIface = interfaces.cluster;
-    in
-    [
-      "--node-ip=${nodeIP}"
-    ]
-    # Server nodes need to advertise on cluster network, not QEMU NAT (eth0)
-    ++ lib.optionals isServer [
-      "--advertise-address=${nodeIP}"
-      "--tls-san=${nodeIPs.server-1}" # Allow joining via primary server IP
-    ]
-    # Flannel should use cluster interface for inter-node communication
-    ++ [
-      "--flannel-iface=${clusterIface}"
-    ];
+  # NOTE (Plan 012 R5-R6): k3sExtraFlags removed - now generated from profile data
+  # by lib/k3s/mk-k3s-flags.nix. This eliminates duplication across profiles.
 }
