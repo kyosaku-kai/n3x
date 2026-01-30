@@ -113,6 +113,9 @@ let
     };
 
     # Test-friendly authentication (override base.nix defaults for testing)
+    # Clear all password options to avoid "multiple password options" warning from nixosTest
+    users.users.root.hashedPassword = lib.mkForce null;
+    users.users.root.hashedPasswordFile = lib.mkForce null;
     users.users.root.password = lib.mkForce "test";
     services.openssh = {
       enable = true;

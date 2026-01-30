@@ -4,11 +4,17 @@
 # k3s extracts ~200MB of embedded binaries on first run to /var/lib/rancher/k3s/data/
 # We add 512MB extra space to accommodate this plus container images.
 
-part /boot --source bootimg-efi-isar --sourceparams "loader=grub-efi" --ondisk sda --label efi --part-type EF00 --align 1024
+# Use --use-uuid to generate PARTUUID-based fstab entries for virtio compatibility
+# Without this, WIC generates /dev/sda1 which doesn't exist when using QEMU virtio disks (/dev/vda1)
+part /boot --source bootimg-efi-isar --sourceparams "loader=grub-efi" --ondisk sda --label efi --part-type EF00 --align 1024 --use-uuid
 
 # Add 512MB extra space for k3s runtime binaries and container images
 part / --source rootfs --ondisk sda --fstype ext4 --mkfs-extraopts "-T default" --label platform --align 1024 --use-uuid --exclude-path boot/ --extra-space 512M
 
 include expand-padding.wks.inc
 
-bootloader --ptable gpt --timeout 3 --append "rootwait console=ttyS0,115200 console=tty0"
+# net.ifnames=0 biosdevname=0 - Use legacy eth* interface names for NixOS test driver compatibility
+# The systemd-networkd config files reference eth1, not enp0s* predictable names
+# quiet loglevel=1 - Suppress kernel boot messages that can corrupt the backdoor shell protocol
+# console=ttyS0 ONLY (no tty0) - All kernel output to serial, keeping hvc0 clean for backdoor
+bootloader --ptable gpt --timeout 3 --append "rootwait console=ttyS0,115200 net.ifnames=0 biosdevname=0 quiet loglevel=1"

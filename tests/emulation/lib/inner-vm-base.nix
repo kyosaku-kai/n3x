@@ -123,7 +123,10 @@
       };
 
       # Test-friendly authentication
+      # Clear all password options from base.nix/nixosTest to avoid "multiple password options" warning
       users.users.root = {
+        hashedPassword = lib.mkForce null;
+        hashedPasswordFile = lib.mkForce null;
         initialPassword = lib.mkForce "test";
       };
       services.openssh = {

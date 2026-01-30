@@ -83,6 +83,10 @@ env/
 docs/_build/
 docs/.doctrees/
 
+# ISAR/Yocto build artifacts (contains root-owned files from kas-container)
+backends/isar/build/
+backends/isar/isar/
+
 # Test artifacts
 test-results/
 coverage/

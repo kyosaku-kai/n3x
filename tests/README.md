@@ -8,6 +8,21 @@ The testing framework uses NixOS `nixosTest` for automated integration tests. Ea
 
 **Key Design Decision**: Tests use nixosTest multi-node approach where each "node" IS a k3s cluster node - no nested virtualization required. This works on all platforms (WSL2, Darwin, Cloud).
 
+### Dual Backend Architecture (Plan 012)
+
+n3x supports two build backends with unified test infrastructure:
+
+| Backend | Build System | Test Framework | Use Case |
+|---------|--------------|----------------|----------|
+| **NixOS** | nixpkgs | nixosTest | Primary development, VM testing |
+| **ISAR** | BitBake/kas | nixosTest + QEMU | Debian-based embedded systems |
+
+Both backends share:
+- **Network profiles** (`lib/network/profiles/`) - Pure data, no functions
+- **Network config generators** (`lib/network/mk-network-config.nix`, `mk-systemd-networkd.nix`)
+- **K3s flag generator** (`lib/k3s/mk-k3s-flags.nix`)
+- **Test script utilities** (`tests/lib/test-scripts/`)
+
 ## Quick Start
 
 ```bash
@@ -25,6 +40,165 @@ nix build '.#checks.x86_64-linux.k3s-cluster-formation.driverInteractive'
 ./result/bin/nixos-test-driver
 ```
 
+## Test Layer Hierarchy
+
+Tests are organized by layer, with higher layers depending on lower layers passing:
+
+| Layer | Name | What It Tests | Pass Criteria |
+|-------|------|---------------|---------------|
+| **L1** | VM Boot | Can QEMU/KVM boot a VM? | Backdoor shell connects |
+| **L2** | Two-VM Network | Can VMs communicate via virtual network? | Ping succeeds between VMs |
+| **L3** | K3s Service | Does k3s binary/service start? | `k3s --version` works, service starts |
+| **L4** | Cluster Formation | Can nodes form a cluster? | All nodes show "Ready" |
+| **L4+** | Advanced | Workloads, storage, HA | Varies by test |
+
+### Layer Coverage by Backend
+
+| Layer | NixOS Tests | ISAR Tests |
+|-------|-------------|------------|
+| L1 | `smoke-vm-boot` | `isar-vm-boot` |
+| L2 | `smoke-two-vm-network` | `isar-two-vm-network` |
+| L3 | `smoke-k3s-service-starts` | `isar-k3s-server-boot` |
+| L3+ | `k3s-cluster-simple`, `k3s-cluster-vlans`, `k3s-cluster-bonding-vlans` | `isar-k3s-network-simple`, `isar-k3s-network-vlans`, `isar-k3s-network-bonding` |
+
+---
+
+## Canonical Test Patterns
+
+### Adding a New NixOS Test (Parameterized)
+
+For K3s cluster tests, use the parameterized test builder:
+
+```nix
+# In flake.nix checks section:
+k3s-cluster-myprofile = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+  inherit pkgs lib;
+  networkProfile = "myprofile";  # References lib/network/profiles/myprofile.nix
+};
+```
+
+The builder automatically:
+- Loads the network profile preset (pure data)
+- Transforms data → NixOS modules via `mkNixOSConfig`
+- Transforms data → k3s flags via `mkK3sFlags.mkExtraFlags`
+- Uses shared test scripts from `tests/lib/test-scripts/`
+
+### Adding a New Network Profile
+
+Network profiles are pure data - they export parameter presets, not functions:
+
+```nix
+# lib/network/profiles/myprofile.nix
+{ lib }:
+{
+  # Per-node IPs keyed by network role
+  ipAddresses = {
+    "server-1" = { cluster = "192.168.1.1"; storage = "10.0.0.1"; };
+    "server-2" = { cluster = "192.168.1.2"; storage = "10.0.0.2"; };
+    "agent-1"  = { cluster = "192.168.1.3"; storage = "10.0.0.3"; };
+  };
+
+  # Interface names (include VLAN suffix for tagged networks)
+  interfaces = {
+    cluster = "eth1";        # Or "eth1.200" for VLANs, "bond0.200" for bonding
+    storage = "eth1";        # Or "eth1.100" for VLANs, "bond0.100" for bonding
+    trunk = "eth1";          # Or "bond0" for bonding
+  };
+
+  # Optional: VLAN IDs (omit for flat network)
+  vlanIds = {
+    cluster = 200;
+    storage = 100;
+  };
+
+  # Optional: Bond configuration (omit for single-NIC)
+  bondConfig = {
+    members = [ "eth1" "eth2" ];
+    mode = "active-backup";
+    miimon = 100;
+    primary = "eth1";
+  };
+
+  # K3s API endpoint
+  serverApi = "https://192.168.1.1:6443";
+
+  # K3s network CIDRs
+  clusterCidr = "10.42.0.0/16";
+  serviceCidr = "10.43.0.0/16";
+}
+```
+
+The profile is transformed by:
+- `mkNixOSConfig` → NixOS `systemd.network` modules
+- `mkSystemdNetworkdFiles` → ISAR `.network`/`.netdev` files
+- `mkK3sFlags.mkExtraFlags` → K3s command-line flags
+
+### Adding a New ISAR Test
+
+ISAR tests use the `mkIsarTest` wrapper with pre-built `.wic` images:
+
+```nix
+# tests/isar/my-test.nix
+{ pkgs, lib, ... }:
+
+let
+  mkIsarTest = import ../lib/isar/mk-isar-test.nix { inherit pkgs lib; };
+  artifacts = import ../../backends/isar/isar-artifacts.nix;
+in
+mkIsarTest {
+  name = "my-test";
+
+  # Define nodes with ISAR images
+  nodes = {
+    server = {
+      image = artifacts.images."qemuamd64/server" or null;
+      memory = 2048;
+      vcpus = 2;
+    };
+  };
+
+  # Python test script (nixos-test-driver API)
+  testScript = ''
+    server.start()
+    server.wait_for_unit("multi-user.target")
+    server.succeed("my-command")
+  '';
+}
+```
+
+Wire into flake.nix:
+```nix
+# In checks.x86_64-linux:
+isar-my-test = pkgs.callPackage ./tests/isar/my-test.nix {
+  inherit pkgs lib;
+};
+```
+
+### Adding a Simple Smoke Test
+
+For non-parameterized tests, use `pkgs.testers.runNixOSTest` directly:
+
+```nix
+# tests/nixos/smoke/my-smoke-test.nix
+{ pkgs, lib, ... }:
+
+pkgs.testers.runNixOSTest {
+  name = "my-smoke-test";
+
+  nodes.machine = { config, pkgs, ... }: {
+    # NixOS configuration
+  };
+
+  testScript = ''
+    machine.start()
+    machine.wait_for_unit("default.target")
+    machine.succeed("echo 'Test passed'")
+  '';
+}
+```
+
+---
+
 ## Available Tests
 
 ### Primary Tests (Phase 4A - nixosTest Multi-Node)
@@ -39,6 +213,33 @@ These tests use nixosTest nodes directly as k3s cluster nodes. They work on all 
 | `k3s-network-constraints` | Cluster behavior under degraded network (latency, loss, bandwidth limits) | `nix build '.#checks.x86_64-linux.k3s-network-constraints'` |
 | `k3s-bond-failover` | Bond active-backup failover/failback while k3s remains operational | `nix build '.#checks.x86_64-linux.k3s-bond-failover'` |
 | `k3s-vlan-negative` | Validates VLAN misconfiguration causes expected failures | `nix build '.#checks.x86_64-linux.k3s-vlan-negative'` |
+
+### ISAR Backend Tests (Debian-based Embedded Systems)
+
+These tests validate the ISAR (Debian) backend using pre-built `.wic` images.
+
+| Test | Layer | Description | Run Command |
+|------|-------|-------------|-------------|
+| `isar-vm-boot` | L1 | Single VM boots with backdoor shell | `nix build '.#checks.x86_64-linux.isar-vm-boot'` |
+| `isar-two-vm-network` | L2 | Two VMs communicate via VDE network | `nix build '.#checks.x86_64-linux.isar-two-vm-network'` |
+| `isar-k3s-server-boot` | L3 | K3s binary present and service ready | `nix build '.#checks.x86_64-linux.isar-k3s-server-boot'` |
+| `isar-k3s-network-simple` | L3+ | Simple network profile test | `nix build '.#checks.x86_64-linux.isar-k3s-network-simple'` |
+| `isar-k3s-network-vlans` | L3+ | VLAN network profile test | `nix build '.#checks.x86_64-linux.isar-k3s-network-vlans'` |
+| `isar-k3s-network-bonding` | L3+ | Bonding+VLAN network profile test | `nix build '.#checks.x86_64-linux.isar-k3s-network-bonding'` |
+
+#### SWUpdate Tests (A/B OTA)
+
+| Test | Description | Run Command |
+|------|-------------|-------------|
+| `isar-swupdate-apply` | Apply .swu bundle to inactive partition | `nix build '.#checks.x86_64-linux.isar-swupdate-apply'` |
+| `isar-swupdate-boot-switch` | Reboot between A/B partitions | `nix build '.#checks.x86_64-linux.isar-swupdate-boot-switch'` |
+| `isar-swupdate-bundle-validation` | Validate .swu structure and CMS signatures | `nix build '.#checks.x86_64-linux.isar-swupdate-bundle-validation'` |
+| `isar-swupdate-network-ota` | Two-VM OTA with HTTP server | `nix build '.#checks.x86_64-linux.isar-swupdate-network-ota'` |
+
+**NOTE**: ISAR tests require pre-built images in `backends/isar/isar-artifacts.nix`. Rebuild images with:
+```bash
+nix develop '.#isar' --command bash -c "cd backends/isar && kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml"
+```
 
 ### Emulation Tests (vsim - Nested Virtualization)
 
@@ -85,7 +286,7 @@ The test framework supports multiple network configurations via **parameterized 
 
 ### Available Profiles
 
-Located in `tests/lib/network-profiles/`:
+Located in `lib/network/profiles/` (unified location for both backends):
 
 | Profile | Description | Use Case | VLANs | Bonding |
 |---------|-------------|----------|-------|---------|
@@ -124,47 +325,30 @@ The **vlans** and **bonding-vlans** profiles configure:
 
 ### Adding Custom Network Profiles
 
-Create a new profile in `tests/lib/network-profiles/custom.nix`:
+See the ["Adding a New Network Profile"](#adding-a-new-network-profile) section above for the canonical data-only profile format.
 
-```nix
-{ lib }:
-{
-  nodeIPs = { n100-1 = "..."; n100-2 = "..."; n100-3 = "..."; };
-  serverApi = "https://...";
-  clusterCidr = "10.42.0.0/16";
-  serviceCidr = "10.43.0.0/16";
-
-  nodeConfig = nodeName: { config, pkgs, lib, ... }: {
-    # Network configuration for each node
-    networking.interfaces.eth1.ipv4.addresses = [ ... ];
-  };
-
-  k3sExtraFlags = nodeName: [
-    "--node-ip=..."
-    "--flannel-iface=eth1"
-  ];
-}
-```
-
-Then add to `flake.nix`:
-
-```nix
-k3s-cluster-custom = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
-  inherit pkgs lib;
-  networkProfile = "custom";
-};
-```
+**Key Points** (Plan 012 Architecture):
+- Profiles export **pure data** - no `nodeConfig` or `k3sExtraFlags` functions
+- Data is transformed by `mkNixOSConfig` → NixOS modules, `mkSystemdNetworkdFiles` → ISAR files
+- K3s flags generated by `mkK3sFlags.mkExtraFlags` from the same profile data
 
 ### Why Parameterized Tests?
 
 **Benefits**:
 - **No code duplication** - Test logic defined once, network configs separate
+- **DRY across backends** - Same profiles work for NixOS and ISAR
 - **Easy extension** - Add new profiles without touching test code
 - **Production parity** - VLAN tests match future hardware deployment
 - **Maintainability** - Changes to test logic apply to all profiles
 
-**Nix-Idiomatic Pattern**:
-Uses module system composition instead of branching or code duplication.
+**Architecture**:
+```
+Profile Data (lib/network/profiles/)
+    │
+    ├─→ mkNixOSConfig()          → NixOS systemd.network modules
+    ├─→ mkSystemdNetworkdFiles() → ISAR .network/.netdev files
+    └─→ mkK3sFlags.mkExtraFlags() → K3s command-line flags
+```
 
 ### Specialized Tests
 
@@ -455,31 +639,53 @@ Note: GitHub-hosted runners may not have KVM. Use self-hosted runners for full t
 ## Directory Structure
 
 ```
-tests/
-├── integration/               # nixosTest integration tests
-│   ├── k3s-cluster-formation.nix   # Primary cluster test
-│   ├── k3s-storage.nix             # Storage infrastructure
-│   ├── k3s-network.nix             # Network validation
-│   ├── k3s-network-constraints.nix # Network degradation
-│   ├── k3s-bond-failover.nix       # Bond failover/failback test
-│   ├── k3s-vlan-negative.nix       # VLAN misconfiguration test
-│   ├── network-resilience.nix      # TC infrastructure (vsim)
-│   └── vsim-k3s-cluster.nix        # Full vsim cluster
-├── lib/                       # Test library functions
-│   ├── mk-k3s-cluster-test.nix     # Parameterized test builder
-│   └── network-profiles/           # Network profile definitions
-│       ├── simple.nix              # Single flat network
-│       ├── vlans.nix               # 802.1Q VLAN tagging
-│       ├── bonding-vlans.nix       # Bonding + VLANs
-│       └── vlans-broken.nix        # Intentionally broken (negative test)
-├── emulation/                 # vsim nested virtualization environment
-│   ├── embedded-system.nix         # Outer VM configuration
-│   └── lib/                        # Helper functions
-├── vms/                       # Manual VM configurations
-│   ├── k3s-server-vm.nix
-│   └── k3s-agent-vm.nix
-├── run-vm-tests.sh            # Manual test runner script
-└── README.md                  # This file
+n3x/
+├── lib/                              # Shared library functions
+│   ├── network/                      # Network configuration
+│   │   ├── mk-network-config.nix     # mkNixOSConfig(), mkSystemdNetworkdFiles()
+│   │   ├── mk-systemd-networkd.nix   # ISAR file generation (internal)
+│   │   └── profiles/                 # Network profile presets (pure data)
+│   │       ├── simple.nix            # Single flat network
+│   │       ├── vlans.nix             # 802.1Q VLAN tagging
+│   │       ├── bonding-vlans.nix     # Bonding + VLANs
+│   │       └── vlans-broken.nix      # Intentionally broken (negative test)
+│   └── k3s/
+│       └── mk-k3s-flags.nix          # K3s flag generation from profile data
+│
+├── tests/
+│   ├── nixos/                        # NixOS backend tests
+│   │   ├── smoke/                    # L1-L3 baseline tests
+│   │   │   ├── vm-boot.nix           # L1: VM boots
+│   │   │   ├── two-vm-network.nix    # L2: VMs can ping
+│   │   │   └── k3s-service-starts.nix # L3: K3s service starts
+│   │   ├── k3s-cluster-formation.nix # L4: Cluster forms (legacy)
+│   │   ├── k3s-bond-failover.nix     # Bond failover test
+│   │   └── k3s-vlan-negative.nix     # VLAN misconfiguration test
+│   ├── isar/                         # ISAR backend tests
+│   │   ├── single-vm-boot.nix        # L1: ISAR VM boots
+│   │   ├── two-vm-network.nix        # L2: ISAR VMs can ping
+│   │   ├── k3s-server-boot.nix       # L3: K3s binary present
+│   │   ├── k3s-network-*.nix         # Network profile tests
+│   │   └── swupdate-*.nix            # A/B OTA tests
+│   ├── lib/                          # Test support libraries
+│   │   ├── mk-k3s-cluster-test.nix   # Parameterized NixOS cluster test
+│   │   ├── machine-roles.nix         # Server/agent role definitions
+│   │   ├── test-scripts/             # Shared Python test snippets
+│   │   │   ├── default.nix           # mkDefaultClusterTestScript
+│   │   │   ├── utils.nix             # tlog(), log_banner()
+│   │   │   └── phases/               # Boot, network, K3s phases
+│   │   └── isar/                     # ISAR test support
+│   │       ├── mk-isar-test.nix      # ISAR test wrapper
+│   │       ├── mk-isar-vm-script.nix # QEMU command generator
+│   │       └── mk-network-config.nix # ISAR network setup
+│   ├── emulation/                    # vsim nested virtualization
+│   └── README.md                     # This file
+│
+└── backends/
+    └── isar/
+        ├── isar-artifacts.nix        # Pre-built image hashes
+        ├── kas/                      # BitBake/kas configs
+        └── meta-isar-k3s/            # ISAR layer (recipes)
 ```
 
 ## Interactive Debugging

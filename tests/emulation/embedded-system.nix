@@ -405,8 +405,13 @@ in
       #############################################################################
 
       services.getty.autologinUser = "root";
-      users.users.root.initialPassword = "test";
-      users.users.root.extraGroups = [ "libvirtd" ];
+      # Clear all password options to avoid "multiple password options" warning from nixosTest
+      users.users.root = {
+        hashedPassword = lib.mkForce null;
+        hashedPasswordFile = lib.mkForce null;
+        initialPassword = "test";
+        extraGroups = [ "libvirtd" ];
+      };
 
       #############################################################################
       # WELCOME MESSAGE

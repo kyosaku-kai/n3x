@@ -49,6 +49,9 @@ SRC_URI = "\
 
 inherit dpkg-raw
 
+# Define sysconfdir - ISAR doesn't set this by default like OpenEmbedded
+sysconfdir = "/etc"
+
 # Default to simple profile, server-1 node
 NETWORKD_PROFILE ?= "simple"
 NETWORKD_NODE_NAME ?= "server-1"

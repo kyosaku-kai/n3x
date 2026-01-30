@@ -37,6 +37,11 @@
   # OPEN VSWITCH - Switch Fabric Configuration
   #############################################################################
 
+  # Use networkd exclusively - disable legacy dhcpcd to avoid
+  # "systemd.network.enable + networking.useDHCP conflict" warning
+  networking.useDHCP = false;
+  networking.useNetworkd = true;
+
   # OVS bridge configuration
   # Note: services.openvswitch.enable is implicit when networking.vswitches is used
   networking.vswitches.${bridgeName} = {

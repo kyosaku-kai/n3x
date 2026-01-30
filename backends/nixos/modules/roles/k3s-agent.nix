@@ -13,6 +13,11 @@
     enable = true;
     role = "agent";
 
+    # Placeholder token file to suppress "Token or tokenFile should be set" evaluation warning.
+    # At deployment, sops-nix overrides this with the real secret at /run/secrets/k3s-token.
+    # The placeholder path doesn't need to exist during evaluation.
+    tokenFile = lib.mkDefault "/run/secrets/k3s-token";
+
     # Server URL will be set per-host
     # serverAddr = "https://k3s-server:6443";
 

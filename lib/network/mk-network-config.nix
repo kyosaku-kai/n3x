@@ -101,6 +101,10 @@ rec {
       # Used when: no VLANs, no bonding
       # Example: eth1 gets 192.168.1.1/24
       (lib.mkIf (!hasVlans && !hasBond) {
+        # Ensure systemd-networkd is used exclusively
+        networking.useDHCP = false;
+        networking.useNetworkd = true;
+
         systemd.network = {
           enable = true;
           networks."20-${clusterIface}" = {
@@ -119,6 +123,10 @@ rec {
       (lib.mkIf (hasVlans && !hasBond) {
         # Enable 802.1Q VLAN kernel support
         boot.kernelModules = [ "8021q" ];
+
+        # Ensure systemd-networkd is used exclusively
+        networking.useDHCP = false;
+        networking.useNetworkd = true;
 
         systemd.network = {
           enable = true;

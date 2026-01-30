@@ -145,88 +145,137 @@
   #   primaryNodeName: k8s node name for primary (e.g., "server-1")
   #   secondaryNodeName: k8s node name for secondary (e.g., "server-2")
   #   agentNodeName: k8s node name for agent (e.g., "agent-1")
-  verifyCluster = { primary, secondary, agent, primaryNodeName, secondaryNodeName, agentNodeName }: ''
-    log_section("PHASE 3", "Waiting for primary server (${primaryNodeName}) k3s")
+  #   profile: network profile name (default: "simple")
+  verifyCluster = { primary, secondary, agent, primaryNodeName, secondaryNodeName, agentNodeName, profile ? "simple" }:
+    let
+      # Determine the interface to query for the server's cluster IP
+      # - simple: eth1 (flat network)
+      # - vlans: eth1.200 (cluster VLAN)
+      # - bonding-vlans: bond0.200 (bonded cluster VLAN)
+      clusterIface =
+        if profile == "vlans" then "eth1.200"
+        else if profile == "bonding-vlans" then "bond0.200"
+        else "eth1";
+    in
+    ''
+      log_section("PHASE 3", "Waiting for primary server (${primaryNodeName}) k3s")
 
-    ${primary}.wait_for_unit("k3s.service")
-    tlog("  k3s.service started")
+      ${primary}.wait_for_unit("k3s.service")
+      tlog("  k3s.service started")
 
-    ${primary}.wait_for_open_port(6443)
-    tlog("  API server port 6443 open")
+      ${primary}.wait_for_open_port(6443)
+      tlog("  API server port 6443 open")
 
-    # Wait for API server to be ready - HA etcd election can take time
-    ${primary}.wait_until_succeeds("k3s kubectl get --raw /readyz", timeout=300)
-    tlog("  API server is ready")
+      # Wait for API server to be ready - HA etcd election can take time
+      ${primary}.wait_until_succeeds("k3s kubectl get --raw /readyz", timeout=300)
+      tlog("  API server is ready")
 
-    # Give etcd cluster a moment to stabilize after initial leader election
-    time.sleep(10)
+      # Give etcd cluster a moment to stabilize after initial leader election
+      time.sleep(10)
 
-    # PHASE 4: Primary Ready
-    log_section("PHASE 4", "Waiting for ${primaryNodeName} to be Ready")
+      # PHASE 4: Primary Ready
+      log_section("PHASE 4", "Waiting for ${primaryNodeName} to be Ready")
 
-    ${primary}.wait_until_succeeds(
-        "k3s kubectl get nodes --no-headers | grep '${primaryNodeName}' | grep -w Ready",
-        timeout=240
-    )
-    tlog("  ${primaryNodeName} is Ready")
+      ${primary}.wait_until_succeeds(
+          "k3s kubectl get nodes --no-headers | grep '${primaryNodeName}' | grep -w Ready",
+          timeout=240
+      )
+      tlog("  ${primaryNodeName} is Ready")
 
-    nodes_output = ${primary}.succeed("k3s kubectl get nodes -o wide")
-    tlog(f"  Current nodes:\n{nodes_output}")
+      nodes_output = ${primary}.succeed("k3s kubectl get nodes -o wide")
+      tlog(f"  Current nodes:\n{nodes_output}")
 
-    # PHASE 5: Secondary Server
-    log_section("PHASE 5", "Waiting for secondary server (${secondaryNodeName})")
+      # FIREWALL DEBUG: Dump iptables state on all nodes for L4 debugging (Plan 014)
+      log_section("DEBUG", "Firewall state on all nodes (F1 debugging)")
+      tlog("  === server-1 firewall ===")
+      fw_rules = ${primary}.succeed("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
+      tlog(f"{fw_rules}")
+      fw_save = ${primary}.succeed("iptables-save 2>&1 | head -100 || echo 'iptables-save failed'")
+      tlog(f"  iptables-save (first 100 lines):\n{fw_save}")
 
-    ${secondary}.wait_for_unit("k3s.service")
-    tlog("  k3s.service started")
+      tlog("  === server-2 firewall ===")
+      fw_rules_s2 = ${secondary}.succeed("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
+      tlog(f"{fw_rules_s2}")
 
-    ${primary}.wait_until_succeeds(
-        "k3s kubectl get nodes --no-headers | grep '${secondaryNodeName}' | grep -w Ready",
-        timeout=300
-    )
-    tlog("  ${secondaryNodeName} is Ready")
+      tlog("  === agent-1 firewall ===")
+      fw_rules_a1 = ${agent}.succeed("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
+      tlog(f"{fw_rules_a1}")
 
-    # PHASE 6: Agent
-    log_section("PHASE 6", "Waiting for agent (${agentNodeName})")
+      # Test 6443 connectivity explicitly
+      tlog("  === API server connectivity test ===")
+      tlog("  Testing localhost:6443 on server-1:")
+      ${primary}.succeed("nc -zv localhost 6443 2>&1 || echo 'localhost:6443 failed'")
+      tlog("  localhost:6443 succeeded")
 
-    ${agent}.wait_for_unit("k3s.service")
-    tlog("  k3s.service started")
+      # Get server-1's cluster IP for cross-node testing
+      # Interface varies by profile: eth1 (simple), eth1.200 (vlans), bond0.200 (bonding-vlans)
+      server1_ip = ${primary}.succeed("ip -4 addr show ${clusterIface} | grep inet | awk '{print $2}' | cut -d/ -f1").strip()
+      tlog(f"  server-1 ${clusterIface} IP: {server1_ip}")
 
-    ${primary}.wait_until_succeeds(
-        "k3s kubectl get nodes --no-headers | grep '${agentNodeName}' | grep -w Ready",
-        timeout=300
-    )
-    tlog("  ${agentNodeName} is Ready")
+      tlog(f"  Testing {server1_ip}:6443 from server-2:")
+      code, result = ${secondary}.execute(f"nc -zv -w 5 {server1_ip} 6443 2>&1")
+      if code == 0:
+          tlog(f"    SUCCESS: {result}")
+      else:
+          tlog(f"    FAILED: {result}")
+          tlog("  Kernel log (last 20 firewall-related lines):")
+          dmesg_fw = ${primary}.succeed("dmesg | grep -i 'refused\\|DROP\\|REJECT\\|6443' | tail -20 || echo 'no firewall dmesg'")
+          tlog(f"{dmesg_fw}")
 
-    # PHASE 7: All Nodes
-    log_section("PHASE 7", "Verifying all 3 nodes are Ready")
+      # PHASE 5: Secondary Server
+      log_section("PHASE 5", "Waiting for secondary server (${secondaryNodeName})")
 
-    ${primary}.wait_until_succeeds(
-        "k3s kubectl get nodes --no-headers | grep -w Ready | wc -l | grep -q 3",
-        timeout=60
-    )
-    tlog("  All 3 nodes are Ready")
+      ${secondary}.wait_for_unit("k3s.service")
+      tlog("  k3s.service started")
 
-    nodes_output = ${primary}.succeed("k3s kubectl get nodes -o wide")
-    tlog(f"\n  Cluster nodes:\n{nodes_output}")
+      ${primary}.wait_until_succeeds(
+          "k3s kubectl get nodes --no-headers | grep '${secondaryNodeName}' | grep -w Ready",
+          timeout=300
+      )
+      tlog("  ${secondaryNodeName} is Ready")
 
-    pods_output = ${primary}.succeed("k3s kubectl get pods -A -o wide")
-    tlog(f"\n  System pods:\n{pods_output}")
+      # PHASE 6: Agent
+      log_section("PHASE 6", "Waiting for agent (${agentNodeName})")
 
-    # PHASE 8: System Components
-    log_section("PHASE 8", "Verifying system components")
+      ${agent}.wait_for_unit("k3s.service")
+      tlog("  k3s.service started")
 
-    ${primary}.wait_until_succeeds(
-        "k3s kubectl get pods -n kube-system -l k8s-app=kube-dns --no-headers | grep Running",
-        timeout=120
-    )
-    tlog("  CoreDNS is running")
+      ${primary}.wait_until_succeeds(
+          "k3s kubectl get nodes --no-headers | grep '${agentNodeName}' | grep -w Ready",
+          timeout=300
+      )
+      tlog("  ${agentNodeName} is Ready")
 
-    ${primary}.wait_until_succeeds(
-        "k3s kubectl get pods -n kube-system -l app=local-path-provisioner --no-headers | grep Running",
-        timeout=120
-    )
-    tlog("  Local-path-provisioner is running")
-  '';
+      # PHASE 7: All Nodes
+      log_section("PHASE 7", "Verifying all 3 nodes are Ready")
+
+      ${primary}.wait_until_succeeds(
+          "k3s kubectl get nodes --no-headers | grep -w Ready | wc -l | grep -q 3",
+          timeout=60
+      )
+      tlog("  All 3 nodes are Ready")
+
+      nodes_output = ${primary}.succeed("k3s kubectl get nodes -o wide")
+      tlog(f"\n  Cluster nodes:\n{nodes_output}")
+
+      pods_output = ${primary}.succeed("k3s kubectl get pods -A -o wide")
+      tlog(f"\n  System pods:\n{pods_output}")
+
+      # PHASE 8: System Components
+      log_section("PHASE 8", "Verifying system components")
+
+      ${primary}.wait_until_succeeds(
+          "k3s kubectl get pods -n kube-system -l k8s-app=kube-dns --no-headers | grep Running",
+          timeout=120
+      )
+      tlog("  CoreDNS is running")
+
+      ${primary}.wait_until_succeeds(
+          "k3s kubectl get pods -n kube-system -l app=local-path-provisioner --no-headers | grep Running",
+          timeout=120
+      )
+      tlog("  Local-path-provisioner is running")
+    '';
 
   # Single-node K3s service check (for smoke tests)
   # Parameters:

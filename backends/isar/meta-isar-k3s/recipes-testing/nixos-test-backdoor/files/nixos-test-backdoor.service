@@ -6,7 +6,15 @@ Documentation=https://nixos.org/manual/nixos/stable/#sec-nixos-tests
 DefaultDependencies=no
 After=systemd-journald.socket
 After=systemd-udev-settle.service
+After=dev-hvc0.device
+After=dev-ttyS0.device
 Before=multi-user.target
+
+# Conflict with getty services - we need exclusive access to hvc0
+# Without this, getty can write login prompts to hvc0 and corrupt
+# the test driver's base64-encoded shell protocol
+Conflicts=serial-getty@hvc0.service serial-getty@ttyS0.service
+Conflicts=getty@hvc0.service getty@ttyS0.service
 
 # Only start if virtio-console device exists (i.e., running under test driver)
 ConditionPathExists=/dev/hvc0

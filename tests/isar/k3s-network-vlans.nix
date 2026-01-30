@@ -9,7 +9,7 @@
 #
 # REQUIREMENTS:
 #   - ISAR image built with: kas/test-k3s-overlay.yml:kas/network/vlans.yml
-#   - Image must include netplan-k3s-config package with vlans profile
+#   - Image must include systemd-networkd-config package with vlans profile
 #
 # Usage:
 #   # Build the test driver:
@@ -28,6 +28,10 @@ let
   isarArtifacts = import ../../backends/isar/isar-artifacts.nix { inherit pkgs lib; };
   mkISARTest = pkgs.callPackage ../lib/isar/mk-isar-test.nix { inherit pkgs lib; };
 
+  # Import shared test utilities
+  testScripts = import ../lib/test-scripts { inherit lib; };
+  bootPhase = import ../lib/test-scripts/phases/boot.nix { inherit lib; };
+
   test = mkISARTest {
     name = "k3s-network-vlans";
 
@@ -37,108 +41,99 @@ let
 
     machines = {
       server = {
-        image = isarArtifacts.qemuamd64.server.wic;
+        # Use vlans profile-specific artifact (must build with kas/network/vlans.yml)
+        image = isarArtifacts.qemuamd64.server.vlans.wic;
         memory = 4096;
         cpus = 4;
       };
     };
 
+    # Note: testScript content must start at column 0 because testScripts.utils.all
+    # contains Python code at column 0 (function definitions, imports).
     testScript = ''
-      # Wait for backdoor shell
-      server.wait_for_unit("nixos-test-backdoor.service")
+      ${testScripts.utils.all}
 
-      print("=" * 60)
-      print("K3S NETWORK VLANS PROFILE TEST")
-      print("=" * 60)
+      log_banner("ISAR K3s Network VLANs Test", "network-vlans", {
+          "Layer": "4 (Network Profile)",
+          "Profile": "vlans",
+          "VLAN 200": "192.168.200.1/24 (cluster)",
+          "VLAN 100": "192.168.100.1/24 (storage)"
+      })
 
-      # Basic boot check
-      server.succeed("uname -a")
+      # Phase 1: Boot with GRUB serial protection
+      ${bootPhase.isar.bootWithBackdoor { node = "server"; displayName = "ISAR K3s server"; }}
+
+      # Phase 2: Wait for network configuration
+      log_section("PHASE 2", "Network Configuration")
+
+      server.wait_for_unit("systemd-networkd.service", timeout=60)
+      tlog("  systemd-networkd is active")
+
+      # Give networkd time to create VLAN interfaces
+      import time
+      time.sleep(3)
 
       # Check if 8021q module is loaded
-      print("\n--- 8021Q Module Check ---")
+      log_section("MODULE", "8021Q VLAN Module")
       code, vlan_mod = server.execute("lsmod | grep 8021q || modprobe 8021q && lsmod | grep 8021q")
-      print(vlan_mod)
+      tlog(vlan_mod)
 
-      # Check if netplan is installed
-      print("\n--- Netplan Check ---")
-      code, netplan_check = server.execute("which netplan 2>&1")
-      if code == 0:
-          print(f"netplan found: {netplan_check.strip()}")
-          netplan_config = server.execute("netplan get 2>&1")[1]
-          print(f"Netplan config:\n{netplan_config}")
+      # Check systemd-networkd config files
+      log_section("CONFIG", "systemd-networkd config files")
+      code, networkd_files = server.execute("ls -la /etc/systemd/network/ 2>&1")
+      tlog(networkd_files)
 
-          # Check netplan config file
-          code, netplan_file = server.execute("cat /etc/netplan/60-k3s-network.yaml 2>&1")
-          print(f"\nNetplan file:\n{netplan_file}")
-      else:
-          print("WARNING: netplan not installed in this image")
-          print("Image was likely built without kas/network/vlans.yml overlay")
+      # Phase 3: Verify VLAN interfaces
+      log_section("PHASE 3", "VLAN Interface Verification")
 
-      # Check network interfaces
-      print("\n--- Network Interfaces ---")
       interfaces = server.succeed("ip -br link")
-      print(interfaces)
+      tlog("Interfaces:")
+      for line in interfaces.strip().split("\n"):
+          tlog(f"  {line}")
 
-      # Check for VLAN interfaces
-      print("\n--- VLAN Interfaces ---")
+      # Check VLAN details
+      log_section("VLAN", "VLAN Interface Details")
       code, vlan_interfaces = server.execute("ip -d link show | grep -A1 'vlan\\|802\\.1Q' 2>&1")
       if code == 0:
-          print(vlan_interfaces)
+          tlog(vlan_interfaces)
       else:
-          print("No VLAN interfaces found (expected if netplan not configured)")
+          tlog("No VLAN interfaces found")
 
-      # Check IP addresses
-      print("\n--- IP Addresses ---")
       ip_addrs = server.succeed("ip -br addr")
-      print(ip_addrs)
+      tlog("\nIP Addresses:")
+      for line in ip_addrs.strip().split("\n"):
+          tlog(f"  {line}")
 
-      # Check specific VLAN interfaces
-      print("\n--- eth1.200 (Cluster VLAN) ---")
+      # Verify cluster VLAN (eth1.200)
+      log_section("VERIFY", "Cluster VLAN Check (eth1.200)")
       code, vlan200 = server.execute("ip addr show eth1.200 2>&1")
-      print(vlan200)
+      tlog(vlan200)
 
-      print("\n--- eth1.100 (Storage VLAN) ---")
+      cluster_ip = server.succeed("ip -4 addr show eth1.200 | grep -oP '(?<=inet )\\S+'")
+      tlog(f"Cluster VLAN IP: {cluster_ip.strip()}")
+      assert "192.168.200.1" in cluster_ip, f"Expected 192.168.200.1, got {cluster_ip}"
+      tlog("✓ eth1.200 has correct IP address")
+
+      # Verify storage VLAN (eth1.100)
+      log_section("VERIFY", "Storage VLAN Check (eth1.100)")
       code, vlan100 = server.execute("ip addr show eth1.100 2>&1")
-      print(vlan100)
+      tlog(vlan100)
+
+      storage_ip = server.succeed("ip -4 addr show eth1.100 | grep -oP '(?<=inet )\\S+'")
+      tlog(f"Storage VLAN IP: {storage_ip.strip()}")
+      assert "192.168.100.1" in storage_ip, f"Expected 192.168.100.1, got {storage_ip}"
+      tlog("✓ eth1.100 has correct IP address")
 
       # Check routing table
-      print("\n--- Routing Table ---")
+      log_section("ROUTES", "Routing Table")
       routes = server.succeed("ip route")
-      print(routes)
+      tlog(routes.strip())
 
-      # Check systemd-networkd status
-      print("\n--- systemd-networkd Status ---")
-      code, networkd = server.execute("systemctl status systemd-networkd --no-pager 2>&1")
-      print(networkd)
-
-      # Check rendered netdev files (VLAN configuration)
-      print("\n--- Rendered Network Devices ---")
-      code, netdev = server.execute("ls -la /run/systemd/network/*.netdev 2>&1")
-      print(netdev)
-
-      # Check rendered network files
-      print("\n--- Rendered Network Config ---")
-      code, network = server.execute("ls -la /run/systemd/network/*.network 2>&1")
-      print(network)
-
-      # Verify cluster VLAN IP
-      print("\n--- Cluster VLAN IP Verification ---")
-      code, cluster_ip = server.execute("ip -4 addr show eth1.200 | grep -oP '192\\.168\\.200\\.\\d+' || echo 'no-cluster-ip'")
-      print(f"Cluster VLAN IP: {cluster_ip.strip()}")
-
-      # Verify storage VLAN IP
-      print("\n--- Storage VLAN IP Verification ---")
-      code, storage_ip = server.execute("ip -4 addr show eth1.100 | grep -oP '192\\.168\\.100\\.\\d+' || echo 'no-storage-ip'")
-      print(f"Storage VLAN IP: {storage_ip.strip()}")
-
-      # Test basic networking
-      print("\n--- Basic Network Test ---")
-      server.succeed("ping -c 1 127.0.0.1")
-      print("localhost ping: OK")
-
-      print("=" * 60)
-      print("K3S NETWORK VLANS TEST COMPLETE")
-      print("=" * 60)
+      log_summary("ISAR K3s Network VLANs Test", "network-vlans", [
+          "eth1.200 (cluster VLAN): 192.168.200.1/24",
+          "eth1.100 (storage VLAN): 192.168.100.1/24",
+          "802.1Q VLAN tagging functional"
+      ])
     '';
   };
 

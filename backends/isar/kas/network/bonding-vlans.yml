@@ -5,15 +5,20 @@
 #   Configures k3s with bonded NICs (eth1+eth2) and VLANs on bond0.
 #   Full production parity configuration.
 #   - Bond mode: active-backup
-#   - VLAN 200: Cluster traffic (k3s API, flannel)
-#   - VLAN 100: Storage traffic (Longhorn, iSCSI)
+#   - VLAN 200: Cluster traffic (k3s API, flannel) - 192.168.200.0/24
+#   - VLAN 100: Storage traffic (Longhorn, iSCSI) - 192.168.100.0/24
 #
 # USAGE:
 #   kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml:kas/network/bonding-vlans.yml
 #
-# IP CONFIGURATION:
-#   Default: 192.168.200.1 (cluster), 192.168.100.1 (storage)
-#   Override with NETPLAN_CLUSTER_IP / NETPLAN_STORAGE_IP in local.conf
+# CONFIGURATION:
+#   NETWORKD_NODE_NAME determines the node identity and IP assignment:
+#     - server-1: cluster=192.168.200.1, storage=192.168.100.1 (default)
+#     - server-2: cluster=192.168.200.2, storage=192.168.100.2
+#     - agent-1:  cluster=192.168.200.3, storage=192.168.100.3
+#     - agent-2:  cluster=192.168.200.4, storage=192.168.100.4
+#
+#   Override NETWORKD_NODE_NAME in local.conf for different nodes.
 #
 # NOTE:
 #   QEMU test VMs must be configured with 3 NICs (eth0=NAT, eth1+eth2=bonded)
@@ -27,7 +32,7 @@ header:
 local_conf_header:
   network-bonding-vlans: |
     # Bonding + VLANs network profile - full production parity
-    IMAGE_INSTALL:append = " netplan-k3s-config"
-    NETPLAN_PROFILE = "bonding-vlans"
-    NETPLAN_CLUSTER_IP = "192.168.200.1"
-    NETPLAN_STORAGE_IP = "192.168.100.1"
+    # Uses systemd-networkd config files generated from Nix profiles
+    IMAGE_INSTALL:append = " systemd-networkd-config"
+    NETWORKD_PROFILE = "bonding-vlans"
+    NETWORKD_NODE_NAME = "server-1"

@@ -37,16 +37,22 @@ local_conf_header:
     DISTRO_APT_PREMIRRORS = ""
 
   isar-k3s-parallelism: |
-    # Parallelism settings for build performance
-    # BB_NUMBER_THREADS: concurrent BitBake tasks (recipe-level parallelism)
-    # PARALLEL_MAKE: -j flag for make (within-recipe parallelism)
-    # These auto-detect based on available cores if not set
-    # Explicitly setting them can help with memory-constrained systems
+    # Parallelism settings to PREVENT SWAPPING
+    # Goal: Keep peak memory under 24GB (28GB system - 4GB headroom)
     #
-    # Default: BitBake auto-detects from os.cpu_count()
-    # For 20-core systems, consider:
-    #   BB_NUMBER_THREADS = "16"  # Leave headroom for system
-    #   PARALLEL_MAKE = "-j 16"   # Match BB_NUMBER_THREADS
+    # BB_NUMBER_THREADS: concurrent BitBake tasks (recipe-level parallelism)
+    # Heavy tasks (kernel compile, linking) can use 2-4GB each
+    # 24GB / ~3GB avg = 8 concurrent heavy tasks max
+    BB_NUMBER_THREADS = "8"
+
+    # PARALLEL_MAKE: -j flag for make (within-recipe parallelism)
+    # Keep at full CPU count - memory is limited by BB_NUMBER_THREADS
+    # PARALLEL_MAKE defaults to -j20 (auto-detected)
+
+    # BB_PRESSURE_MAX_MEMORY: Backup throttle if pressure rises despite limits
+    # Value is microseconds of stall per second (10000 = 1% threshold)
+    # Reacts early before OOM killer intervenes
+    BB_PRESSURE_MAX_MEMORY = "10000"
 
   isar-k3s-compression: |
     # Use pigz for parallel gzip compression (significantly faster on multi-core)

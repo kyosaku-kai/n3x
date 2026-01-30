@@ -35,7 +35,9 @@
 
 # EFI System Partition (ESP)
 # Contains GRUB-EFI bootloader and grubenv for A/B switching
-part /boot --source bootimg-efi-isar --sourceparams "loader=grub-efi" --ondisk sda --label efi --part-type EF00 --align 1024
+# Use --use-uuid to generate PARTUUID-based fstab entries for virtio compatibility
+# Without this, WIC generates /dev/sda1 which doesn't exist when using QEMU virtio disks (/dev/vda1)
+part /boot --source bootimg-efi-isar --sourceparams "loader=grub-efi" --ondisk sda --label efi --part-type EF00 --align 1024 --use-uuid
 
 # Rootfs A (APP) - Primary partition, initially active
 # This is where the image rootfs is installed during initial flash

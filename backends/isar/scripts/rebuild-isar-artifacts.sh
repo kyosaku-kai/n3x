@@ -42,6 +42,9 @@ declare -A OVERLAYS=(
   ["test"]="test-overlay"           # Adds nixos-test-backdoor for VM testing
   ["test-k3s"]="test-k3s-overlay"   # test + k3s for k3s VM tests
   ["swupdate"]="feature/swupdate"   # A/B partition layout for OTA
+  ["simple"]="network/simple"       # Simple flat network (default)
+  ["vlans"]="network/vlans"         # 802.1Q VLAN tagging
+  ["bonding-vlans"]="network/bonding-vlans"  # Bonding + VLANs
 )
 
 # ANSI colors
@@ -75,7 +78,7 @@ _rebuild_isar_artifacts() {
 
     local machines="qemuamd64 qemuarm64 jetson-orin-nano amd-v3c18i"
     local roles="base server agent"
-    local overlays="test test-k3s swupdate"
+    local overlays="test test-k3s swupdate simple vlans bonding-vlans"
     local commands="build list hash add update all"
     local global_opts="--help --version --dry-run --verbose --no-color --completion"
 
@@ -160,6 +163,9 @@ _rebuild_isar_artifacts() {
         'test:Add nixos-test-backdoor for VM testing'
         'test-k3s:Test overlay plus K3s components'
         'swupdate:A/B partition layout for OTA updates'
+        'simple:Simple flat network configuration'
+        'vlans:802.1Q VLAN tagging'
+        'bonding-vlans:Bonding plus VLANs'
     )
 
     _arguments -C \
@@ -243,7 +249,7 @@ complete -c rebuild-isar-artifacts -n "__fish_seen_subcommand_from build hash ad
 complete -c rebuild-isar-artifacts -n "__fish_seen_subcommand_from build hash add update all" -s r -l role -xa 'base server agent' -d 'Image role'
 
 # Overlay options
-complete -c rebuild-isar-artifacts -n "__fish_seen_subcommand_from build hash add update all" -s o -l overlay -xa 'test test-k3s swupdate' -d 'Additional overlay'
+complete -c rebuild-isar-artifacts -n "__fish_seen_subcommand_from build hash add update all" -s o -l overlay -xa 'test test-k3s swupdate simple vlans bonding-vlans' -d 'Additional overlay'
 
 # List subcommand options
 complete -c rebuild-isar-artifacts -n "__fish_seen_subcommand_from list" -l machines -d 'List machines'
@@ -310,6 +316,9 @@ ${BOLD}OVERLAYS:${NC}
     test                    Add nixos-test-backdoor for VM testing
     test-k3s                Test overlay + K3s for k3s VM tests
     swupdate                A/B partition layout for OTA updates
+    simple                  Simple flat network configuration
+    vlans                   802.1Q VLAN tagging
+    bonding-vlans           Bonding plus VLANs
 
 ${BOLD}EXAMPLES:${NC}
     # Build qemuamd64 server image for testing
@@ -580,6 +589,9 @@ cmd_list() {
     echo "  test              Add nixos-test-backdoor for VM testing"
     echo "  test-k3s          Test overlay + K3s for k3s VM tests"
     echo "  swupdate          A/B partition layout for OTA updates"
+    echo "  simple            Simple flat network configuration"
+    echo "  vlans             802.1Q VLAN tagging"
+    echo "  bonding-vlans     Bonding plus VLANs"
     echo ""
   fi
 }
@@ -765,7 +777,7 @@ cmd_update() {
     exit 1
   fi
 
-  local artifacts_file="nix/isar-artifacts.nix"
+  local artifacts_file="isar-artifacts.nix"
   if [[ ! -f "$artifacts_file" ]]; then
     log_error "Artifacts file not found: $artifacts_file"
     exit 1

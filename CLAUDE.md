@@ -78,17 +78,41 @@ This file provides project-specific rules and task tracking for Claude Code when
 ## Project Status and Next Tasks
 
 ### Current Status
-- **Phase**: Phase 8 ✅ COMPLETE - Ready for Phase 9 (Hardware Deployment)
-- **Repository State**: Clean working tree, all prerequisites validated
-- **Branch**: `simint` (1 commit ahead of origin)
-- **Implementation**: ✅ Complete - 3 network profiles with parameterized test builder
-- **Runtime Testing**: ✅ VALIDATED (2026-01-17)
-  - `k3s-cluster-simple` - PASSED (flat network baseline)
-  - `k3s-cluster-vlans` - PASSED (VLAN 200/100 tagging, nodes show 192.168.200.x IPs)
-  - `k3s-cluster-bonding-vlans` - PASSED (bond0 + VLAN tagging)
-- **Secrets Management**: ✅ COMPLETE (2026-01-19) - All keys regenerated and stored in Bitwarden
-- **Multi-Architecture**: ✅ COMPLETE (2026-01-19) - k3s server role works on x86_64 and aarch64
-- **Next Phase**: Phase 9 (Hardware Deployment) - Deploy first N100 node with nixos-anywhere
+- **Branch**: `feature/unified-platform-v2` (48 commits ahead of origin/simint)
+- **Plan 011**: Unified K3s Platform Architecture - COMPLETE
+- **Plan 012**: Unified Network Architecture Refactoring - ✅ COMPLETE (2026-01-27)
+- **Plan 013**: Test Infrastructure Review - ✅ COMPLETE (2026-01-27)
+- **Plan 014**: L4 Test Parity - ✅ COMPLETE (2026-01-28)
+- **ISAR L3 K3s Service Test**: ✅ VALIDATED (2026-01-29)
+- **ISAR L4 Cluster Test**: ✅ IMPLEMENTED (2026-01-29) - 2-server HA control plane
+- **Test Infrastructure**: Fully integrated NixOS + ISAR backends with shared abstractions
+- **BitBake Memory Limits**: BB_NUMBER_THREADS=8, BB_PRESSURE_MAX_MEMORY=10000 (prevents OOM)
+- **Next Step**: Run and validate isar-k3s-cluster-simple test
+
+### Plan 012 Summary (2026-01-27) - COMPLETE
+
+**Goal**: Eliminate network configuration duplication between backends
+
+**Accomplished**:
+1. ✅ Created `lib/network/mk-network-config.nix` - unified NixOS module generator
+2. ✅ Created `lib/k3s/mk-k3s-flags.nix` - shared K3s flag generator
+3. ✅ Removed `nodeConfig` and `k3sExtraFlags` from profiles (now data-only)
+4. ✅ Updated `mk-k3s-cluster-test.nix` to use new unified architecture
+5. ✅ Replaced netplan with `systemd-networkd-config` ISAR recipe
+6. ✅ All NixOS smoke tests pass (L1-L3)
+7. ✅ All ISAR network profile tests pass (simple, vlans, bonding-vlans)
+
+**Key Architecture**:
+- Profiles export **data only** (ipAddresses, interfaces, vlanIds)
+- `mkNixOSConfig` transforms data → NixOS systemd.network modules
+- `mkSystemdNetworkdFiles` transforms data → ISAR .network/.netdev files
+- `mkK3sFlags.mkExtraFlags` transforms data → k3s --node-ip, --flannel-iface, etc.
+
+### Previous Milestones
+- **Phase 8** (Secrets Management): ✅ COMPLETE (2026-01-19)
+- **Multi-Architecture**: ✅ COMPLETE (2026-01-19) - x86_64 and aarch64 k3s server
+- **L1-L2 ISAR Parity**: ✅ COMPLETE (2026-01-26)
+- **Network Profile Parity**: ✅ COMPLETE (2026-01-27)
 
 ### Phase 8 Summary (Secrets Management) - Completed 2026-01-19
 
@@ -794,6 +818,145 @@ pkgs.testers.runNixOSTest {
 - Token management MUST use file paths, never inline secrets
 - K3s manifests deployment requires careful ordering
 
+## Technical Learnings
+
+### ISAR Test Framework
+- **Decision**: Use NixOS VM Test Driver (nixos-test-driver) with ISAR-built .wic images - NOT Avocado
+- ISAR builds images (BitBake/kas produces .wic files), Nix provides test harness
+- Tests run on host NixOS/Nix environment, not inside kas-container
+- Test images need `nixos-test-backdoor` package - include via `kas/test-k3s-overlay.yml`
+- Build test images: `kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml:kas/image/minimal-base.yml`
+- VM script derivations must NOT use `run-<name>-vm` pattern in derivation name (conflicts with nixos-test-driver regex)
+- nixos-test-driver backdoor protocol: service prints "Spawning backdoor root shell..." to /dev/hvc0 (virtconsole)
+
+### kas-container Build Process
+- **Claude CAN run kas-container builds** - prefer subagents to minimize context usage
+- **Monitoring**: Run in foreground, check `build/tmp/deploy/images/` for progress
+- **Stuck builds**: Check `sudo podman ps -a` for orphaned containers
+- **Cleanup**: `sudo podman rm -f <container_id>` or `pgrep -a podman`
+- **NEVER manually clean sstate/work** - use `bitbake -c cleansstate <recipe>` when needed
+- **ASK before rebuilds** - prefer test-level fixes (QEMU args, kernel cmdline) over image changes
+
+### ISAR Build Cache
+- **Shared cache** configured in `backends/isar/kas/base.yml`:
+  - `DL_DIR = "${HOME}/.cache/yocto/downloads"`
+  - `SSTATE_DIR = "${HOME}/.cache/yocto/sstate"`
+- **Stale sstate fix**: `kas-container shell <kas-config> -c "bitbake -c cleansstate <recipe>"`
+
+### WIC Generation Hang (WSL2)
+- **Symptom**: Build hangs at 96% during `do_image_wic` in WSL2
+- **Root cause**: `sgdisk` calls `sync()` which hangs on 9p mounts (`/mnt/c`)
+- **Solution**: `kas-build` wrapper unmounts `/mnt/[a-z]` drives before build, remounts after
+- **Cleanup after hang**: `wsl --shutdown` from PowerShell, then clean `build/tmp/schroot-overlay/*/upper/tmp/*.wic/`
+
+### ISAR fstab Boot Issue (2026-01-27)
+- **Symptom**: Systemd boot stuck, `dev-sda1.device` waits forever
+- **Root cause**: `/etc/fstab` has `/dev/sda1 /boot` but QEMU virtio disk is `/dev/vda1`
+- **Fix required**: Change WIC/fstab to use `PARTUUID=` instead of `/dev/sda1`
+- **Location**: ISAR WIC kickstart files or base-files recipe
+
+### Jetson Orin Nano OTA (Plan 006)
+- **Fork**: `~/src/jetpack-nixos` branch `feature/pluggable-rootfs`
+- **Key function**: `lib.mkExternalRootfsConfig { som, carrierBoard, rootfsTarball }`
+- **Flash script**: Built with `--impure` (rootfs path is local file)
+- **Jetson produces tar.gz not WIC**: `IMAGE_FSTYPES = "tar.gz"` - L4T flash tools handle partitioning
+- **L4T packages**: ISAR recipes download .deb from NVIDIA repo
+- **Container image**: Use `ghcr.io/siemens/kas/kas-isar:5.1` (includes bubblewrap)
+
+### Nix-ISAR Integration Architecture
+- **Hybrid approach**: ISAR builds artifacts, Nix provides test harness and flash tooling
+- **Pattern 1**: Import ISAR .wic/.tar.gz artifacts into Nix tests
+- **Pattern 2**: External rootfs for Jetson flash script
+- **kas-container**: Functionally equivalent to `buildFHSUserEnvBubblewrap` but containerized
+
+### VDE Multi-VM Networking
+- **Use case**: Multi-VM tests (SWUpdate, network OTA) with VDE virtual ethernet
+- **VDE switch timing**: Needs 3s initial delay + traffic to learn MACs before forwarding
+- **HTTP serving**: Use `socat TCP-LISTEN:8080,fork,reuseaddr EXEC:/handler.sh` (not python http.server)
+- **pkill cleanup**: Use `execute()` not `succeed()` - process may already be gone
+
+### Unified K3s Platform (Plan 011)
+- **Core Terminology**:
+  - **Machine** = Hardware platform (arch + BSP + boot): `qemu-amd64`, `n100-bare`, `jetson-orin-nano`
+  - **System** = Complete buildable artifact (nixosConfiguration / ISAR image recipe)
+  - **Role** = `server` | `agent` only
+- **Architecture**: `tests/lib/` = shared, `backends/nixos/` = NixOS, `backends/isar/` = ISAR
+- **Network Abstraction**: Interface keys (`cluster`, `storage`, `external`), VLAN notation in interface name
+- **Test Layers**: L1 (VM Boot), L2 (Two-VM Network), L3 (K3s Service), L4 (Cluster)
+- **NixOS cluster tests DEFERRED**: Firewall bug blocks multi-node (port 6443 refused from eth1)
+
+### ISAR L4 Cluster Test Architecture (2026-01-29)
+- **Shared infrastructure**: Same network profiles (`lib/network/profiles/`) used by NixOS
+- **Name mapping**: Python vars (`server_1`) ↔ Profile names (`server-1`) via `builtins.replaceStrings`
+- **Runtime network config**: Current workaround since images all have `NETWORKD_NODE_NAME="server-1"`
+- **Proper solution**: Build per-node images with correct `NETWORKD_NODE_NAME` for each
+- **K3s config**: Modified via `/etc/default/k3s-server` env file at runtime
+- **Token sharing**: Copied from primary at test time (`/var/lib/rancher/k3s/server/token`)
+- **Documentation**: [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md)
+- **Test command**: `nix build '.#checks.x86_64-linux.isar-k3s-cluster-simple'`
+
+### ISAR L4 Test Debugging Session (2026-01-28 - 2026-01-29)
+
+**Status**: IN PROGRESS - Network debug test shows connectivity works; L4 test has timing/sequence issue
+
+**Session 1 (2026-01-28) Accomplishments**:
+1. ✅ Added `iputils-ping` to ISAR image (`isar-k3s-image.inc` line 81)
+2. ✅ Rebuilt ISAR image with kas-container
+3. ✅ Updated artifact hash in `isar-artifacts.nix` (sha256: `1cvs18f5kb5q14s8dv8r6shvkg3ci0f2wz2bbfgmvd4n57k6anqq`)
+
+**Session 2 (2026-01-29) Accomplishments**:
+1. ✅ Fixed **hostname issue**: Added `hostname ${profileName}` in `mkVMWorkarounds`
+2. ✅ Fixed **sed pattern for k3s config**: Added `^` anchor to only match uncommented `K3S_SERVER_OPTS=` line
+3. ✅ Fixed **systemd-networkd restart**: Masked (not just stopped) to prevent restart via k3s's `After=network-online.target`
+4. ✅ Verified: server-1 k3s listening on `*:6443`, iptables ACCEPT policy, curl to 127.0.0.1:6443 works
+5. ✅ Verified: ICMP ping from server-2 to server-1 (192.168.1.1) works
+
+**Session 3 (2026-01-29) Key Finding - Network Works in Isolation**:
+1. ✅ Created `tests/isar/network-debug.nix` - minimal network debug test
+2. ✅ Registered in flake as `isar-network-debug` check
+3. ✅ **IPs persist for 60+ seconds** - no disappearance during monitoring
+4. ✅ **TCP to port 6443 WORKS** after k3s starts on vm1: `exit_code=0`, `Connected to 192.168.1.1`
+5. ✅ **k3s on vm1 does NOT affect vm2's network** - vm2's IP remains intact
+
+**Corrected Root Cause Analysis**:
+The original hypothesis (IP disappearing) was WRONG. Network debug test proves:
+- IP addresses persist correctly
+- TCP connectivity to 6443 works
+- No firewall blocking
+
+**Actual L4 Test Failure**:
+- L4 test shows curl timeout BEFORE starting k3s on server-2
+- But k3s on server-2 starts and runs as standalone (not joining cluster)
+- k3s logs: `Started tunnel to 192.168.1.2:6443` (itself, not primary!)
+- k3s doesn't error, just silently becomes standalone
+
+**Likely Issue - Token or Timing**:
+1. Token is written to `/var/lib/rancher/k3s/server/token` AFTER editing env file
+2. k3s may read old token before new one is written
+3. Or k3s starts before `--server` flag is picked up from env file
+4. Need to verify: `systemctl daemon-reload` before starting k3s?
+
+**Files Created This Session**:
+- `tests/isar/network-debug.nix` - Minimal 2-VM network test with k3s startup simulation
+- Added `isar-network-debug` check to `flake.nix`
+
+**Debug Test Command**:
+```bash
+nix build '.#checks.x86_64-linux.isar-network-debug' -L  # ~2 min, tests network isolation
+nix build '.#checks.x86_64-linux.isar-k3s-cluster-simple' -L  # ~10 min, full L4 test
+```
+
+**Next Steps**:
+1. **Add daemon-reload before k3s start** - ensure env file changes are picked up
+2. **Check token timing** - ensure token is written before k3s starts
+3. **Compare exact sequence** - debug test vs L4 test, find the difference
+4. **Check k3s startup logs** - get FULL logs (not just last 30 lines) to see connection attempts
+
+**Lesson Learned - Need Faster Debug Cycle**:
+- Full ISAR L4 test takes ~7-10 minutes per run
+- Proposed: Create lightweight network-only test that validates IP persistence without k3s
+- This would enable rapid iteration on the network config issue
+
 ## References
 
 ### Project Documentation
@@ -802,9 +965,11 @@ pkgs.testers.runNixOSTest {
 - [VSIM-INTEGRATION-PLAN.md](VSIM-INTEGRATION-PLAN.md) - vsim integration roadmap and session tracking
 - [tests/README.md](tests/README.md) - Testing framework documentation
 - [docs/SECRETS-SETUP.md](docs/SECRETS-SETUP.md) - Secrets management guide
+- [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md) - ISAR L4 cluster test design
 
 ### Community References
 - niki-on-github/nixos-k3s (GitOps integration)
 - rorosen/k3s-nix (multi-node examples)
 - Skasselbard/NixOS-K3s-Cluster (CSV provisioning)
 - anduril/jetpack-nixos (Jetson support)
+- ALWAYS remember to stop and check with me anytime you think you need to add apackage or configuration to any ISAR image.

@@ -26,6 +26,10 @@ let
   isarArtifacts = import ../../backends/isar/isar-artifacts.nix { inherit pkgs lib; };
   mkISARTest = pkgs.callPackage ../lib/isar/mk-isar-test.nix { inherit pkgs lib; };
 
+  # Import shared test utilities
+  testScripts = import ../lib/test-scripts { inherit lib; };
+  bootPhase = import ../lib/test-scripts/phases/boot.nix { inherit lib; };
+
   test = mkISARTest {
     name = "k3s-network-simple";
 
@@ -40,75 +44,83 @@ let
       };
     };
 
+    # Note: testScript content must start at column 0 because testScripts.utils.all
+    # contains Python code at column 0 (function definitions, imports).
     testScript = ''
-      # Wait for backdoor shell
-      server.wait_for_unit("nixos-test-backdoor.service")
+      ${testScripts.utils.all}
 
-      print("=" * 60)
-      print("K3S NETWORK SIMPLE PROFILE TEST")
-      print("=" * 60)
+      log_banner("ISAR K3s Network Simple Test", "network-simple", {
+          "Layer": "4 (Network Profile)",
+          "Profile": "simple",
+          "Expected IP": "192.168.1.1/24 on eth1"
+      })
 
-      # Basic boot check
-      server.succeed("uname -a")
+      # Phase 1: Boot with GRUB serial protection
+      ${bootPhase.isar.bootWithBackdoor { node = "server"; displayName = "ISAR K3s server"; }}
 
-      # Check if netplan is installed
-      print("\n--- Netplan Check ---")
-      code, netplan_check = server.execute("which netplan 2>&1")
-      if code == 0:
-          print(f"netplan found: {netplan_check.strip()}")
-          netplan_config = server.execute("netplan get 2>&1")[1]
-          print(f"Netplan config:\n{netplan_config}")
-      else:
-          print("WARNING: netplan not installed in this image")
-          print("Image was likely built without kas/network/simple.yml overlay")
+      # Phase 2: Wait for network configuration
+      log_section("PHASE 2", "Network Configuration")
 
-      # Check network interfaces
-      print("\n--- Network Interfaces ---")
+      server.wait_for_unit("systemd-networkd.service", timeout=60)
+      tlog("  systemd-networkd is active")
+
+      # Give networkd a moment to configure interfaces
+      import time
+      time.sleep(2)
+
+      # IMPORTANT: After sleeping, other system output may have corrupted the shell buffer.
+      # Use succeed() instead of execute() because succeed() is more tolerant of buffer issues.
+      # Run a simple command first to flush any garbage before doing real work.
+      server.succeed("true")
+
+      # Check systemd-networkd-config files
+      log_section("CONFIG", "systemd-networkd-config files")
+      networkd_files = server.succeed("ls -la /etc/systemd/network/ 2>&1 || true")
+      tlog(networkd_files)
+
+      # Phase 3: Verify network interfaces
+      log_section("PHASE 3", "Network Interface Verification")
+
       interfaces = server.succeed("ip -br link")
-      print(interfaces)
+      tlog("Interfaces:")
+      for line in interfaces.strip().split("\n"):
+          tlog(f"  {line}")
 
-      # Check IP addresses
-      print("\n--- IP Addresses ---")
       ip_addrs = server.succeed("ip -br addr")
-      print(ip_addrs)
+      tlog("\nIP Addresses:")
+      for line in ip_addrs.strip().split("\n"):
+          tlog(f"  {line}")
 
-      # Check if eth1 has the expected IP (192.168.1.x)
-      print("\n--- eth1 Configuration ---")
-      code, eth1_info = server.execute("ip addr show eth1 2>&1")
-      print(eth1_info)
-
-      # Verify eth1 has an IP (either from netplan or test driver)
-      code, eth1_ip = server.execute("ip -4 addr show eth1 | grep -oP '192\\.168\\.1\\.\\d+' || echo 'no-ip'")
-      print(f"eth1 IP: {eth1_ip.strip()}")
+      # Verify eth1 has the expected IP (192.168.1.1/24 for server-1)
+      log_section("VERIFY", "Cluster Interface Check")
+      cluster_ip = server.succeed("ip -4 addr show eth1 | grep -oP '(?<=inet )\\S+'")
+      tlog(f"eth1 IP: {cluster_ip.strip()}")
+      assert "192.168.1.1" in cluster_ip, f"Expected 192.168.1.1, got {cluster_ip}"
+      tlog("✓ eth1 has correct IP address")
 
       # Check routing table
-      print("\n--- Routing Table ---")
+      log_section("ROUTES", "Routing Table")
       routes = server.succeed("ip route")
-      print(routes)
+      tlog(routes.strip())
 
-      # Check systemd-networkd status (netplan renders to networkd)
-      print("\n--- systemd-networkd Status ---")
+      # Diagnostic: systemd-networkd status
+      log_section("DIAG", "systemd-networkd status")
       code, networkd = server.execute("systemctl status systemd-networkd --no-pager 2>&1")
-      print(networkd)
+      tlog(networkd)
 
-      # Check netplan rendered files
-      print("\n--- Rendered Network Config ---")
-      code, rendered = server.execute("ls -la /run/systemd/network/ 2>&1")
-      print(rendered)
-
-      # Check if we can ping localhost
-      print("\n--- Basic Network Test ---")
-      server.succeed("ping -c 1 127.0.0.1")
-      print("localhost ping: OK")
-
-      # Check k3s network configuration
-      print("\n--- K3s Network Config ---")
+      # Check k3s configuration
+      log_section("K3S", "K3s Network Configuration")
       code, k3s_config = server.execute("cat /etc/default/k3s-server 2>&1")
-      print(k3s_config)
+      tlog(k3s_config)
 
-      print("=" * 60)
-      print("K3S NETWORK SIMPLE TEST COMPLETE")
-      print("=" * 60)
+      code, k3s_flags = server.execute("cat /etc/rancher/k3s/config.yaml 2>&1 || echo 'No k3s config.yaml'")
+      tlog(k3s_flags)
+
+      log_summary("ISAR K3s Network Simple Test", "network-simple", [
+          "eth1 configured with 192.168.1.1/24",
+          "systemd-networkd active",
+          "Simple network profile functional"
+      ])
     '';
   };
 

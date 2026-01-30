@@ -239,6 +239,10 @@
         echo
 
         export KAS_CONTAINER_ENGINE=podman
+        # ISAR commit 27651d51 (Sept 2024) requires bubblewrap for rootfs sandboxing
+        # kas-isar:4.7 does NOT have bwrap; kas-isar:5.1+ does
+        # Use KAS_CONTAINER_IMAGE to override the full image path (not KAS_CONTAINER_IMAGE_NAME)
+        export KAS_CONTAINER_IMAGE="ghcr.io/siemens/kas/kas-isar:5.1"
         kas-container --isar build "$kas_config" "$@"
 
         log_success "Build completed successfully!"
@@ -275,6 +279,20 @@
       isarParityTests = {
         vm-boot = import ./tests/isar/single-vm-boot.nix { inherit pkgs lib; };
         two-vm-network = import ./tests/isar/two-vm-network.nix { inherit pkgs lib; };
+        # K3s server boot test (Layer 3 - k3s binary verification)
+        k3s-server-boot = import ./tests/isar/k3s-server-boot.nix { inherit pkgs lib; };
+        # K3s service test (Layer 3 - k3s service starts and API responds)
+        k3s-service = import ./tests/isar/k3s-service.nix { inherit pkgs lib; };
+        # K3s network profile tests (requires images built with network overlays)
+        k3s-network-simple = import ./tests/isar/k3s-network-simple.nix { inherit pkgs lib; };
+        k3s-network-vlans = import ./tests/isar/k3s-network-vlans.nix { inherit pkgs lib; };
+        k3s-network-bonding = import ./tests/isar/k3s-network-bonding.nix { inherit pkgs lib; };
+        # K3s cluster tests (Layer 4 - multi-node HA control plane)
+        k3s-cluster-simple = import ./tests/isar/k3s-cluster.nix { inherit pkgs lib; networkProfile = "simple"; };
+        k3s-cluster-vlans = import ./tests/isar/k3s-cluster.nix { inherit pkgs lib; networkProfile = "vlans"; };
+        k3s-cluster-bonding-vlans = import ./tests/isar/k3s-cluster.nix { inherit pkgs lib; networkProfile = "bonding-vlans"; };
+        # Network debug test (fast iteration for debugging IP persistence issues)
+        network-debug = import ./tests/isar/network-debug.nix { inherit pkgs lib; };
       };
     in
     {
@@ -687,12 +705,20 @@
             ];
             text = builtins.readFile ./backends/isar/scripts/rebuild-isar-artifacts.sh;
           }}/bin/rebuild-isar-artifacts";
+          meta = {
+            description = "Build ISAR images and register artifacts in isar-artifacts.nix";
+            mainProgram = "rebuild-isar-artifacts";
+          };
         };
 
         # Generate systemd-networkd config files for ISAR from Nix profiles
         # Usage: nix run '.#generate-networkd-configs'
         generate-networkd-configs = {
           type = "app";
+          meta = {
+            description = "Generate systemd-networkd config files from Nix network profiles for ISAR";
+            mainProgram = "generate-networkd-configs";
+          };
           program = "${pkgs.writeShellApplication {
             name = "generate-networkd-configs";
             runtimeInputs = with pkgs; [ coreutils ];
@@ -788,6 +814,10 @@
         # Prevention: Use SIGTERM before SIGKILL when terminating kas-build processes.
         wsl-remount = {
           type = "app";
+          meta = {
+            description = "Remount WSL Windows filesystems after kas-build interruption";
+            mainProgram = "wsl-remount";
+          };
           program = "${pkgs.writeShellApplication {
             name = "wsl-remount";
             runtimeInputs = with pkgs; [ util-linux gnugrep gawk coreutils ];
@@ -984,6 +1014,7 @@
         vsim-k3s-cluster = pkgs.callPackage ./tests/nixos/vsim-k3s-cluster.nix { inherit inputs; };
 
         # K3s cluster formation using nixosTest multi-node (no nested virtualization)
+        # DEPRECATED: Consider using k3s-cluster-simple instead (Plan 013)
         # This is the primary test approach - works on all platforms (WSL2, Darwin, Cloud)
         k3s-cluster-formation = pkgs.callPackage ./tests/nixos/k3s-cluster-formation.nix { inherit inputs; };
 
@@ -992,6 +1023,7 @@
         k3s-storage = pkgs.callPackage ./tests/nixos/k3s-storage.nix { inherit inputs; };
 
         # K3s networking validation
+        # REVIEW: May be redundant with k3s-cluster-* parameterized tests (Plan 013)
         # Tests CoreDNS, flannel VXLAN, service discovery, and pod network connectivity
         k3s-network = pkgs.callPackage ./tests/nixos/k3s-network.nix { inherit inputs; };
 
@@ -1106,6 +1138,27 @@
         # ISAR Parity Tests (parallel to NixOS smoke tests for Layer 1-2)
         isar-vm-boot = isarParityTests.vm-boot.test;
         isar-two-vm-network = isarParityTests.two-vm-network.test;
+
+        # ISAR K3s Server Boot Test (Layer 3 - k3s binary verification)
+        isar-k3s-server-boot = isarParityTests.k3s-server-boot.test;
+
+        # ISAR K3s Service Test (Layer 3 - k3s service starts and API responds)
+        isar-k3s-service = isarParityTests.k3s-service.test;
+
+        # ISAR K3s Network Profile Tests (requires images with network overlays)
+        # Build images with: rebuild-isar-artifacts build -m qemuamd64 -r server -o test-k3s -o <network>
+        isar-k3s-network-simple = isarParityTests.k3s-network-simple.test;
+        isar-k3s-network-vlans = isarParityTests.k3s-network-vlans.test;
+        isar-k3s-network-bonding = isarParityTests.k3s-network-bonding.test;
+
+        # ISAR K3s Cluster Tests (Layer 4 - multi-node HA control plane)
+        # Requires: profile-specific images from isar-artifacts.nix
+        isar-k3s-cluster-simple = isarParityTests.k3s-cluster-simple.test;
+        isar-k3s-cluster-vlans = isarParityTests.k3s-cluster-vlans.test;
+        isar-k3s-cluster-bonding-vlans = isarParityTests.k3s-cluster-bonding-vlans.test;
+
+        # ISAR Network Debug Test (fast iteration for IP persistence debugging)
+        isar-network-debug = isarParityTests.network-debug.test;
       };
 
       # aarch64-linux checks (Jetson platform - build validation only)

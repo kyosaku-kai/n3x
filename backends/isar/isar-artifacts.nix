@@ -4,20 +4,44 @@
 # Architecture:
 #   - Machine: hardware platform (qemuamd64, jetson-orin-nano, amd-v3c18i)
 #   - Role: k3s function (base, server, agent)
+#   - Network Profile: network configuration variant (simple, vlans, bonding-vlans)
 #
 # Primary targets (what we actually deploy):
 #   - jetson-orin-nano + server (k3s control plane)
 #   - amd-v3c18i + agent (k3s worker node)
 #
 # Test targets (for nixos-test-driver VM tests):
-#   - qemuamd64 + base/server/agent
+#   - qemuamd64 + base/server/agent + network profile
 #
 # Usage:
 #   let
 #     isarArtifacts = import ./isar-artifacts.nix { inherit pkgs lib; };
-#     testImage = isarArtifacts.qemuamd64.base.wic;
+#     # Profile-specific artifacts (for network profile tests)
+#     simpleImage = isarArtifacts.qemuamd64.server.simple.wic;
+#     vlansImage = isarArtifacts.qemuamd64.server.vlans.wic;
+#     # Legacy access (defaults to simple profile for backwards compatibility)
+#     legacyImage = isarArtifacts.qemuamd64.server.wic;  # same as .simple.wic
 #     jetsonRootfs = isarArtifacts.jetson-orin-nano.server.rootfs;
 #   in ...
+#
+# NETWORK PROFILE ARCHITECTURE (Plan 014 A1):
+#
+#   Unlike NixOS (which generates configs at eval time), ISAR requires
+#   pre-built images with network profiles baked in at build time.
+#   Each profile variant is a DISTINCT artifact with its own hash.
+#
+#   NixOS Flow:
+#     lib/network/profiles/${profile}.nix → mk-network-config.nix → VM derivation
+#     (Dynamic: different profiles = different derivations automatically)
+#
+#   ISAR Flow:
+#     kas/network/${profile}.yml → ISAR build → .wic artifact → nix store
+#     (Static: must build each variant, register hash explicitly)
+#
+#   Build commands for each profile:
+#     kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/test-overlay.yml:kas/network/simple.yml
+#     kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/test-overlay.yml:kas/network/vlans.yml
+#     kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/test-overlay.yml:kas/network/bonding-vlans.yml
 #
 # After ISAR build, run: scripts/update-artifact-hashes.sh
 # Then add to nix store: nix-store --add-fixed sha256 <artifact-path>
@@ -41,11 +65,21 @@ let
     "agent" = { kasFile = "k3s-agent"; recipe = "agent"; };
   };
 
+  # Map from network profile to kas overlay file
+  profileToKasOverlay = {
+    "simple" = "simple";
+    "vlans" = "vlans";
+    "bonding-vlans" = "bonding-vlans";
+  };
+
   # Helper for requireFile with ISAR build instructions
-  requireIsarArtifact = { name, sha256, machine, artifactType, role ? "base" }:
+  requireIsarArtifact = { name, sha256, machine, artifactType, role ? "base", networkProfile ? null }:
     let
       kasMachine = machineToKasFile.${machine} or machine;
       roleInfo = roleToKasImage.${role};
+      profileOverlay = if networkProfile != null then profileToKasOverlay.${networkProfile} else null;
+      profileSuffix = if profileOverlay != null then ":kas/network/${profileOverlay}.yml" else "";
+      testOverlay = if profileOverlay != null then ":kas/test-overlay.yml" else "";
     in
     pkgs.requireFile {
       inherit name sha256;
@@ -56,11 +90,12 @@ let
           nix-store --add-fixed sha256 build/tmp/deploy/images/${machine}/${name}
 
         To rebuild the image:
-          kas-build kas/base.yml:kas/machine/${kasMachine}.yml:kas/image/${roleInfo.kasFile}.yml
+          kas-build kas/base.yml:kas/machine/${kasMachine}.yml:kas/image/${roleInfo.kasFile}.yml${testOverlay}${profileSuffix}
 
         Artifact info:
           Machine: ${machine} (kas file: ${kasMachine}.yml)
           Role: ${role} (image: isar-k3s-image-${roleInfo.recipe})
+          ${if networkProfile != null then "Network Profile: ${networkProfile}" else "Network Profile: (none - production image)"}
           Type: ${artifactType}
           Expected hash: ${sha256}
 
@@ -129,12 +164,109 @@ in
       };
     };
     server = {
+      # =========================================================================
+      # Network Profile-Specific Artifacts (for VM tests)
+      # Each profile variant is a distinct image with its own hash.
+      # =========================================================================
+
+      # Simple network profile (single flat network on eth1)
+      # Build: kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/test-overlay.yml:kas/network/simple.yml
+      simple = {
+        wic = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64.wic";
+          sha256 = "1cvs18f5kb5q14s8dv8r6shvkg3ci0f2wz2bbfgmvd4n57k6anqq";
+          machine = "qemuamd64";
+          artifactType = "wic";
+          role = "server";
+          networkProfile = "simple";
+        };
+        vmlinuz = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64-vmlinuz";
+          sha256 = "1b2hn9n5sb5aqs3jh36q27qxyv4732nma9cx5zhipg2mw7yijr3a";
+          machine = "qemuamd64";
+          artifactType = "kernel";
+          role = "server";
+          networkProfile = "simple";
+        };
+        initrd = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64-initrd.img";
+          sha256 = "14hl1x8rlgdli3cl7z5lfv58vgb8mmsihv7mr6y3v6q03jmzjj1r";
+          machine = "qemuamd64";
+          artifactType = "initrd";
+          role = "server";
+          networkProfile = "simple";
+        };
+      };
+
+      # VLANs network profile (802.1Q tagging on eth1)
+      # Build: kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/test-overlay.yml:kas/network/vlans.yml
+      vlans = {
+        wic = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64.wic";
+          sha256 = "099kmcjqd08sdjx4m0ckf48hn5azrj5y10rqd43cd3mq7aj1rnsh";
+          machine = "qemuamd64";
+          artifactType = "wic";
+          role = "server";
+          networkProfile = "vlans";
+        };
+        vmlinuz = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64-vmlinuz";
+          sha256 = "1b2hn9n5sb5aqs3jh36q27qxyv4732nma9cx5zhipg2mw7yijr3a"; # Kernel same across profiles
+          machine = "qemuamd64";
+          artifactType = "kernel";
+          role = "server";
+          networkProfile = "vlans";
+        };
+        initrd = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64-initrd.img";
+          sha256 = "14hl1x8rlgdli3cl7z5lfv58vgb8mmsihv7mr6y3v6q03jmzjj1r"; # initrd same across profiles
+          machine = "qemuamd64";
+          artifactType = "initrd";
+          role = "server";
+          networkProfile = "vlans";
+        };
+      };
+
+      # Bonding + VLANs network profile (bond0 with 802.1Q tagging)
+      # Build: kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/test-overlay.yml:kas/network/bonding-vlans.yml
+      bonding-vlans = {
+        wic = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64.wic";
+          sha256 = "037y61asygdml08bmbi96hdhkn4grlrz40m3crl9r6vzs82bwyz1";
+          machine = "qemuamd64";
+          artifactType = "wic";
+          role = "server";
+          networkProfile = "bonding-vlans";
+        };
+        vmlinuz = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64-vmlinuz";
+          sha256 = "1b2hn9n5sb5aqs3jh36q27qxyv4732nma9cx5zhipg2mw7yijr3a"; # Kernel same across profiles
+          machine = "qemuamd64";
+          artifactType = "kernel";
+          role = "server";
+          networkProfile = "bonding-vlans";
+        };
+        initrd = requireIsarArtifact {
+          name = "isar-k3s-image-server-debian-trixie-qemuamd64-initrd.img";
+          sha256 = "14hl1x8rlgdli3cl7z5lfv58vgb8mmsihv7mr6y3v6q03jmzjj1r"; # initrd same across profiles
+          machine = "qemuamd64";
+          artifactType = "initrd";
+          role = "server";
+          networkProfile = "bonding-vlans";
+        };
+      };
+
+      # =========================================================================
+      # Legacy Access (backwards compatibility)
+      # These point to .simple for existing code that doesn't specify profile.
+      # =========================================================================
       wic = requireIsarArtifact {
         name = "isar-k3s-image-server-debian-trixie-qemuamd64.wic";
-        sha256 = "0r5k4gzl2xczdw81kpvn26yl8hsprnqga4z1k1ajflz0hczvi7kv";
+        sha256 = "1cvs18f5kb5q14s8dv8r6shvkg3ci0f2wz2bbfgmvd4n57k6anqq";
         machine = "qemuamd64";
         artifactType = "wic";
         role = "server";
+        networkProfile = "simple"; # Default to simple profile
       };
       vmlinuz = requireIsarArtifact {
         name = "isar-k3s-image-server-debian-trixie-qemuamd64-vmlinuz";
@@ -142,6 +274,7 @@ in
         machine = "qemuamd64";
         artifactType = "kernel";
         role = "server";
+        networkProfile = "simple";
       };
       initrd = requireIsarArtifact {
         name = "isar-k3s-image-server-debian-trixie-qemuamd64-initrd.img";
@@ -149,6 +282,7 @@ in
         machine = "qemuamd64";
         artifactType = "initrd";
         role = "server";
+        networkProfile = "simple";
       };
     };
     agent = {

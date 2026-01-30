@@ -96,6 +96,10 @@ in
       # Enable 802.1Q VLAN support
       boot.kernelModules = [ "8021q" ];
 
+      # Ensure systemd-networkd is used exclusively
+      networking.useDHCP = false;
+      networking.useNetworkd = true;
+
       # Configure VLANs using systemd-networkd
       # Each node creates VLANs with different IDs - this is the bug
       systemd.network = {

@@ -66,7 +66,14 @@ let
 
     # Build network arguments dynamically based on QEMU_VDE_SOCKET_* env vars
     # These are set by nixos-test-driver's VLan class when --vlans is used
-    NET_ARGS=""
+    #
+    # NixOS test driver convention:
+    #   eth0 = Default network (NAT/slirp for internet access)
+    #   eth1+ = VLAN networks from --vlans argument
+    #
+    # To match this convention, we add a disconnected eth0 placeholder
+    # so that VDE VLAN networks start at eth1.
+    NET_ARGS="-netdev user,id=net0,restrict=on -device virtio-net-pci,netdev=net0,mac=52:54:00:00:00:00"
     echo "DEBUG: Looking for QEMU_VDE_SOCKET_* environment variables..." >&2
     echo "DEBUG: All QEMU env vars: $(printenv | grep -i qemu || echo 'none')" >&2
     for var in $(printenv | grep '^QEMU_VDE_SOCKET_' | sort); do

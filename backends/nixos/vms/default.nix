@@ -82,7 +82,9 @@
   };
 
   # Set a default root password for testing (insecure, for testing only)
+  # Clear hashedPassword from base.nix to avoid "multiple password options" warning
   users.users.root = {
+    hashedPassword = lib.mkForce null;
     initialPassword = "test";
   };
 

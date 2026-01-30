@@ -116,6 +116,9 @@ let
     };
 
     # Test-friendly authentication
+    # Clear all password options to avoid "multiple password options" warning from nixosTest
+    users.users.root.hashedPassword = lib.mkForce null;
+    users.users.root.hashedPasswordFile = lib.mkForce null;
     users.users.root.password = lib.mkForce "test";
     services.openssh = {
       enable = true;
@@ -231,7 +234,6 @@ pkgs.testers.runNixOSTest {
   };
 
   skipTypeCheck = true;
-  skipLint = true;
 
   testScript = ''
     import time

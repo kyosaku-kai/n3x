@@ -63,6 +63,7 @@
 #   openssh-server   - Remote access for testing (sftp-server removed post-build)
 #   vim-tiny         - Minimal editor
 #   less             - Pager for log viewing
+#   iputils-ping     - Network diagnostics (ping command for cluster tests)
 
 IMAGE_PREINSTALL += "\
     ca-certificates \
@@ -77,6 +78,7 @@ IMAGE_PREINSTALL += "\
     openssh-server \
     vim-tiny \
     less \
+    iputils-ping \
 "
 
 # System configuration packages (built by ISAR):

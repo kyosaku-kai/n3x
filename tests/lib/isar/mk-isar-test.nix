@@ -87,6 +87,10 @@ let
     vmScripts;
 
   # Write the test script to a file
+  # Note: We pass the testScript directly without manual indentation stripping.
+  # The Python code is assembled from interpolated Nix strings at various indentation
+  # levels, including code at column 0 (like utils.all function definitions).
+  # Manual stripping breaks this - let Python handle any trivial whitespace.
   testScriptFile = pkgs.writeText "test-script" testScript;
 
   # Create the wrapped test driver

@@ -84,6 +84,7 @@
 
       # PHASES 3-8: K3s Cluster Formation
       ${k3sPhase.verifyCluster {
+        inherit profile;
         primary = nodes.primary;
         secondary = nodes.secondary;
         agent = nodes.agent;

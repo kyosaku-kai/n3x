@@ -50,10 +50,34 @@ do_install() {
     # Enable by default - start before getty to be available early
     install -d ${D}${systemd_system_unitdir}/multi-user.target.wants
     ln -sf ../nixos-test-backdoor.service ${D}${systemd_system_unitdir}/multi-user.target.wants/
+
+    # CRITICAL: Mask serial-getty services on hvc0 and ttyS0
+    # These interfere with the test driver protocol - getty writes login prompts
+    # to hvc0 which corrupts the base64-encoded shell communication.
+    # NixOS test-instrumentation.nix also masks these:
+    #   systemd.services."serial-getty@ttyS0".enable = false;
+    #   systemd.services."serial-getty@hvc0".enable = false;
+    ln -sf /dev/null ${D}${systemd_system_unitdir}/serial-getty@hvc0.service
+    ln -sf /dev/null ${D}${systemd_system_unitdir}/serial-getty@ttyS0.service
+
+    # CRITICAL: Prevent systemd from writing status messages to console
+    # These status messages ("[ OK ] Started ...") would corrupt the backdoor
+    # shell protocol on hvc0. NixOS test-instrumentation.nix does:
+    #   systemd.settings.Manager.ShowStatus = false;
+    install -d ${D}/etc/systemd/system.conf.d
+    cat > ${D}/etc/systemd/system.conf.d/50-test-no-status.conf << 'EOF'
+# Installed by nixos-test-backdoor recipe
+# Prevents systemd status messages from corrupting the test driver shell protocol
+[Manager]
+ShowStatus=no
+EOF
 }
 
 FILES:${PN} = "\
     /usr/lib/nixos-test/backdoor.sh \
     ${systemd_system_unitdir}/nixos-test-backdoor.service \
     ${systemd_system_unitdir}/multi-user.target.wants/nixos-test-backdoor.service \
+    ${systemd_system_unitdir}/serial-getty@hvc0.service \
+    ${systemd_system_unitdir}/serial-getty@ttyS0.service \
+    /etc/systemd/system.conf.d/50-test-no-status.conf \
 "
