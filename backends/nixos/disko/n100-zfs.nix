@@ -193,7 +193,7 @@
     };
 
     # ZFS support
-    supportedFilesystems = [ "zfs" ];
+    supportedFilesystems.zfs = true;
     zfs = {
       devNodes = "/dev/disk/by-id";
       forceImportAll = false;

@@ -1,0 +1,50 @@
+# systemd-boot Bootloader Overlay (Explicit Override)
+# =============================================================================
+#
+# NOTE: systemd-boot is now the DEFAULT bootloader. This overlay is typically
+#       not needed unless you're overriding a GRUB configuration.
+#
+# PURPOSE:
+#   Explicitly selects systemd-boot bootloader. Use this overlay when:
+#   - Building on top of a GRUB-based image (e.g., after kas/feature/swupdate.yml)
+#   - Explicitly documenting systemd-boot choice in build command
+#
+# USAGE:
+#   Only needed when overriding GRUB. For normal builds, systemd-boot is default:
+#     # Normal build (uses systemd-boot by default):
+#     kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml
+#
+#     # Override swupdate's GRUB back to systemd-boot:
+#     kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/image/k3s-server.yml:kas/feature/swupdate.yml:kas/boot/systemd-boot.yml
+#
+# COMPARISON:
+#   systemd-boot (default): Simple, fast, better EFI integration, no scripting
+#   GRUB (kas/boot/grub.yml): Flexible, scriptable, required for SWUpdate A/B OTA
+#
+# OTA CONSIDERATIONS:
+#   - GRUB A/B updates use grubenv variable switching (see kas/feature/swupdate.yml)
+#   - systemd-boot A/B updates would use systemd-sysupdate (not yet implemented)
+#
+# NOTE:
+#   The bootimg-efi-isar WIC plugin requires systemd-boot-efi to be installed in
+#   BOTH the WIC imager chroot (for EFI binary access) AND the target rootfs.
+#   The image recipes now include these by default.
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  systemd-boot-config: |
+    # Use systemd-boot WKS file instead of GRUB variant
+    WKS_FILE = "sdimage-efi-systemd-boot-n3x.wks"
+
+    # Install systemd-boot-efi in BOTH the WIC imager chroot AND the target image
+    # IMAGER_INSTALL:wic - packages installed in the WIC build chroot for EFI creation
+    # IMAGE_PREINSTALL - packages installed in the target rootfs via apt
+    #
+    # The bootimg-efi-isar WIC plugin reads the EFI binary from /usr/lib/systemd/boot/efi/
+    # which must be present in the imager chroot, not just the target.
+    IMAGER_INSTALL:wic:append = " systemd-boot-efi"
+    IMAGE_PREINSTALL:append = " systemd-boot-efi"

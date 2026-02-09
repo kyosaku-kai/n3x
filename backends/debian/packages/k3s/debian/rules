@@ -1,0 +1,51 @@
+#!/usr/bin/make -f
+# Debian rules for k3s binary package
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+# Skip build - using pre-built binary from upstream
+override_dh_auto_build:
+	@echo "Using pre-built k3s binary"
+
+override_dh_auto_install:
+	# Install k3s binary
+	mkdir -p debian/k3s/usr/bin
+	install -m 0755 k3s debian/k3s/usr/bin/k3s
+
+	# Create symlinks for bundled CLI tools
+	ln -sf k3s debian/k3s/usr/bin/kubectl
+	ln -sf k3s debian/k3s/usr/bin/crictl
+	ln -sf k3s debian/k3s/usr/bin/ctr
+
+	# Install systemd services (neither enabled by default)
+	mkdir -p debian/k3s/lib/systemd/system
+	install -m 0644 debian/k3s-server.service debian/k3s/lib/systemd/system/
+	install -m 0644 debian/k3s-agent.service debian/k3s/lib/systemd/system/
+
+	# Install default configuration files
+	mkdir -p debian/k3s/etc/default
+	install -m 0644 debian/k3s-server.default debian/k3s/etc/default/k3s-server
+	install -m 0644 debian/k3s-agent.default debian/k3s/etc/default/k3s-agent
+
+	# Create configuration directories
+	mkdir -p debian/k3s/etc/rancher/k3s/config.yaml.d
+	mkdir -p debian/k3s/var/lib/rancher/k3s/server
+
+	# Install test token (for automated testing only)
+	echo "test-cluster-fixed-token-for-automated-testing" > \
+		debian/k3s/var/lib/rancher/k3s/server/token
+	chmod 0600 debian/k3s/var/lib/rancher/k3s/server/token
+
+override_dh_auto_test:
+	@echo "Skipping tests for binary package"
+
+# Don't strip the k3s binary (it's already optimized)
+override_dh_strip:
+	@echo "Skipping strip for pre-built binary"
+
+# Don't run shlibdeps on bundled binary
+override_dh_shlibdeps:
+	@echo "Skipping shlibdeps for static binary"

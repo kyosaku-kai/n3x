@@ -1,7 +1,7 @@
 # n3x Emulation Testing Framework
 
 **Status**: Operational (Session 12 - Headless Mode)
-**Branch**: `simint`
+**Branch**: `main`
 **Last Updated**: 2025-12-12
 **Platform**: Native Linux only (see [Platform Compatibility](#platform-compatibility))
 

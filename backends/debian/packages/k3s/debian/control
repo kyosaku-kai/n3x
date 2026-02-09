@@ -1,0 +1,35 @@
+Source: k3s
+Section: admin
+Priority: optional
+Maintainer: n3x Project <n3x@example.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://k3s.io/
+
+Package: k3s
+Architecture: amd64 arm64
+Depends: ${misc:Depends},
+ ca-certificates,
+ iptables,
+ nftables,
+ iproute2,
+ kmod,
+ socat,
+ ipset,
+ ethtool,
+ conntrack,
+ bridge-utils,
+ util-linux,
+ systemd
+Conflicts: k3s-server, k3s-agent
+Replaces: k3s-server, k3s-agent
+Description: K3s Lightweight Kubernetes
+ K3s is a lightweight, certified Kubernetes distribution designed for
+ edge computing, IoT, and resource-constrained environments.
+ .
+ This package includes both server (control plane) and agent (worker)
+ modes. Enable the appropriate service based on node role:
+   - Server: systemctl enable k3s-server.service
+   - Agent: systemctl enable k3s-agent.service
+ .
+ Includes kubectl, crictl, and ctr CLI tools.

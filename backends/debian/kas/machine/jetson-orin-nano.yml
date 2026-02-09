@@ -1,0 +1,47 @@
+# NVIDIA Jetson Orin Nano machine configuration
+# Usage: kas-build kas/base.yml:kas/machine/jetson-orin-nano.yml:kas/image/base.yml
+#
+# Hardware notes:
+# - Targets standard NVIDIA Orin Nano dev kit carrier board (Tegra234 SoC)
+# - Custom kernel 6.12 LTS with Tegra234 config fragment (via kernel overlay)
+# - Stock Debian arm64 kernel available as fallback (remove kernel overlay include)
+# - GPU/display support explicitly NOT required
+# - Flash via L4T flash tools (l4t_initrd_flash.sh), not WIC images
+# - L4T BSP packages (nvbootctrl, tegrastats) installed from NVIDIA apt repo
+
+header:
+  version: 14
+  includes:
+    - ../base.yml
+    - ../kernel/tegra-6.12.yml
+
+machine: jetson-orin-nano
+distro: debian-trixie
+
+# Isar multiconfig target format: mc:{machine}-{distro_short}:{image}
+target: mc:jetson-orin-nano-trixie:isar-image-base
+
+local_conf_header:
+  jetson-orin-nano: |
+    # Jetson Orin Nano specific configuration
+    # Cross-compilation enabled (default). Uses host cross-toolchain for
+    # compilation-heavy tasks like the kernel, while prebuilt L4T .deb
+    # packages install via nvidia-l4t-cross-build.bbclass marker mechanism.
+    # Previously disabled (= "0") which forced full QEMU TCG emulation
+    # for all compilation, causing ~10-20x slowdown on kernel builds.
+
+    # NVIDIA L4T packages - baked into image for production-ready deployment
+    # These provide nvbootctrl for A/B OTA updates and other essential tools
+    # Downloaded directly from NVIDIA's Jetson apt repository as prebuilt .deb
+    # SHA256 verified against jetpack-nixos sourceinfo/r36.4-debs.json
+    IMAGE_INSTALL:append = " nvidia-l4t-core nvidia-l4t-tools"
+
+    # Inherit L4T cross-build support class for NVIDIA package installation
+    # This provides rootfs_create_l4t_marker function that bypasses nvidia-l4t-core's
+    # preinst platform detection check (fails during cross-build without
+    # /proc/device-tree/compatible). The function creates a marker file that
+    # tells nvidia-l4t-core's preinst to skip hardware checks.
+    INHERIT += "nvidia-l4t-cross-build"
+
+    # JetPack 6.2 / L4T R36.4.4 is the latest production release for Orin Nano
+    # JetPack 7.2 (expected mid-2026) will move to kernel 6.8 base

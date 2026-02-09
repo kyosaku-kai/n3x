@@ -1,0 +1,16 @@
+Source: PACKAGE-NAME
+Section: misc
+Priority: optional
+Maintainer: Your Name <your.email@example.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://example.com/PACKAGE-NAME
+
+Package: PACKAGE-NAME
+Architecture: amd64 arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Short description (max 60 chars)
+ Long description that can span multiple lines.
+ Each continuation line starts with a space.
+ .
+ Blank lines in the description use a single dot.

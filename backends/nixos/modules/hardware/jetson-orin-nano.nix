@@ -231,7 +231,13 @@
   };
 
   # Filesystem support
-  boot.supportedFilesystems = [ "ext4" "btrfs" "xfs" "vfat" "ntfs" ];
+  boot.supportedFilesystems = {
+    ext4 = true;
+    btrfs = true;
+    xfs = true;
+    vfat = true;
+    ntfs = true;
+  };
 
   # Enable hardware acceleration where applicable
   hardware.graphics = {
@@ -295,16 +301,12 @@
   # };
 
   # Hardware watchdog configuration
-  # NOTE: Using systemd.extraConfig instead of systemd.settings.Manager because
-  # systemd.settings was introduced in nixpkgs ~24.05+, and n3x's current nixpkgs
-  # revision doesn't have this option.
-  # TODO: Convert to systemd.settings.Manager = { WatchdogDevice = "/dev/watchdog"; ... }
-  #       when nixpkgs is updated to a version with the systemd.settings option.
-  # ERROR being worked around: "The option `systemd.settings' does not exist"
-  systemd.extraConfig = ''
-    WatchdogDevice=/dev/watchdog
-    RuntimeWatchdogSec=30s
-    RebootWatchdogSec=10min
-    KExecWatchdogSec=10min
-  '';
+  # Using systemd.settings.Manager (available in nixpkgs 24.05+) for type-checked config.
+  # This replaces the deprecated systemd.extraConfig option.
+  systemd.settings.Manager = {
+    WatchdogDevice = "/dev/watchdog";
+    RuntimeWatchdogSec = "30s";
+    RebootWatchdogSec = "10min";
+    KExecWatchdogSec = "10min";
+  };
 }

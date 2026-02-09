@@ -1,0 +1,23 @@
+# Kernel overlay: Linux 6.12 LTS with Tegra234 support
+#
+# Selects linux-tegra as the kernel provider for Jetson platforms.
+# Composable with machine overlays:
+#   kas-build kas/base.yml:kas/machine/jetson-orin-nano.yml:kas/kernel/tegra-6.12.yml:...
+#
+# To fall back to stock Debian kernel, remove this from machine overlay includes.
+#
+# How it works:
+#   ISAR's image.bbclass auto-installs linux-image-${KERNEL_NAME}.
+#   The linux-tegra recipe (linux-kernel.bbclass) extracts KERNEL_NAME_PROVIDED
+#   from the recipe name, producing linux-image-tegra as a Debian package.
+#   Setting KERNEL_NAME = "tegra" here connects the two.
+
+header:
+  version: 14
+
+local_conf_header:
+  tegra-kernel: |
+    # Override KERNEL_NAME to select custom Tegra234 kernel
+    # image.bbclass adds linux-image-${KERNEL_NAME} to IMAGE_INSTALL automatically
+    # This pulls linux-image-tegra from our linux-tegra_6.12.69.bb recipe
+    KERNEL_NAME = "tegra"

@@ -1,0 +1,39 @@
+# Bonding + VLANs Network Profile Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Configures k3s with bonded NICs (eth1+eth2) and VLANs on bond0.
+#   Full production parity configuration.
+#   - Bond mode: active-backup
+#   - VLAN 200: Cluster traffic (k3s API, flannel) - 192.168.200.0/24
+#   - VLAN 100: Storage traffic (Longhorn, iSCSI) - 192.168.100.0/24
+#
+# USAGE:
+#   kas-container --isar build \
+#     kas/base.yml:kas/machine/qemu-amd64.yml:kas/network/bonding-vlans.yml:kas/node/server-1.yml
+#
+# CONFIGURATION:
+#   NETWORKD_NODE_NAME is set by kas/node/*.yml overlays:
+#     - server-1: cluster=192.168.200.1, storage=192.168.100.1
+#     - server-2: cluster=192.168.200.2, storage=192.168.100.2
+#     - agent-1:  cluster=192.168.200.3, storage=192.168.100.3
+#     - agent-2:  cluster=192.168.200.4, storage=192.168.100.4
+#
+#   IMPORTANT: Always include a kas/node/*.yml overlay after the network profile!
+#
+# NOTE:
+#   QEMU test VMs must be configured with 3 NICs (eth0=NAT, eth1+eth2=bonded)
+#   The nixos-test-driver handles this via qemuFlags
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  network-bonding-vlans: |
+    # Bonding + VLANs network profile - full production parity
+    # Uses systemd-networkd config files generated from Nix profiles
+    IMAGE_INSTALL:append = " systemd-networkd-config"
+    NETWORKD_PROFILE = "bonding-vlans"
+    # NETWORKD_NODE_NAME set by kas/node/*.yml overlay

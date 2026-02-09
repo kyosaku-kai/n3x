@@ -1,0 +1,43 @@
+# JFrog Artifactory apt source overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Adds JFrog Artifactory as an apt source for custom n3x Debian packages.
+#   These are packages built by CI (build:deb:* jobs) and published to
+#   the n3x-debian-local Artifactory repository.
+#
+# PREREQUISITES:
+#   - JFrog Artifactory configured (Plan 023 Task 13)
+#   - n3x-debian-local repository created with GPG signing
+#   - Packages published via CI (Plan 023 Task 21)
+#
+# USAGE:
+#   Append to kas config chain when custom packages are needed:
+#   kas-build kas/base.yml:...:kas/opt/artifactory.yml
+#
+# CONFIGURATION:
+#   Set ARTIFACTORY_URL environment variable or override in local.conf:
+#   ARTIFACTORY_URL = "https://artifactory.example.com/artifactory"
+#
+# NOTE:
+#   This overlay is a placeholder until Task 13 (JFrog setup) is complete.
+#   The apt source URL and GPG key will be updated once Artifactory is
+#   configured with the actual repository endpoint.
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  artifactory-sources: |
+    # JFrog Artifactory as apt source for custom n3x packages
+    #
+    # TODO (Task 13): Update with actual Artifactory URL and GPG key
+    # ARTIFACTORY_URL ?= "https://artifactory.example.com/artifactory"
+    #
+    # When configured, ISAR will fetch custom packages (k3s, k3s-system-config)
+    # from Artifactory via apt, allowing IMAGE_PREINSTALL to resolve them.
+    #
+    # For now, packages are baked into images via ISAR recipes.
+    # This overlay will be activated once JFrog is operational.

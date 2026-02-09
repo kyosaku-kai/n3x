@@ -243,16 +243,16 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1767313136,
-        "narHash": "sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w=",
-        "owner": "NixOS",
+        "lastModified": 1771266603,
+        "narHash": "sha256-nsnKsK9Mrl0G+p2F2xU68xLIouviR4tlsWgPKB0KX8U=",
+        "owner": "timblaktu",
         "repo": "nixpkgs",
-        "rev": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
+        "rev": "22476b39b39cbccf3bfb609820a03eb993c4c0bd",
         "type": "github"
       },
       "original": {
-        "owner": "NixOS",
-        "ref": "nixos-25.05",
+        "owner": "timblaktu",
+        "ref": "vm-bootloader-disk-size",
         "repo": "nixpkgs",
         "type": "github"
       }

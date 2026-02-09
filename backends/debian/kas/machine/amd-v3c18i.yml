@@ -1,0 +1,21 @@
+# AMD V3C18i (Fox board) machine configuration
+# Usage: kas-container --isar build kas/base.yml:kas/machine/amd-v3c18i.yml
+#
+# Hardware notes:
+# - V3C18I has no integrated GPU - serial console required for initial setup
+# - Serial: UART0 (J38) -> ttyS4, 115200n8
+# - Requires amd64-microcode for security patches
+# - Standard UEFI boot with grub-efi-amd64
+#
+# See also: meta-n3x/conf/machine/amd-v3c18i.conf
+
+header:
+  version: 14
+  includes:
+    - ../base.yml
+
+machine: amd-v3c18i
+distro: debian-trixie
+
+# Isar multiconfig target format: mc:{machine}-{distro_short}:{image}
+target: mc:amd-v3c18i-trixie:isar-image-base

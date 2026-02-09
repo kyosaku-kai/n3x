@@ -1,0 +1,38 @@
+# GRUB Bootloader Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Switches from systemd-boot (default) to GRUB bootloader.
+#   Use this overlay when GRUB features are needed, such as SWUpdate A/B OTA.
+#
+# USAGE:
+#   Append to kas build command to use GRUB instead of systemd-boot:
+#     kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml:kas/boot/grub.yml
+#
+# WHY GRUB:
+#   - Required for SWUpdate A/B OTA (grubenv-based partition switching)
+#   - Flexible boot menu scripting
+#   - Wider hardware support
+#   - See kas/feature/swupdate.yml for A/B OTA configuration
+#
+# WHY systemd-boot (default):
+#   - Simpler implementation (no scripting language)
+#   - Better EFI integration
+#   - Faster boot times
+#   - Aligns with systemd ecosystem
+#
+# COMPATIBILITY:
+#   GRUB is available in ISAR's default imager packages, so no explicit
+#   package installation is needed. The bootimg-efi-isar WIC plugin handles
+#   GRUB installation automatically when loader=grub-efi is specified.
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  grub-boot-config: |
+    # Use GRUB WKS file instead of systemd-boot variant
+    # This overrides the default WKS_FILE from image recipes
+    WKS_FILE = "sdimage-efi-n3x.wks"

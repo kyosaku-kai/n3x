@@ -1,0 +1,79 @@
+# n3x base configuration
+# Usage: kas-container build kas/base.yml:kas/machine/<target>.yml
+
+header:
+  version: 14
+  includes:
+    - mirrors.yml
+
+build_system: isar
+
+repos:
+  # ISAR framework repo is defined in kas/mirrors.yml.
+  # Mirror URLs and BitBake variables (NVIDIA_L4T_MIRROR, KERNEL_MIRROR)
+  # are centralized there for easy switching between public and internal mirrors.
+
+  this:
+    path: .
+    layers:
+      meta-n3x:
+
+# Default target - override in machine configs
+# Note: Isar multiconfigs use short distro names (bookworm, not debian-bookworm)
+target: isar-image-base
+
+# Common variables
+local_conf_header:
+  shared-cache: |
+    # Shared user-level cache directories for all Yocto/ISAR projects
+    # This enables cache reuse across multiple projects/builds
+    # BitBake auto-creates these directories if they don't exist
+    DL_DIR = "${HOME}/.cache/yocto/downloads"
+    SSTATE_DIR = "${HOME}/.cache/yocto/sstate"
+
+  n3x-base: |
+    # n3x common configuration
+    DISTRO_APT_PREMIRRORS = ""
+
+  n3x-parallelism: |
+    # Dynamic parallelism: auto-scale BB_NUMBER_THREADS to available resources.
+    #
+    # Problem: Heavy BitBake tasks (kernel compile, linking) use 2-4GB each.
+    # A fixed thread count either wastes resources on large machines or OOMs
+    # on small ones. We cap threads at the lower of CPU count or RAM capacity.
+    #
+    # Formula: min(CPUs, (total_RAM_GB - 4GB_headroom) / 3GB_per_task)
+    # Examples: 28GB RAM / 16 CPU -> 8 threads (RAM-limited)
+    #           54GB RAM / 16 CPU -> 16 threads (CPU-limited)
+    #          128GB RAM / 32 CPU -> 32 threads (CPU-limited)
+    #
+    # Step 1: Detect available CPUs (fallback: 4 if os.cpu_count() returns None)
+    _N3X_CPUS = "${@str(__import__('os').cpu_count() or 4)}"
+    # Step 2: Detect total system RAM in GB
+    _N3X_RAM_GB = "${@str(__import__('os').sysconf('SC_PHYS_PAGES') * __import__('os').sysconf('SC_PAGE_SIZE') // (1024**3))}"
+    # Step 3: Compute RAM-based thread limit (reserve 4GB for OS, 3GB per task)
+    _N3X_RAM_THREADS = "${@str(max(1, (int(d.getVar('_N3X_RAM_GB')) - 4) // 3))}"
+    # Step 4: Use the more restrictive limit
+    BB_NUMBER_THREADS = "${@str(min(int(d.getVar('_N3X_CPUS')), int(d.getVar('_N3X_RAM_THREADS'))))}"
+
+    # PARALLEL_MAKE: -j flag for make (within-recipe parallelism).
+    # Left at BitBake default (auto-detected CPU count). Within-recipe
+    # parallelism is bounded by BB_NUMBER_THREADS limiting concurrent tasks.
+
+    # BB_PRESSURE_MAX_MEMORY: Backup throttle if PSI memory pressure rises.
+    # Value is microseconds of stall per second (10000 = 1% threshold).
+    # Reacts early before OOM killer intervenes.
+    BB_PRESSURE_MAX_MEMORY = "10000"
+
+  n3x-compression: |
+    # Use pigz for parallel gzip compression (significantly faster on multi-core)
+    # This replaces single-threaded gzip in CONVERSION_CMD:gz
+    # Requires pigz to be installed in the build environment
+    CONVERSION_DEPS:gz = "pigz"
+    CONVERSION_CMD:gz = "${SUDO_CHROOT} sh -c 'pigz -f -9 -n -c -k ${IMAGE_FILE_CHROOT} > ${IMAGE_FILE_CHROOT}.gz'"
+
+    # Use parallel xz compression (xz supports -T for threads)
+    XZ_DEFAULTS ?= "-T 0"
+
+    # Use parallel zstd compression (zstd supports -T for threads)
+    ZSTD_DEFAULTS ?= "-T0 -19"

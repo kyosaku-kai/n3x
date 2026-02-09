@@ -1,92 +1,59 @@
 # tests/lib - Shared Test Infrastructure
 
-This directory contains reusable test builders and network profiles for parameterized testing across multiple backends (NixOS, ISAR).
+This directory contains reusable test builders and network profiles for parameterized testing across multiple backends (NixOS, Debian).
 
 ## Backend Abstraction Overview
 
-The following diagram illustrates how components are shared between NixOS and ISAR backends, and what remains backend-specific:
+The following diagram illustrates how components are shared between NixOS and Debian backends, and what remains backend-specific:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            n3x Backend Abstractions                          │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph nixos["NixOS Backend<br/>backends/nixos/"]
+        nixos_modules["modules/<br/>common/, hardware/, k3s/<br/>networking/, security/, roles/"]
+        nixos_hosts["hosts/<br/>n100-*, jetson-*"]
+        nixos_services["NixOS Modules<br/>(services.k3s)"]
+    end
 
-┌───────────────────────┐                       ┌───────────────────────┐
-│     NixOS Backend     │                       │     ISAR Backend      │
-│                       │                       │                       │
-│  backends/nixos/      │                       │  backends/isar/       │
-│  ┌─────────────────┐  │                       │  ┌─────────────────┐  │
-│  │ modules/        │  │                       │  │ kas/            │  │
-│  │  common/        │  │                       │  │  machine/*.yml  │  │
-│  │  hardware/      │  │                       │  │  image/*.yml    │  │
-│  │  k3s/           │  │                       │  ├─────────────────┤  │
-│  │  networking/    │  │                       │  │ meta-isar-k3s/  │  │
-│  │  security/      │  │                       │  │  recipes-bsp/   │  │
-│  │  roles/         │  │                       │  │  recipes-core/  │  │
-│  ├─────────────────┤  │                       │  │  classes/       │  │
-│  │ hosts/          │  │                       │  ├─────────────────┤  │
-│  │  n100-*/        │  │                       │  │ swupdate/       │  │
-│  │  jetson-*/      │  │                       │  │  bundle.nix     │  │
-│  ├─────────────────┤  │                       │  │  signing.nix    │  │
-│  │ NixOS Modules   │  │                       │  ├─────────────────┤  │
-│  │ (services.k3s)  │  │                       │  │ isar-artifacts  │  │
-│  └─────────────────┘  │                       │  │  .nix (hashes)  │  │
-│                       │                       │  └─────────────────┘  │
-└───────────┬───────────┘                       └───────────┬───────────┘
-            │                                               │
-            │      ┌─────────────────────────────────┐      │
-            │      │        SHARED (tests/lib/)      │      │
-            │      │                                 │      │
-            │      │  ┌───────────────────────────┐  │      │
-            └──────┤  │    Network Profiles       │  ├──────┘
-                   │  │    network-profiles/      │  │
-                   │  │    ├── simple.nix         │  │
-                   │  │    ├── vlans.nix          │  │
-                   │  │    └── bonding-vlans.nix  │  │
-                   │  └───────────────────────────┘  │
-                   │                                 │
-                   │  ┌───────────────────────────┐  │
-                   │  │    Machine Roles          │  │
-                   │  │    machine-roles.nix      │  │
-                   │  │    (server-1, agent-1..)  │  │
-                   │  └───────────────────────────┘  │
-                   │                                 │
-                   │  ┌───────────────────────────┐  │
-                   │  │    Network Schema         │  │
-                   │  │    ipAddresses, interfaces│  │
-                   │  │    vlanIds, bondConfig    │  │
-                   │  └───────────────────────────┘  │
-                   │                                 │
-                   │  ┌───────────────────────────┐  │
-                   │  │    Test Driver API        │  │
-                   │  │    (nixos-test-driver)    │  │
-                   │  │    start_all()            │  │
-                   │  │    wait_for_unit()        │  │
-                   │  │    succeed()              │  │
-                   │  └───────────────────────────┘  │
-                   │                                 │
-                   └─────────────────────────────────┘
+    subgraph debian["Debian Backend<br/>backends/debian/"]
+        debian_kas["kas/<br/>machine/*.yml, image/*.yml"]
+        debian_meta["meta-n3x/<br/>recipes-bsp/, recipes-core/, classes/"]
+        debian_swupdate["swupdate/<br/>bundle.nix, signing.nix"]
+        debian_artifacts["debian-artifacts.nix<br/>(hashes)"]
+    end
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          Test Builder Wrappers                               │
-├─────────────────────────────────┬───────────────────────────────────────────┤
-│   mk-k3s-cluster-test.nix       │   isar/mk-isar-test.nix                   │
-│   (consumes NixOS modules +     │   (consumes .wic images +                 │
-│    network profiles)            │    network profiles abstractly)           │
-└─────────────────────────────────┴───────────────────────────────────────────┘
+    subgraph shared["SHARED (tests/lib/)"]
+        network_profiles["Network Profiles<br/>lib/network/profiles/<br/>simple.nix, vlans.nix, bonding-vlans.nix"]
+        machine_roles["Machine Roles<br/>machine-roles.nix<br/>(server-1, agent-1..)"]
+        network_schema["Network Schema<br/>ipAddresses, interfaces<br/>vlanIds, bondConfig"]
+        test_driver["Test Driver API<br/>(nixos-test-driver)<br/>start_all(), wait_for_unit(), succeed()"]
+    end
+
+    subgraph wrappers["Test Builder Wrappers"]
+        nixos_test["mk-k3s-cluster-test.nix<br/>(consumes NixOS modules + network profiles)"]
+        debian_test["debian/mk-debian-test.nix<br/>(consumes .wic images + network profiles)"]
+    end
+
+    nixos --> shared
+    debian --> shared
+    shared --> wrappers
+
+    style nixos fill:#e3f2fd,stroke:#1565c0
+    style debian fill:#fff3e0,stroke:#ef6c00
+    style shared fill:#e8f5e9,stroke:#2e7d32
+    style wrappers fill:#f3e5f5,stroke:#7b1fa2
 ```
 
 ### What's Shared vs Backend-Specific
 
-| Component | Shared | NixOS-Specific | ISAR-Specific |
-|-----------|--------|----------------|---------------|
-| **Network profiles** | ✓ `network-profiles/*.nix` | `nodeConfig` function | netplan YAML generation |
+| Component | Shared | NixOS-Specific | Debian-Specific |
+|-----------|--------|----------------|-----------------|
+| **Network profiles** | ✓ `lib/network/profiles/*.nix` | `nodeConfig` function | systemd-networkd file generation |
 | **Machine naming** | ✓ `machine-roles.nix` | `nixosConfigurations.*` | kas machine configs |
-| **IP addressing** | ✓ `ipAddresses` export | systemd-networkd | netplan + networkd |
-| **Test scripts** | ✓ Python test logic | embedded in nixosTest | embedded in mkISARTest |
-| **Test driver** | ✓ nixos-test-driver | NixOS VMs | ISAR .wic images |
+| **IP addressing** | ✓ `ipAddresses` export | systemd-networkd | systemd-networkd |
+| **Test scripts** | ✓ Python test logic | embedded in nixosTest | embedded in mkDebianTest |
+| **Test driver** | ✓ nixos-test-driver | NixOS VMs | Debian .wic images |
 | **K3s package** | | nixpkgs `k3s` | static binary recipe |
-| **Build system** | | `nix build` | kas-container + BitBake |
+| **Build system** | | `nix build` | kas-container + BitBake (ISAR) |
 | **OTA updates** | | systemd-sysupdate | SWUpdate |
 
 ### Data Flow: Network Profile to Running Test
@@ -103,17 +70,18 @@ The following diagram illustrates how components are shared between NixOS and IS
     ┌────┴────┐
     ▼         ▼
 ┌───────┐  ┌───────┐
-│ NixOS │  │ ISAR  │
+│ NixOS │  │Debian │
 └───┬───┘  └───┬───┘
     │          │
     │ uses     │ uses
     │nodeConfig│ ipAddresses
     │          │ + interfaces
     ▼          ▼
-┌───────┐  ┌───────┐
-│systemd│  │netplan│
-│networkd│ │ YAML  │
-└───┬───┘  └───┬───┘
+┌───────┐  ┌────────────┐
+│systemd│  │  systemd   │
+│networkd│ │ .network/  │
+│(NixOS)│  │ .netdev    │
+└───┬───┘  └─────┬──────┘
     │          │
     └────┬─────┘
          │
@@ -134,14 +102,11 @@ tests/lib/
 ├── mk-k3s-cluster-test.nix          # NixOS K3s cluster test builder
 ├── machine-roles.nix                 # Standard machine role definitions
 ├── NETWORK-SCHEMA.md                 # Network abstraction documentation
-├── isar/                             # ISAR-specific test infrastructure
-│   ├── mk-isar-test.nix             # ISAR VM test builder
-│   └── mk-isar-vm-script.nix        # ISAR VM script generator
-├── network-profiles/                 # Network topology configurations
-│   ├── simple.nix                    # Single flat network (baseline)
-│   ├── vlans.nix                     # 802.1Q VLAN tagging
-│   ├── bonding-vlans.nix             # Bonding + VLANs (production parity)
-│   └── vlans-broken.nix              # Intentionally broken VLAN config (negative tests)
+├── debian/                           # Debian backend test infrastructure
+│   ├── mk-debian-test.nix           # Debian backend VM test builder
+│   └── mk-debian-vm-script.nix      # Debian backend VM script generator
+                                      # Network profiles live at lib/network/profiles/
+                                      # (simple.nix, vlans.nix, bonding-vlans.nix, etc.)
 └── test-scripts/                     # Shared Python test snippets (NEW)
     ├── default.nix                   # Main entry point with mkDefaultClusterTestScript
     ├── utils.nix                     # Core utilities (tlog, logging helpers)
@@ -155,7 +120,7 @@ tests/lib/
 
 Enables testing the same K3s cluster logic with different:
 - **Network configurations**: Simple, VLANs, bonding + VLANs
-- **Backends**: NixOS (native) or ISAR (Debian-based embedded)
+- **Backends**: NixOS (native) or Debian (ISAR-based embedded)
 
 This is the core of the cross-backend test sharing architecture.
 
@@ -169,16 +134,16 @@ lib = {
   # NixOS K3s cluster test builder
   mkK3sClusterTest = import ./tests/lib/mk-k3s-cluster-test.nix;
 
-  # ISAR VM test builder
-  mkISARTest = { pkgs, lib ? pkgs.lib }:
-    import ./tests/lib/isar/mk-isar-test.nix { inherit pkgs lib; };
+  # Debian backend VM test builder
+  mkDebianTest = { pkgs, lib ? pkgs.lib }:
+    import ./tests/lib/debian/mk-debian-test.nix { inherit pkgs lib; };
 
   # Network profiles (for reference/extension)
   networkProfiles = {
-    simple = import ./tests/lib/network-profiles/simple.nix { inherit lib; };
-    vlans = import ./tests/lib/network-profiles/vlans.nix { inherit lib; };
-    bonding-vlans = import ./tests/lib/network-profiles/bonding-vlans.nix { inherit lib; };
-    vlans-broken = import ./tests/lib/network-profiles/vlans-broken.nix { inherit lib; };
+    simple = import ./lib/network/profiles/simple.nix { inherit lib; };
+    vlans = import ./lib/network/profiles/vlans.nix { inherit lib; };
+    bonding-vlans = import ./lib/network/profiles/bonding-vlans.nix { inherit lib; };
+    vlans-broken = import ./lib/network/profiles/vlans-broken.nix { inherit lib; };
   };
 };
 ```
@@ -241,18 +206,18 @@ pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
 
 ---
 
-## mkISARTest (ISAR .wic Image Tests)
+## mkDebianTest (Debian Backend .wic Image Tests)
 
-Creates NixOS-style VM tests for ISAR-built .wic images. Uses the nixos-test-driver with ISAR images instead of NixOS VMs.
+Creates NixOS-style VM tests for ISAR-built .wic images. Uses the nixos-test-driver with Debian backend images instead of NixOS VMs.
 
 ### Usage
 
 ```nix
 # Import the builder
-mkISARTest = n3x.lib.mkISARTest { inherit pkgs lib; };
+mkDebianTest = n3x.lib.mkDebianTest { inherit pkgs lib; };
 
 # Create a test
-myTest = mkISARTest {
+myTest = mkDebianTest {
   name = "k3s-cluster";
   machines = {
     server = { image = ./path/to/server.wic; };
@@ -308,7 +273,7 @@ Returns an attribute set:
 
 ```bash
 # Run sandboxed test (CI)
-nix build '.#checks.x86_64-linux.my-isar-test'
+nix build '.#checks.x86_64-linux.my-debian-test'
 
 # Run interactively
 result/bin/run-test-interactive
@@ -331,7 +296,7 @@ Network profiles define how nodes communicate. Each profile provides the network
 
 ### Profile API
 
-Each network profile provides both NixOS-specific configuration and abstract data for cross-backend consumption (e.g., ISAR netplan generation).
+Each network profile provides both NixOS-specific configuration and abstract data for cross-backend consumption (e.g., Debian backend systemd-networkd file generation).
 
 #### Core Exports (NixOS)
 
@@ -344,9 +309,9 @@ Each network profile provides both NixOS-specific configuration and abstract dat
 | `nodeConfig` | function | Yes | `nodeName -> NixOS module` |
 | `k3sExtraFlags` | function | Yes | `nodeName -> [string]` |
 
-#### Abstract Exports (P2.1 - ISAR Netplan Generation)
+#### Abstract Exports (P2.1 - Debian Backend systemd-networkd Generation)
 
-These exports provide backend-agnostic network configuration data that ISAR can consume to generate netplan YAML without understanding NixOS modules.
+These exports provide backend-agnostic network configuration data that the Debian backend can consume to generate systemd-networkd .network/.netdev files without understanding NixOS modules.
 
 | Field | Type | Profiles | Description |
 |-------|------|----------|-------------|
@@ -401,7 +366,7 @@ Same IP layout as VLANs profile.
 
 ### Adding a New Network Profile
 
-1. Create `tests/lib/network-profiles/myprofile.nix`:
+1. Create `lib/network/profiles/myprofile.nix`:
 
 ```nix
 { lib }:
@@ -450,7 +415,7 @@ k3s-cluster-myprofile = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
 
 ## Shared Test Scripts (test-scripts/)
 
-The `test-scripts/` directory contains reusable Python test snippets that can be shared between NixOS and ISAR backends. This eliminates duplication of test logic.
+The `test-scripts/` directory contains reusable Python test snippets that can be shared between NixOS and Debian backends. This eliminates duplication of test logic.
 
 ### Architecture
 
@@ -485,9 +450,9 @@ in ''
 ''
 ```
 
-### Usage (ISAR)
+### Usage (Debian Backend)
 
-ISAR tests use the `*.isar.*` sub-modules which account for differences in service names and boot behavior:
+Debian backend tests use the `*.debian.*` sub-modules which account for differences in service names and boot behavior:
 
 ```nix
 let
@@ -498,29 +463,29 @@ in ''
   # Import utilities (required for tlog, log_banner, etc.)
   ${testScripts.utils.all}
 
-  log_banner("ISAR K3s Test", "server", {
+  log_banner("Debian K3s Test", "server", {
       "Image": "qemuamd64 server",
       "Service": "k3s-server.service"
   })
 
-  # Boot ISAR VM via backdoor (ISAR may not reach multi-user.target cleanly)
-  ${bootPhase.isar.bootWithBackdoor { node = "server"; displayName = "ISAR server"; }}
+  # Boot Debian VM via backdoor (Debian backend may not reach multi-user.target cleanly)
+  ${bootPhase.debian.bootWithBackdoor { node = "server"; displayName = "Debian server"; }}
 
-  # Verify k3s binary (at /usr/bin/k3s in ISAR)
-  ${k3sPhase.isar.verifyK3sBinary { node = "server"; }}
+  # Verify k3s binary (at /usr/bin/k3s in Debian backend)
+  ${k3sPhase.debian.verifyK3sBinary { node = "server"; }}
 
-  # Wait for k3s-server.service (ISAR uses k3s-server.service, not k3s.service)
-  ${k3sPhase.isar.waitForK3sServer { node = "server"; timeout = 60; }}
+  # Wait for k3s-server.service (Debian backend uses k3s-server.service, not k3s.service)
+  ${k3sPhase.debian.waitForK3sServer { node = "server"; timeout = 60; }}
 
   # Or use the complete test helper:
-  # ${k3sPhase.isar.fullServerBootTest { node = "server"; }}
+  # ${k3sPhase.debian.fullServerBootTest { node = "server"; }}
 
-  log_summary("ISAR K3s Test", "server", ["k3s binary present", "Service started"])
+  log_summary("Debian K3s Test", "server", ["k3s binary present", "Service started"])
 ''
 ```
 
-**Key ISAR differences:**
-- Boot: Use `bootPhase.isar.bootWithBackdoor` instead of `wait_for_unit("multi-user.target")`
+**Key Debian backend differences:**
+- Boot: Use `bootPhase.debian.bootWithBackdoor` instead of `wait_for_unit("multi-user.target")`
 - K3s service: `k3s-server.service` / `k3s-agent.service` (not `k3s.service`)
 - K3s binary: `/usr/bin/k3s` (not `/run/current-system/sw/bin/k3s`)
 
@@ -540,9 +505,9 @@ in ''
 - `bootSingleNode { node, displayName }` - Boot single node
 - `startAll` - Just start_all() with logging
 
-**boot.nix** (ISAR - via `boot.isar.*`):
-- `bootWithBackdoor { node, displayName }` - Boot single ISAR VM via backdoor service
-- `bootAllWithBackdoor { nodes }` - Boot multiple ISAR VMs via backdoor
+**boot.nix** (Debian backend - via `boot.debian.*`):
+- `bootWithBackdoor { node, displayName }` - Boot single Debian backend VM via backdoor service
+- `bootAllWithBackdoor { nodes }` - Boot multiple Debian backend VMs via backdoor
 - `checkSystemStatus { node }` - Diagnostic helper for systemd status
 
 **network.nix**:
@@ -562,13 +527,13 @@ in ''
 - `verifyCluster { primary, secondary, agent, ... }` - Complete cluster verification
 - `waitForK3sService { node }` - Single-node K3s service check (for smoke tests)
 
-**k3s.nix** (ISAR - via `k3s.isar.*`):
+**k3s.nix** (Debian backend - via `k3s.debian.*`):
 - `verifyK3sBinary { node }` - Check k3s binary at /usr/bin/k3s
 - `waitForK3sServer { node, timeout? }` - Wait for k3s-server.service
 - `waitForK3sAgent { node, timeout? }` - Wait for k3s-agent.service
 - `waitForKubeconfig { node, maxAttempts?, sleepSecs? }` - Wait for kubeconfig file
 - `verifyKubectl { node }` - Verify kubectl works, show nodes/pods
-- `fullServerBootTest { node, displayName? }` - Complete ISAR K3s server boot test
+- `fullServerBootTest { node, displayName? }` - Complete Debian backend K3s server boot test
 
 ### nodePairs Format
 
@@ -590,15 +555,15 @@ nodePairs = [
 
 ## Cross-Backend Test Sharing
 
-The shared test infrastructure enables running the same test logic across NixOS and ISAR backends.
+The shared test infrastructure enables running the same test logic across NixOS and Debian backends.
 
 ### Architecture
 
 ```
 tests/lib/
 ├── mk-k3s-cluster-test.nix    ←── NixOS backend uses directly
-├── isar/mk-isar-test.nix      ←── ISAR backend wraps with .wic images
-└── network-profiles/           ←── Both backends share network configs
+├── debian/mk-debian-test.nix  ←── Debian backend wraps with .wic images
+                                    (Network profiles at lib/network/profiles/)
 ```
 
 ### Same Test Script, Different Backends
@@ -606,7 +571,7 @@ tests/lib/
 Test scripts use the standard nixos-test-driver API:
 
 ```python
-# This script works on both NixOS and ISAR
+# This script works on both NixOS and Debian backend
 start_all()
 server.wait_for_unit("multi-user.target")
 server.wait_for_unit("k3s.service")
@@ -615,49 +580,32 @@ server.wait_until_succeeds("k3s kubectl get nodes | grep Ready")
 
 The underlying VM infrastructure differs:
 - **NixOS**: Native NixOS VMs built by nixos-test-driver
-- **ISAR**: .wic images from BitBake/kas build system
+- **Debian**: .wic images from ISAR BitBake/kas build system
 
-### Sharing Network Profiles with ISAR
+### Sharing Network Profiles with the Debian Backend
 
-ISAR backends can import the abstract profile exports for netplan configuration.
+The Debian backend imports the abstract profile exports for systemd-networkd configuration generation via `lib/network/mk-systemd-networkd.nix`.
 
 ```nix
-# In ISAR test or BitBake recipe
+# In lib/network/ - generates .network/.netdev files from profile data
 let
   profile = n3x.lib.networkProfiles.vlans;
+  mkSystemdNetworkdFiles = import ./mk-systemd-networkd.nix { inherit lib; };
 
-  # Generate netplan YAML for a specific node
-  mkNetplanYAML = nodeName: let
-    nodeIPs = profile.ipAddresses.${nodeName};
-    ifaces = profile.interfaces;
-    vlans = profile.vlanIds;
-  in ''
-    network:
-      version: 2
-      ethernets:
-        ${ifaces.trunk}:
-          match:
-            name: ${ifaces.trunk}
-      vlans:
-        ${ifaces.cluster}:
-          id: ${toString vlans.cluster}
-          link: ${ifaces.trunk}
-          addresses:
-            - ${nodeIPs.cluster}/24
-        ${ifaces.storage}:
-          id: ${toString vlans.storage}
-          link: ${ifaces.trunk}
-          addresses:
-            - ${nodeIPs.storage}/24
-  '';
+  # Generate systemd-networkd config files for a specific node
+  networkdFiles = mkSystemdNetworkdFiles {
+    inherit (profile) ipAddresses interfaces vlanIds;
+    nodeName = "server-1";
+  };
+  # Returns: { "10-trunk.network" = "..."; "20-cluster.network" = "..."; ... }
 in
 {
-  # For bonding-vlans profile, also use profile.bondConfig for bond parameters
-  # For simple profile, just use profile.ipAddresses.${nodeName}.default
+  # For bonding-vlans profile, also uses profile.bondConfig for bond parameters
+  # For simple profile, just uses profile.ipAddresses.${nodeName}.default
 }
 ```
 
-This abstraction enables ISAR to generate network configuration that matches NixOS test profiles without importing NixOS modules.
+This abstraction enables the Debian backend to generate systemd-networkd configuration that matches NixOS test profiles without importing NixOS modules.
 
 ---
 
@@ -694,18 +642,18 @@ See [docs/VLAN-TESTING-GUIDE.md](../../docs/VLAN-TESTING-GUIDE.md) for comprehen
 ## Maintenance
 
 **When modifying test logic:**
-1. Edit `mk-k3s-cluster-test.nix` or `isar/mk-isar-test.nix`
+1. Edit `mk-k3s-cluster-test.nix` or `debian/mk-debian-test.nix`
 2. Changes automatically apply to all test variants
 3. Test all profiles to ensure compatibility
 
 **When adding network profiles:**
-1. Create profile in `network-profiles/`
+1. Create profile in `lib/network/profiles/`
 2. Add to `flake.nix` lib.networkProfiles
 3. Add test variant to `flake.nix` checks
 4. Update this README
 
-**When adding ISAR backend tests:**
+**When adding Debian backend tests:**
 1. Build .wic images via kas-container
-2. Import mkISARTest from flake lib
+2. Import mkDebianTest from flake lib
 3. Define test with machines and testScript
 4. Add to flake checks

@@ -1,4 +1,26 @@
-# Boot phase - Node startup and multi-user.target verification
+# =============================================================================
+# Boot Phase - Node startup and multi-user.target verification
+# =============================================================================
+#
+# PHASE ORDERING (Plan 019 A6):
+#   Boot → Network → K3s
+#   This phase MUST be first. All other phases depend on shell access.
+#
+# PRECONDITIONS:
+#   - QEMU VM image exists and is valid
+#   - Test driver infrastructure is initialized
+#   - VDE switches created (for multi-node tests)
+#
+# POSTCONDITIONS:
+#   - Shell access available via test driver backdoor
+#   - systemd is running (at least rescue.target reached)
+#   - Node is ready to accept commands via succeed()/execute()
+#
+# ORDERING RATIONALE:
+#   Boot must complete before any other phase because:
+#   1. Network phase needs shell access to verify/configure interfaces
+#   2. K3s phase needs shell access to configure and start services
+#   3. No useful work can happen without the VM being accessible
 #
 # This phase handles starting VMs and waiting for them to reach
 # a usable state (multi-user.target).
@@ -14,8 +36,8 @@
 #   in ''
 #     # NixOS:
 #     ${bootPhase.bootAllNodes { nodes = ["server_1" "server_2" "agent_1"]; }}
-#     # ISAR:
-#     ${bootPhase.isar.bootWithBackdoor { node = "server"; displayName = "ISAR server"; }}
+#     # Debian:
+#     ${bootPhase.debian.bootWithBackdoor { node = "server"; displayName = "Debian server"; }}
 #   ''
 
 { lib ? (import <nixpkgs> { }).lib }:
@@ -63,7 +85,7 @@
   # the base64-encoded backdoor protocol. We use serial_stdout_off() during boot
   # to prevent this, then re-enable after the backdoor connects.
 
-  isar = {
+  debian = {
     # Boot a single ISAR node via backdoor service
     # Parameters:
     #   node: node variable name
@@ -91,16 +113,11 @@
 
       tlog("  ${displayName} backdoor ready")
 
-      # CRITICAL: Allow GRUB output to fully drain from virtconsole buffer
+      # CRITICAL: Wait for GRUB output to fully drain from virtconsole buffer
       # GRUB may still be sending ANSI sequences when backdoor connects.
-      # A small delay allows the buffer to stabilize before we send commands.
-      import time
-      time.sleep(1.0)
-
-      # Use succeed() for first commands - it's more tolerant of buffer issues
-      # succeed() uses a simpler protocol than execute() (no base64 encoding of output)
-      ${node}.succeed("true")  # Flush any remaining garbage
-      ${node}.succeed("sync")  # Another flush for good measure
+      # Use wait_until_succeeds to retry until the shell protocol is clean,
+      # rather than a fixed delay that may be too short under load.
+      ${node}.wait_until_succeeds("true", timeout=10)
 
       # Basic system check - confirms shell is now working cleanly
       ${node}.succeed("uname -a")
@@ -126,6 +143,11 @@
 
       # Re-enable serial output now that all backdoors are connected
       serial_stdout_on()
+
+      # Wait for GRUB output to fully drain from each node's virtconsole buffer
+      # Use wait_until_succeeds to retry until shell protocol is clean
+      ${lib.concatMapStringsSep "\n" (n: ''
+      ${n.node}.wait_until_succeeds("true", timeout=10)'') nodes}
     '';
 
     # Check ISAR system status (diagnostic helper)

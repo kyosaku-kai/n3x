@@ -1,710 +1,285 @@
-# n3x - NixOS K3s Edge Infrastructure Framework
+# n3x — K3s Edge Cluster Platform
 
-**n3x** is a declarative framework for automated deployment and management of NixOS-based Kubernetes (k3s) clusters with distributed storage (Longhorn). The framework treats the host OS as immutable infrastructure with all application workloads running in containers, providing reproducible deployments across diverse hardware platforms.
+n3x builds and tests Kubernetes clusters for edge hardware. It currently supports two embedded linux build system "backends": **[NixOS](https://nixos.org)** for reproducible infrastructure, and **[ISAR](https://github.com/ilbers/isar)** for Debian-based development and image assembly. A shared nix abstraction layer defines common system elements as profiles for machine, network/k3s topology and configuration, and package mappings. The output of these nix derivations is consumed by backend processes to produce consistent, VM-tested final images ready for rapid local development without hardware, or bare-metal deployment.
 
-## Project Status
+## Architecture
 
-**Current Phase**: VLAN test infrastructure implemented, awaiting runtime validation.
+```mermaid
+flowchart TD
+    subgraph lib["lib/ — Shared Abstraction Layer"]
+        net["lib/network/\nNetwork profiles → config files"]
+        k3s["lib/k3s/\nK3s flags + cluster topology"]
+        deb_lib["lib/debian/\nPackage mapping + verification"]
+    end
 
-All core modules, configurations, and testing framework have been implemented:
-- ✅ Complete flake structure with modular NixOS configurations
-- ✅ Hardware modules for N100 (x86_64) and Jetson Orin Nano (ARM64)
-- ✅ K3s server and agent roles with secure variants
-- ✅ Network bonding, VLANs, and Multus CNI integration
-- ✅ Disko-based disk partitioning for multiple layouts
-- ✅ Kyverno and Longhorn storage integration
-- ✅ Sops-nix secrets management
-- ✅ Comprehensive VM testing framework with **parameterized network profiles**
-- ✅ **VLAN tagging test infrastructure** (802.1Q production parity testing)
-- ✅ Emulation testing framework (nested virtualization, network simulation)
+    subgraph nixos["NixOS Backend"]
+        nx_mods["backends/nixos/modules/\nComposable NixOS modules"]
+        nx_cfg["nixosConfigurations\n(NixOS closures)"]
+        nx_mods --> nx_cfg
+    end
 
-**Next**: Test VLAN infrastructure (see [docs/VLAN-TESTING-GUIDE.md](docs/VLAN-TESTING-GUIDE.md))
+    subgraph debian["Debian Backend"]
+        pkgs["backends/debian/packages/\nDebian source packages"]
+        kas["backends/debian/kas/\nkas overlays → BitBake/ISAR"]
+        wic[".wic disk images"]
+        pkgs --> kas --> wic
+    end
 
-See CLAUDE.md for detailed implementation status and testing checklist.
+    subgraph test["Unified Test Infrastructure"]
+        driver["NixOS test driver\n(QEMU multi-node VMs)"]
+        profiles["simple · vlans · bonding · dhcp"]
+        driver --- profiles
+    end
 
-## Hardware Platform Support
-
-n3x is designed as a hardware-agnostic framework that can deploy to any x86_64 or ARM64 system capable of running NixOS. The modular architecture allows adaptation to diverse edge computing devices through hardware-specific NixOS modules.
-
-### Core Requirements
-- **Architecture**: x86_64 or ARM64
-- **RAM**: Minimum 2GB (4GB+ recommended)
-- **Storage**: Minimum 32GB (larger for more Longhorn capacity)
-- **Network**: At least one Ethernet interface
-
-### Example Platform Configurations
-
-The framework has been designed to support various hardware platforms. Below are example configurations showing the framework's flexibility:
-
-#### Intel N100 miniPCs (x86_64)
-- Budget-friendly edge nodes
-- Optional dual NICs for bonding/redundancy
-- 16GB RAM, 512GB NVMe typical
-- Supports advanced networking features
-
-#### NVIDIA Jetson Orin Nano (ARM64)
-- Edge AI/ML workloads with GPU
-- Requires jetpack-nixos for CUDA/TensorRT
-- Serial console access recommended
-- GPU passthrough to containers supported
-- See [jetson-orin-nano.md](jetson-orin-nano.md) for comprehensive documentation
-
-#### Raspberry Pi 4/5 (ARM64)
-- Low-cost edge deployments
-- USB boot or SD card
-- Limited to single NIC configurations
-- Suitable for lightweight workloads
-
-#### Generic x86_64 Servers
-- Standard datacenter hardware
-- Multiple NICs and RAID support
-- Higher capacity for storage nodes
-- Full enterprise feature support
-
-The framework adapts to available hardware capabilities - from simple single-NIC deployments to advanced multi-network configurations.
-
-## Architecture Overview
-
-### Backend Abstraction Framework
-
-n3x provides unified abstractions that work across multiple OS backends. This allows tests and configurations to be written once and run on either NixOS or ISAR (Debian-based embedded Linux) backends.
-
-| Abstraction | Description | NixOS Backend | ISAR Backend |
-|-------------|-------------|---------------|--------------|
-| **Machine** | Hardware platform: arch + BSP + boot method | `system` + `hardware/<machine>.nix` | `MACHINE` variable + `recipes-bsp/<machine>/` |
-| **Role** | Cluster function: `server` or `agent` | `modules/roles/k3s-server.nix`, `k3s-agent.nix` | `classes/k3s-server.bbclass`, `k3s-agent.bbclass` |
-| **System** | Complete buildable artifact | `nixosConfigurations.<name>` | `kas/<system>.yml` + image recipe |
-| **Network Config** | Interface and IP assignments | NixOS networking module options | netplan YAML via systemd-networkd |
-| **Service Mgmt** | systemd unit management | NixOS service options | ISAR recipe/postinst scripts |
-| **K3s Binary** | Kubernetes distribution | nixpkgs `k3s` package | Static binary from GitHub releases |
-| **Test Harness** | VM test execution | NixOS VM test driver (native) | NixOS VM test driver (with ISAR .wic images) |
-
-**Example Machines:**
-- `qemu-amd64` - x86_64 QEMU VM (BIOS/UEFI boot) for testing
-- `qemu-arm64` - aarch64 QEMU VM (UEFI boot) for emulation testing
-- `n100-bare` - Physical Intel N100 mini-PCs (UEFI boot)
-- `jetson-orin-nano` - NVIDIA Jetson (L4T/cboot boot)
-
-Note: `qemu-amd64` and `n100-bare` are **different machines** even though both are x86_64, because they have different BSP and driver requirements.
-
-### Core Design Philosophy
-
-The system follows an immutable infrastructure approach similar to Talos Linux but with operational flexibility for edge deployments:
-
-- **Host OS**: Declaratively configured via NixOS Flakes, minimal footprint
-- **Workloads**: All applications run in k3s (lightweight Kubernetes)
-- **Provisioning**: Zero-touch bare-metal deployment via `nixos-anywhere` + `disko`
-- **Management**: Standard NixOS tools for local/remote deployment (`nixos-rebuild`, `deploy-rs`)
-- **Rollback**: Generation-based recovery built into NixOS
-
-### Technology Stack
-
-**Operating System Layer**:
-- NixOS with minimal/headless profiles (~500MB footprint)
-- Declarative disk partitioning via `disko`
-- Secrets management via `sops-nix` or `agenix`
-- Automatic garbage collection and store optimization
-
-**Kubernetes Layer**:
-- k3s (lightweight Kubernetes distribution)
-- Longhorn (distributed block storage)
-- Kyverno (policy engine - REQUIRED for Longhorn on NixOS)
-- Flexible CNI options (Flannel default, Cilium, Multus for advanced networking)
-
-## Deployment Architecture
-
-### Expected Flake Structure
-
-```
-flake.nix              # Main flake
-├── modules/
-│   ├── common/        # Base configs
-│   ├── k3s/           # Kubernetes
-│   ├── hardware/      # Platform-specific
-│   └── networking/    # Network setup
-├── hosts/
-│   ├── node1/         # Node configs
-│   ├── node2/
-│   └── node3/
-├── secrets/
-│   ├── .sops.yaml     # Encryption
-│   └── k3s.yaml       # K3s tokens
-└── disko/
-    └── standard.nix   # Disk layout
+    lib --> nx_mods
+    lib --> kas
+    nx_cfg --> driver
+    wic --> driver
 ```
 
-### Disk Partitioning Strategy
+The `lib/` directory is the architectural center: it defines network profiles, K3s topology, and package requirements once, then each backend consumes them in its native format. Both backends converge at the test infrastructure, where identical test scenarios validate cluster formation across network profiles.
 
-Example partitioning for a 512GB NVMe device, optimized for immutable infrastructure with Kubernetes workloads:
+| Abstraction | NixOS Backend | Debian Backend |
+|-------------|---------------|----------------|
+| **Machine** | `system` + `hardware/<machine>.nix` | `MACHINE` + `recipes-bsp/` |
+| **Role** | `modules/roles/k3s-server.nix` | `classes/k3s-server.bbclass` |
+| **System** | `nixosConfigurations.<name>` | `kas/<overlays>.yml` + image recipe |
+| **Network** | NixOS systemd-networkd module | `.network`/`.netdev` config files |
+| **K3s Binary** | nixpkgs `k3s` package | Static binary from GitHub releases |
+| **Test Harness** | nixosTest (native) | nixosTest (with .wic images) |
 
-- `/boot`: 1GB (EFI system partition)
-- `/`: 4GB (root partition - minimal base system only, ~500MB used)
-- `/nix`: 30GB (Nix store - supports ~20-30 generations + build artifacts)
-- `/var`: 10GB (system logs, k3s state, container runtime data)
-- `/tmp`: 4GB (temporary files, build workspace - can use tmpfs)
-- `swap`: 16GB (matches RAM for hibernation support)
-- `/var/lib/longhorn`: ~447GB (Kubernetes persistent storage)
+Shared configuration libraries ([`lib/network/`](lib/network/README.md), [`lib/k3s/`](lib/k3s/README.md)) transform profile data for both backends.
 
-**Rationale**: With the host OS treated as immutable infrastructure:
-- **Root (`/`)**: 4GB for minimal base system (~450-500MB), isolated from volatile data
-- **Nix store (`/nix`)**: 30GB supports 20-30 generations + build artifacts
-- **Variable data (`/var`)**: 10GB dedicated for:
-  - System logs (`/var/log`) - prevents log growth from affecting root
-  - k3s etcd state and containerd data
-  - System state that persists across reboots
-- **Temporary (`/tmp`)**: 4GB separate partition or tmpfs mount:
-  - Isolates temporary build files and caches
-  - Can be mounted as tmpfs for RAM-based performance (optional)
-  - Automatically cleaned on reboot if using tmpfs
-- **Swap**: 16GB for hibernation and memory pressure handling
-- **Storage**: ~87% of disk dedicated to Kubernetes workloads via Longhorn
+## Repository Structure
 
-This partitioning scheme prevents common failures where logs or temporary files exhaust root filesystem space, while maintaining operational flexibility and maximizing storage for workloads.
-
-**Implementation with disko**:
-```nix
-# disko/standard.nix
-{
-  disk.nvme0n1 = {
-    device = "/dev/nvme0n1";
-    type = "disk";
-    content = {
-      type = "gpt";
-      partitions = {
-        ESP = {
-          size = "1G";
-          type = "EF00";
-          content = {
-            type = "filesystem";
-            format = "vfat";
-            mountpoint = "/boot";
-          };
-        };
-        root = {
-          size = "4G";
-          content = {
-            type = "filesystem";
-            format = "ext4";
-            mountpoint = "/";
-            mountOptions = [ "noatime" ];
-          };
-        };
-        nix = {
-          size = "30G";
-          content = {
-            type = "filesystem";
-            format = "ext4";
-            mountpoint = "/nix";
-            mountOptions = [ "noatime" ];
-          };
-        };
-        var = {
-          size = "10G";
-          content = {
-            type = "filesystem";
-            format = "ext4";
-            mountpoint = "/var";
-            mountOptions = [ "noatime" "nodiratime" ];
-          };
-        };
-        tmp = {
-          size = "4G";
-          content = {
-            type = "filesystem";
-            format = "ext4";
-            mountpoint = "/tmp";
-            mountOptions = [ "noatime" "nodev" "nosuid" "noexec" ];
-          };
-        };
-        swap = {
-          size = "16G";
-          content = {
-            type = "swap";
-            randomEncryption = true;
-          };
-        };
-        longhorn = {
-          size = "100%";  # Use remaining space
-          content = {
-            type = "filesystem";
-            format = "ext4";
-            mountpoint = "/var/lib/longhorn";
-            mountOptions = [ "noatime" "nodiratime" "discard" ];
-          };
-        };
-      };
-    };
-  };
-}
+```
+n3x/
+├── backends/
+│   ├── debian/                  # Debian backend — ISAR/BitBake image assembly
+│   │   ├── packages/            #   Developer interface — Debian source packages
+│   │   │   ├── k3s/             #     K3s binary + systemd service
+│   │   │   └── k3s-system-config/ #   K3s cluster configuration
+│   │   ├── kas/                 #   kas configuration overlays
+│   │   │   ├── base.yml         #     Base ISAR config
+│   │   │   ├── machine/         #     Target hardware definitions
+│   │   │   ├── image/           #     Image roles (server, agent)
+│   │   │   ├── network/         #     Network profiles
+│   │   │   └── node/            #     Per-node identity
+│   │   └── meta-n3x/            #   BitBake layer (recipes, WIC templates)
+│   │
+│   └── nixos/                   # NixOS backend — host infrastructure
+│       ├── hosts/               #   Per-node configs (n100-1..3, jetson-1..2)
+│       ├── modules/             #   Composable NixOS modules
+│       ├── disko/               #   Disk partitioning layouts
+│       └── vms/                 #   VM test configurations
+│
+├── lib/                         # Shared abstraction layer
+│   ├── network/                 #   Network config generation (NixOS + Debian)
+│   ├── k3s/                     #   K3s flag generation from topology profiles
+│   └── debian/                  #   Package mapping + kas verification
+│
+├── tests/                       # VM test infrastructure
+│   ├── nixos/                   #   NixOS backend tests (cluster, smoke, network)
+│   ├── debian/                  #   Debian backend tests (cluster, boot, swupdate)
+│   └── lib/                     #   Shared test builders and phase scripts
+│
+├── infra/                       # CI/CD infrastructure
+│   ├── nixos-runner/            #   NixOS runner configurations
+│   └── pulumi/                  #   AWS EC2 provisioning
+│
+├── manifests/                   # Kubernetes manifests
+├── secrets/                     # Encrypted secrets (SOPS)
+└── docs/                        # Documentation
 ```
 
-**Alternative tmpfs configuration** (for `/tmp` in RAM):
-```nix
-# In your NixOS configuration
-fileSystems."/tmp" = {
-  device = "tmpfs";
-  fsType = "tmpfs";
-  options = [ "size=4G" "mode=1777" "nodev" "nosuid" "noexec" ];
-};
-```
+## Getting Started
 
-## Critical Implementation Patterns
+Choose your entry point based on what you want to do:
 
-### 1. Longhorn on NixOS Requires Kyverno
+| Goal | Start Here |
+|------|------------|
+| Add an application package | [`backends/debian/packages/README.md`](backends/debian/packages/README.md) |
+| Build Debian disk images | [`backends/debian/README.md`](backends/debian/README.md) |
+| Configure NixOS infrastructure | [`backends/nixos/README.md`](backends/nixos/README.md) |
+| Run VM tests | [`tests/README.md`](tests/README.md) |
+| Modify network profiles or K3s topology | [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) |
 
-**Problem**: Longhorn expects FHS paths (`/usr/bin/env`) but NixOS uses `/nix/store/*` paths.
+For a guided walkthrough covering all paths, see [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
 
-**Solution**: Deploy Kyverno ClusterPolicy to inject correct PATH into longhorn-system pods:
+## Building
 
-```yaml
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: add-path-to-longhorn
-spec:
-  rules:
-    - name: add-path
-      match:
-        resources:
-          kinds: [Pod]
-          namespaces: [longhorn-system]
-      mutate:
-        patchStrategicMerge:
-          spec:
-            containers:
-              - (name): "*"
-                env:
-                  - name: PATH
-                    value: "/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin"
-```
+### Debian Backend
 
-**Deployment Order**: Kyverno → Longhorn → workloads
-
-### 2. Secrets Management Best Practices
-
-**NEVER** use inline secrets in NixOS configurations:
-
-```nix
-# ❌ WRONG - exposes secret in Nix store
-services.k3s.token = "my-secret-token";
-
-# ✅ CORRECT - references file outside Nix store
-services.k3s.tokenFile = config.sops.secrets.k3s_token.path;
-```
-
-### 3. Multi-Node Configuration with Generator Functions
-
-Reduce duplication across nodes using generator patterns:
-
-```nix
-mkSystem = { systemType, serverType, roles, hmRoles }: {
-  imports = [
-    ./modules/common
-    ./modules/hardware/${systemType}
-  ] ++ (map (role: ./modules/roles/${role}) roles);
-
-  networking.hostName = # derived from args
-  services.k3s.role = serverType;
-};
-```
-
-### 4. Network Configuration Patterns
-
-The framework supports various networking configurations based on hardware capabilities:
-- Single NIC with single IP (simplest deployment)
-- Multiple IPs on single interface (traffic separation)
-- Bonded NICs for redundancy (see hardware examples)
-- Advanced CNI configurations with Multus (see hardware examples)
-
-### 5. Minimal NixOS Configuration
-
-Achieving ~450MB footprint while maintaining operational flexibility:
-
-```nix
-{
-  imports = [
-    "${modulesPath}/profiles/minimal.nix"
-    "${modulesPath}/profiles/headless.nix"
-  ];
-
-  # Disable unnecessary features
-  documentation.enable = false;
-  environment.defaultPackages = [];
-  programs.command-not-found.enable = false;
-
-  # Optimize Nix store
-  nix.settings.auto-optimise-store = true;
-  nix.gc = {
-    automatic = true;
-    dates = "weekly";
-    options = "--delete-older-than 30d";
-  };
-
-  # Limit boot generations
-  boot.loader.systemd-boot.configurationLimit = 10;
-}
-```
-
-## Example Hardware Configurations
-
-These examples demonstrate hardware-specific configurations. The framework supports many platforms through modular hardware configurations.
-
-### Intel N100 miniPCs
-
-These miniPCs often include dual NICs enabling advanced networking configurations.
-
-**Required kernel modules** (for Longhorn):
-```nix
-boot.kernelModules = [ "iscsi_tcp" "dm_crypt" "overlay" ];
-```
-
-**Dual-NIC Bonding with Traffic Separation** (optional):
-```nix
-systemd.network = {
-  enable = true;
-  networks."10-bond0" = {
-    matchConfig.Name = "bond0";
-    address = [
-      "192.168.10.10/24"  # k3s cluster network
-      "192.168.20.10/24"  # Longhorn storage network (with Multus CNI)
-    ];
-  };
-  netdevs."10-bond0" = {
-    bondConfig = {
-      Mode = "balance-alb";  # No switch config required
-      TransmitHashPolicy = "layer3+4";
-    };
-  };
-};
-
-services.k3s.extraFlags = [
-  "--node-ip=192.168.10.10"
-  "--flannel-iface=bond0"
-];
-```
-
-**Performance optimizations**:
-```nix
-# I/O Scheduler
-services.udev.extraRules = ''
-  ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
-'';
-
-# Filesystem options
-fileSystems."/var/lib/longhorn".options = [ "noatime" "nodiratime" "discard" ];
-
-# CPU power management
-boot.kernelParams = [ "intel_idle.max_cstate=1" ];
-
-# Memory tuning
-boot.kernel.sysctl = {
-  "vm.swappiness" = 10;
-  "vm.vfs_cache_pressure" = 50;
-};
-```
-
-### NVIDIA Jetson Orin Nano
-
-For comprehensive Jetson Orin Nano documentation including kernel management, L4T patches, and GPU functionality, see [jetson-orin-nano.md](jetson-orin-nano.md).
-
-**Basic jetpack-nixos configuration**:
-```nix
-{
-  imports = [
-    (builtins.fetchTarball "https://github.com/anduril/jetpack-nixos/archive/master.tar.gz"
-      + "/modules/default.nix")
-  ];
-
-  hardware.nvidia-jetpack = {
-    enable = true;
-    som = "orin-nano";
-    carrierBoard = "devkit";
-    majorVersion = 6;
-  };
-
-  hardware.graphics.enable = true;
-  hardware.nvidia-container-toolkit.enable = true;
-}
-```
-
-**Critical notes**:
-- Serial console via micro-USB is essential (HDMI console doesn't work)
-- Use firmware version 35.2.1 (35.3.1 has USB boot issues)
-- Requires flashing UEFI firmware first, then standard NixOS installation
-- K3s with GPU support is fully feasible - see comprehensive documentation
-
-## Deployment Tools and Workflow
-
-### Key Tools
-
-1. **nixos-anywhere**: Automated bare-metal provisioning via SSH
-   - Deploys NixOS to any Linux system in 2-5 minutes per node
-   - Uses kexec to boot installer environment without reboot
-   - Integrates with disko for declarative partitioning
-
-2. **nixos-rebuild**: Remote deployment and updates
-   - Manages remote deployments from single flake
-   - Supports rollback on failure
-   - Standard NixOS tool for configuration management
-
-3. **disko**: Declarative disk partitioning
-   - Defines partition layout in Nix
-   - Automatic formatting during nixos-anywhere deployment
-   - Supports complex layouts with LUKS, LVM, etc.
-
-4. **sops-nix**: Secrets management
-   - Encrypts secrets with age or GPG
-   - Integrates with NixOS module system
-   - Supports per-host key management
-
-### Deployment Sequence
-
-**Preparation Phase**:
-1. Create git repository with flake structure
-2. Generate age keys from SSH host keys: `ssh-to-age < /etc/ssh/ssh_host_ed25519_key.pub`
-3. Configure `.sops.yaml` with encryption rules
-4. Encrypt k3s token: `sops secrets/k3s.yaml`
-5. Test configurations in VMs
-
-**Initial Deployment**:
-1. Boot nodes via network (iPXE) or USB installer
-2. Deploy first node: `nixos-anywhere --flake .#node1 root@192.168.10.11`
-3. Verify boot and SSH access
-4. Deploy remaining nodes using nixos-rebuild or nixos-anywhere
-
-**Kubernetes Setup**:
-1. Install Multus CNI for network separation
-2. Deploy Kyverno and apply PATH patching policy
-3. Install Longhorn via Helm with storage network config
-4. Verify pod scheduling and PVC creation
-5. Deploy workloads via manifests or GitOps
-
-**Ongoing Management**:
-- Updates: `nix flake update` → `nixos-rebuild`
-- Configuration changes: Edit `.nix` files → deploy via nixos-rebuild
-- Rollback: Boot into previous NixOS generation
-- Monitoring: Deploy Prometheus/Grafana via k3s manifests
-
-## Testing Hierarchy
-
-n3x uses a multi-layer testing approach to validate configurations before hardware deployment:
-
-| Layer | Tool | Speed | Use Case |
-|-------|------|-------|----------|
-| **1. Fast Automated** | `nixosTest` | Seconds | Unit tests, single-node validation, CI/CD |
-| **2. Emulation** | Nested virtualization | Minutes | Multi-node clusters, network simulation, integration |
-| **3. Manual VMs** | `tests/vms/` | Minutes | Interactive debugging, exploration |
-| **4. Bare-metal** | Physical hardware | Hours | Final production validation |
-
-### Fast Automated Tests (nixosTest)
-
-Quick, reproducible tests for CI/CD pipelines with multiple network profiles:
+The build matrix has 16 variants across 4 machines (42 total artifacts). The primary workflow builds images and registers them in the Nix store:
 
 ```bash
-# Run all checks
-nix flake check
+# Build and register ALL 16 variants
+nix run '.'
 
-# Parameterized cluster tests (different network topologies)
-nix build '.#checks.x86_64-linux.k3s-cluster-simple'          # Single flat network
-nix build '.#checks.x86_64-linux.k3s-cluster-vlans'           # 802.1Q VLAN tagging
-nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'   # Bonding + VLANs
+# List all variants in the build matrix
+nix run '.' -- --list
 
-# Other integration tests
-nix build '.#checks.x86_64-linux.k3s-storage'        # Storage stack validation
-nix build '.#checks.x86_64-linux.k3s-network'        # Network connectivity
+# Build one specific variant
+nix run '.' -- --variant server-simple-server-1
 
-# Interactive debugging
-nix build '.#checks.x86_64-linux.k3s-cluster-vlans.driverInteractive'
-./result/bin/nixos-test-driver
+# Build all variants for one machine
+nix run '.' -- --machine qemuamd64
+
+# Preview what would be built
+nix run '.' -- --dry-run
 ```
 
-**Network Profiles**: The test framework supports multiple network configurations via parameterized builders:
-- **simple**: Single flat network (baseline)
-- **vlans**: 802.1Q VLAN tagging (cluster/storage separation)
-- **bonding-vlans**: Bonding + VLANs (production parity)
+Each variant is assembled from stacked kas overlays:
 
-See [docs/VLAN-TESTING-GUIDE.md](docs/VLAN-TESTING-GUIDE.md) for comprehensive testing instructions.
+| Overlay          | Purpose                    | Examples                        |
+|------------------|----------------------------|---------------------------------|
+| `machine/`       | Target hardware            | `qemu-amd64`, `qemu-arm64`     |
+| `packages/`      | Package sets               | `k3s-core`, `debug`            |
+| `image/`         | Cluster role               | `k3s-server`, `k3s-agent`      |
+| `network/`       | Network topology           | `simple`, `vlans`, `bonding`   |
+| `node/`          | Per-node identity (IP, ID) | `server-1`, `agent-1`          |
 
-### Emulation Testing (Nested Virtualization)
-
-For complex multi-node scenarios, network simulation, and ARM64 validation:
+For lower-level builds without Nix store registration:
 
 ```bash
-# Build and run the emulation environment
-nix build .#packages.x86_64-linux.emulation-vm
-./result/bin/run-emulator-vm-vm
-
-# Inside the outer VM:
-virsh list --all                           # List inner VMs
-virsh start n100-1                         # Start a VM
-virsh console n100-1                       # Access VM console
-/etc/tc-simulate-constraints.sh lossy      # Apply network constraints
+nix develop '.#debian'
+cd backends/debian
+kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/image/k3s-server.yml:kas/network/simple.yml:kas/node/server-1.yml
 ```
 
-**Features**:
-- Production n3x configs running as libvirt VMs in nested virtualization
-- OVS switch fabric with QoS and traffic control profiles
-- Network constraint simulation (latency, packet loss, bandwidth limits)
-- ARM64 emulation via QEMU TCG for Jetson config validation
+See [`backends/debian/README.md`](backends/debian/README.md) for the full Debian build guide.
 
-See [tests/emulation/README.md](tests/emulation/README.md) for comprehensive documentation.
+### NixOS Backend
 
-### Manual VM Testing
-
-For interactive debugging and exploration:
+NixOS host configurations are built and deployed using standard Nix tooling:
 
 ```bash
-# Build and run VMs manually
-./tests/run-vm-tests.sh interactive
+# Build a host configuration
+nix build '.#nixosConfigurations.n100-1.config.system.build.toplevel'
 
-# Or directly
-nix build .#nixosConfigurations.vm-k3s-server.config.system.build.vm
-./result/bin/run-vm-k3s-server-vm
+# Deploy to a running host
+nixos-rebuild switch --flake '.#n100-1' --target-host root@n100-1
 ```
 
-## Common Commands Reference
+See [`backends/nixos/README.md`](backends/nixos/README.md) for module composition and deployment.
 
-### Deployment Commands
+## Testing
+
+Both backends are validated using the NixOS test driver (QEMU multi-node VMs). Each network profile is tested independently on both backends to ensure parity.
+
 ```bash
-# Initial bare-metal deployment
-nixos-anywhere --flake .#n100-1 root@192.168.10.11
+# Run ALL Debian tests (18 tests)
+nix build '.#checks.x86_64-linux.debian-all'
 
-# Deploy configuration updates remotely
-nixos-rebuild switch --flake .#n100-1 --target-host root@n100-1.local
+# Run a single Debian test
+nix build '.#checks.x86_64-linux.debian-cluster-simple' -L
 
-# Deploy to multiple nodes in parallel with GNU parallel
-parallel nixos-rebuild switch --flake .#n100-{} --target-host root@n100-{}.local ::: 1 2 3
+# Run a NixOS backend test
+nix build '.#checks.x86_64-linux.k3s-cluster-simple'
+
+# Validate all artifact hashes without running tests
+nix build '.#checks.x86_64-linux.debian-artifact-validation'
 ```
 
-### Development Commands
-```bash
-# Validate flake structure
-nix flake check
+### Cluster Test Parity Matrix
 
-# Update dependencies
-nix flake update
+| Network Profile | NixOS | Debian |
+|-----------------|-------|--------|
+| Simple (flat) | `k3s-cluster-simple` | `debian-cluster-simple` |
+| 802.1Q VLANs | `k3s-cluster-vlans` | `debian-cluster-vlans` |
+| Bonding + VLANs | `k3s-cluster-bonding-vlans` | `debian-cluster-bonding-vlans` |
+| DHCP | `k3s-cluster-dhcp-simple` | `debian-cluster-dhcp-simple` |
 
-# Build configuration without deploying
-nix build .#nixosConfigurations.node1.config.system.build.toplevel
+Additional backend-specific tests cover boot validation, service startup, network debugging, OTA updates (Debian), and storage/failover scenarios (NixOS). See [`tests/README.md`](tests/README.md) for the full 45-check test catalog.
 
-# Test in VM
-nixos-rebuild build-vm --flake .#node1
+## Target Hardware
+
+| Platform           | Architecture | Use Case               |
+|--------------------|-------------|------------------------|
+| AMD V3000          | x86_64      | Industrial edge gateway |
+| Jetson Orin Nano   | aarch64     | Edge AI/ML workloads   |
+| Intel N100 miniPCs | x86_64      | Development / prototype |
+| QEMU VMs           | x86_64      | Testing (no hardware)  |
+
+## CI/CD Pipeline
+
+```mermaid
+flowchart TD
+    subgraph triggers["Triggers"]
+        mr["Merge Request"]
+        main["Push to main"]
+    end
+
+    subgraph nix_stage["build-nix"]
+        deb_x86["build:deb:k3s\nx86_64"]
+        deb_arm["build:deb:k3s-arm64\naarch64"]
+        nixos_eval["NixOS eval\n+ flake checks"]
+    end
+
+    subgraph debian_stage["build-debian"]
+        img_s["server image"]
+        img_a["agent image"]
+    end
+
+    subgraph test_stage["test"]
+        vm_nixos["NixOS VM tests\ncluster + smoke"]
+        vm_debian["Debian VM tests\ncluster + boot"]
+    end
+
+    triggers --> nix_stage
+    nix_stage --> debian_stage --> vm_debian
+    nix_stage --> vm_nixos
 ```
 
-### Secrets Management
-```bash
-# Edit encrypted secrets
-sops secrets/k3s.yaml
+- **build-nix**: Evaluates flake, compiles `.deb` packages (EC2 runners), runs NixOS checks
+- **build-debian**: Assembles bootable Debian images via kas/BitBake (large-disk runners)
+- **test**: VM cluster tests on KVM-capable runners (both backends)
 
-# Convert SSH host key to age public key
-ssh-to-age < /etc/ssh/ssh_host_ed25519_key.pub
+Built artifacts are shared between stages via Nix binary cache (Harmonia), not GitLab artifacts.
 
-# Generate new sops key
-age-keygen -o ~/.config/sops/age/keys.txt
+## Caching Architecture
+
+```mermaid
+flowchart TD
+    subgraph node["Each Build Node"]
+        store["/nix/store — ZFS + zstd"]
+        harmonia["Harmonia → Caddy (HTTPS)"]
+        store --> harmonia
+    end
+
+    subgraph yocto["ISAR Build Caches"]
+        apt["apt-cacher-ng\nDebian package proxy"]
+        sstate["SSTATE_DIR + DL_DIR"]
+    end
+
+    subgraph mirrors["Internal Mirrors"]
+        artifactory["JFrog Artifactory\nDebian repos + binaries"]
+        gitlab["Internal GitLab\nSource code forks"]
+    end
+
+    harmonia -->|"HTTPS substituters"| peers["Other Build Nodes"]
+    apt -->|"cache miss"| artifactory
 ```
 
-## Proven Reference Implementations
+| Cache Tier       | What                          | Storage                |
+|------------------|-------------------------------|------------------------|
+| Nix binary cache | Built derivations (.nar)      | ZFS + Harmonia per node|
+| apt-cacher-ng    | Debian packages               | Local per machine      |
+| Yocto sstate     | BitBake shared state           | Local disk (ephemeral) |
+| Artifactory      | Custom .debs + Debian mirror  | JFrog cloud            |
+| Internal GitLab  | Source code forks             | GitLab instance        |
 
-The following community projects provide working examples directly applicable to this deployment:
+See [`docs/nix-binary-cache-architecture-decision.md`](docs/nix-binary-cache-architecture-decision.md) for the full architecture decision.
 
-- **[niki-on-github/nixos-k3s](https://github.com/niki-on-github/nixos-k3s)**: Production-ready GitOps deployment with single-command provisioning from bare metal. Includes Flux, Cilium CNI, sops-nix, and self-hosted Gitea.
+## Documentation
 
-- **[rorosen/k3s-nix](https://github.com/rorosen/k3s-nix)**: Clean multi-node examples with interactive testing, sops-nix secrets, and automated manifest deployment. Includes Prometheus, Grafana, and Helm charts in pure Nix.
+> **[Full Documentation Map](docs/README.md)** — Navigable index of every document, diagram, and guide in this project.
 
-- **[Skasselbard/NixOS-K3s-Cluster](https://github.com/Skasselbard/NixOS-K3s-Cluster)**: CSV-driven cluster provisioning demonstrating declarative host definitions and automated deployment patterns.
+Key entry points:
 
-- **[anduril/jetpack-nixos](https://github.com/anduril/jetpack-nixos)**: Jetson Orin Nano NixOS support with full GPU functionality, CUDA/TensorRT integration, and container GPU passthrough.
-
-## Key Design Decisions
-
-### Why NixOS Instead of Talos Linux?
-
-While Talos provides an 80MB footprint and API-only management, NixOS offers:
-- SSH access for edge device troubleshooting
-- Declarative configuration with version control
-- Generation-based rollback without re-imaging
-- Existing ecosystem and tooling
-- Flexibility for edge-specific requirements
-
-### Why K3s Instead of Full Kubernetes?
-
-- Single binary deployment (~50MB)
-- Built-in storage, load balancer, ingress controller
-- Lower resource requirements (512MB RAM minimum)
-- Embedded etcd for simplified HA
-- Production-grade with CNCF certification
-
-### Why Longhorn for Storage?
-
-- Cloud-native distributed block storage
-- Built-in backup/restore and disaster recovery
-- Incremental snapshots and replica management
-- Works well with k3s's embedded architecture
-- Active development and community support
-
-## Important Notes
-
-- This project follows a **documentation-first** approach
-- All workloads should run in k3s, not on the host OS
-- The host OS is treated as immutable infrastructure
-- Always test configurations in VMs before bare metal deployment
-- Serial console access is critical for Jetson hardware troubleshooting
-
-## Next Steps for Deployment
-
-With implementation complete, the recommended path to deployment:
-
-1. **VM Testing** (see tests/README.md and tests/TEST-COVERAGE.md)
-   - Run automated integration tests: `nix flake check`
-   - **Core K3s tests:**
-     - `k3s-single-server`: Single control plane node
-     - `k3s-agent-join`: Agent joining server cluster
-     - `k3s-multi-node`: 3-node cluster (1 server + 2 agents)
-   - **Networking tests:**
-     - `network-bonding`: Network bonding configuration
-     - `k3s-networking`: Pod-to-pod communication, DNS, service discovery
-   - **Storage stack tests:**
-     - `longhorn-prerequisites`: Longhorn readiness (kernel modules, iSCSI)
-     - `kyverno-deployment`: Kyverno install + PATH patching validation
-   - Manual testing: `./tests/run-vm-tests.sh`
-   - Individual test: `nix build .#checks.x86_64-linux.TEST_NAME`
-
-1b. **Emulation Testing** (optional, see tests/emulation/README.md)
-   - For complex multi-node integration scenarios
-   - Network resilience testing with traffic control
-   - ARM64 config validation without Jetson hardware
-   - Build: `nix build .#packages.x86_64-linux.emulation-vm`
-
-2. **Secrets Configuration** (see docs/SECRETS-SETUP.md)
-   - Generate age keys for admin and all hosts
-   - Create strong K3s tokens using provided scripts
-   - Encrypt secrets with sops
-   - Prepare keys for deployment to nodes
-
-3. **Hardware Deployment** (initial provisioning)
-   - Deploy to first server node using nixos-anywhere
-   - Verify K3s control plane starts successfully
-   - Deploy remaining nodes (servers then agents)
-   - Validate cluster formation
-
-4. **Kubernetes Setup**
-   - Install Kyverno for NixOS PATH compatibility
-   - Deploy Longhorn distributed storage
-   - Configure Multus CNI for storage network separation
-   - Test PVC creation and replica management
-
-5. **Production Hardening**
-   - Configure proper TLS certificates
-   - Set up monitoring and alerting
-   - Implement backup strategies for etcd and Longhorn volumes
-   - Document operational procedures
-
-## Additional Documentation
-
-- **[Jetson Orin Nano Setup](jetson-orin-nano.md)** - Comprehensive guide for Jetson hardware
-- **[Secrets Management Tutorial](docs/SECRETS-SETUP.md)** - Detailed secrets setup walkthrough
-- **[Secrets Quick Reference](secrets/README.md)** - Practical guide for deployed systems
-- **[VM Testing Guide](tests/README.md)** - Testing framework documentation
-- **[Emulation Testing Guide](tests/emulation/README.md)** - Nested virtualization and network simulation
-- **[Kubernetes Manifests](manifests/README.md)** - Kyverno and Longhorn deployment procedures
-- **[Integration Plan](VSIM-INTEGRATION-PLAN.md)** - vsim integration roadmap and session tracking
+- [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) — Guided walkthrough for all developer paths
+- [`backends/debian/README.md`](backends/debian/README.md) — Debian backend build guide
+- [`backends/nixos/README.md`](backends/nixos/README.md) — NixOS backend configuration and deployment
+- [`tests/README.md`](tests/README.md) — Test framework and full test catalog
+- [`infra/README.md`](infra/README.md) — CI/CD infrastructure (AWS + NixOS runners)
+- [`docs/SECRETS-SETUP.md`](docs/SECRETS-SETUP.md) — SOPS/age secrets management

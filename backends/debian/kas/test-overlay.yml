@@ -1,0 +1,34 @@
+# Test overlay - adds NixOS test driver backdoor service
+# =============================================================================
+#
+# PURPOSE:
+#   Adds the nixos-test-backdoor package to images for VM testing with the
+#   NixOS test driver. The backdoor service only activates when /dev/hvc0
+#   exists (i.e., when running under QEMU with virtio-console).
+#
+# USAGE:
+#   Append to kas build command:
+#     kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-overlay.yml:kas/image/base.yml
+#
+# NOTES:
+#   - Safe to include in all test builds (service auto-disables without /dev/hvc0)
+#   - Do NOT include in production images for security reasons
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  test-backdoor: |
+    # Include NixOS test driver backdoor service
+    # This enables VM testing with nixos-test-driver
+    IMAGE_INSTALL:append = " nixos-test-backdoor"
+  test-deps: |
+    # Include cpio for SWUpdate bundle creation during tests
+    # cpio is needed to create .swu archives in the VM
+    # Include e2fsprogs for mkfs.ext4 to create test filesystems
+    # Include openssl for signing SWUpdate bundles (Debian swupdate requires signed images)
+    # netcat-openbsd for basic networking tests, socat for HTTP file serving
+    # curl/wget for HTTP downloads in network OTA tests
+    IMAGE_PREINSTALL:append = " cpio e2fsprogs openssl netcat-openbsd socat curl wget iputils-ping"

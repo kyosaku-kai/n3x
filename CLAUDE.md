@@ -1,975 +1,469 @@
 # CLAUDE.md - Project Memory and Rules
 
-This file provides project-specific rules and task tracking for Claude Code when working with the n3x repository.
+This file provides project-specific rules and essential context for Claude Code when working with the n3x repository.
 
 ## Critical Rules
 
 ### Git Commit Practices
+1. **COMMIT FREQUENTLY** - Don't accumulate changes across multiple files before committing. Commit each logical change as you make it. Small, frequent commits are better than large batches. This also serves as implicit flake verification (see rule 3).
+2. **Committing IS your flake check** - The Nix-managed pre-commit hook (`core.hooksPath`) runs `nix flake check --no-build` automatically. Do NOT run `nix flake check` manually before committing — just commit and let the hook verify. If the commit succeeds, the flake is valid. If the hook fails, fix and re-commit. The hook also auto-formats `.nix` files with `nixpkgs-fmt` and re-stages them. The hook args are not immutable — if a better approach is found, update the hook in nixcfg.
+3. **NEVER include AI/Claude attributions in commits** - No "Co-Authored-By: Claude", no "Generated with Claude", no Anthropic mentions.
+4. **Do NOT commit temporary files** - Never stage files created for temporary purposes.
 
-1. **ALWAYS commit relevant changes after making them** - This is a high priority rule. Stage and commit changes that are part of the long-term solution immediately after completing work.
+### Task Completion Standards
+5. **Test tasks require PASS to be COMPLETE** - A task to "run test X" is NOT complete if the test fails. Documenting a failure is progress, but the task stays `IN_PROGRESS` until the test passes. Do NOT move to the next task until the current test-based task passes.
+6. **NEVER mark failed tests as "complete with documentation"** - This creates tech debt breadcrumbs. Fix issues before moving on.
 
-2. **NEVER include AI/Claude attributions in commits**:
-   - Do NOT add "Co-Authored-By: Claude" or "Generated with Claude"
-   - Do NOT mention Anthropic, AI, or Claude in commit messages
-   - Keep commit messages professional and attribution-free
-   - Focus on describing WHAT changed and WHY, not who/what created it
-
-3. **Do NOT commit temporary files** - Never stage or commit files created for temporary or short-term purposes.
+### Backend Parity Requirements
+7. **NEVER defer tests for perceived redundancy** - This project establishes a parameterized embedded Linux build matrix. Every test that exists for one backend MUST be run for all backends. Do NOT make judgment calls about "overlapping" tests or "same code path" - run ALL tests to verify actual parity. The goal is identical test coverage across NixOS and Debian backends.
+8. **Test parity is non-negotiable** - If NixOS has a test (simple, vlans, bonding-vlans, dhcp-simple), the Debian backend must have and pass the same test. No exceptions.
 
 ### Shell Command Practices
+9. **ALWAYS single-quote Nix derivation references** - Use `nix build '.#thing'` to prevent zsh globbing.
 
-4. **ALWAYS single-quote Nix derivation references** - When running `nix build`, `nix flake check`, or similar commands with derivation paths like `.#thing`, ALWAYS use single quotes: `nix build '.#thing'`. This prevents shell globbing issues in zsh and other shells.
+### Container Image Pinning
+10. **Use `tag@digest` syntax for container images** - Provides determinism (digest) + visibility (tag):
+   ```yaml
+   # CORRECT: tag for humans, digest for machines
+   image: ghcr.io/siemens/kas/kas-isar:5.1@sha256:c60d32d7d6943e114affad0f8a0e9ec6d4c163e636c84da2dd8bde7a39f2a9bd
+
+   # WRONG: mutable tag only
+   image: ghcr.io/siemens/kas/kas-isar:5.1
+   ```
+   - Digest is authoritative for pulling (reproducibility)
+   - Tag is documentation for humans (version visibility)
+   - Get digest: `docker images --digests <image>`
 
 ### NixOS Test Driver & QEMU Process Management
-
-5. **Orphaned nix build cleanup** - When a `nix build` process needs to be killed:
-   - Build processes run as `nixbld*` users inside nix-daemon sandboxes
-   - Parent shell/python processes may be reparented to PID 1 (init)
-   - Regular `kill` fails due to different UID
-   - **CRITICAL (WSL): Prefer SIGTERM over SIGKILL to allow cleanup handlers to run**:
-     - `kas-build` wrapper has trap handlers that remount 9p filesystems on exit
-     - SIGKILL (-9) bypasses traps, leaving `/mnt/c` unmounted (breaks clipboard, etc.)
-     - Always try SIGTERM first, wait 5s, then SIGINT, then only SIGKILL as last resort
-   - **Graceful termination procedure**:
-     ```bash
-     # Find orphaned nix build processes
-     ps -ef | grep nixbld | grep -v grep
-
-     # Find the bash wrapper (parent of test-driver, orphaned to PID 1)
-     ps -ef | grep -E "nixbld.*bash" | grep -v grep
-
-     # Try graceful termination first (allows kas-build to remount filesystems)
-     sudo kill -TERM <bash_pid>
-     sleep 5
-
-     # If still running, try interrupt
-     sudo kill -INT <bash_pid>
-     sleep 3
-
-     # LAST RESORT ONLY - will break WSL mounts if kas-build has them unmounted
-     sudo kill -9 <bash_pid>
-
-     # Or kill all processes for a specific build user (same signal priority applies)
-     sudo pkill -TERM -u nixbld1
-     ```
-   - **If SIGKILL was used and mounts are broken**: Run `nix run '.#wsl-remount'` or `wsl --shutdown` from PowerShell
-
-6. **PROACTIVE log monitoring during VM tests** - Do NOT passively wait for test completion:
-   - Use `-L` flag with `nix build` to stream build/test logs
-   - Check `BashOutput` frequently (every 30-60s) for running background builds
-   - Look for early failure indicators:
-     - `refused connection` - network/firewall issues
-     - `connection timed out` - cluster formation problems
-     - `DPT=6443` in kernel logs - firewall blocking k3s API
-     - Repeated `etcdserver: leader changed` - etcd instability
-   - **Kill early if failure pattern detected** - Don't wait for 10-minute timeout if logs show the test will fail
-   - When monitoring, scan for progress indicators:
-     - `[PHASE N]` markers in test output
-     - `k3s.service: Started`
-     - `Node.*Ready` status
-     - `kubectl get nodes` showing expected node count
-
-7. **Session cleanup before starting new tests** - ALWAYS verify no orphaned processes before starting a fresh build:
+11. **Orphaned nix build cleanup** - Prefer SIGTERM over SIGKILL (WSL mount safety):
    ```bash
-   pgrep -a qemu 2>/dev/null || echo "No QEMU processes"
-   pgrep -a nixos-test-driver 2>/dev/null || echo "No test drivers"
+   sudo kill -TERM <pid>; sleep 5; sudo kill -INT <pid>  # SIGKILL only as last resort
+   ```
+   If mounts break: `nix run '.#wsl-remount'` or `wsl --shutdown`
+
+12. **PROACTIVE log monitoring** - Use `-L` flag, check BashOutput frequently, kill early on failure patterns.
+
+13. **Session cleanup** - Verify no orphaned processes before new tests:
+   ```bash
+   pgrep -a qemu 2>/dev/null || echo "No QEMU"; pgrep -a nixos-test-driver 2>/dev/null || echo "No drivers"
    ```
 
-## Project Status and Next Tasks
+## Project Status
 
-### Current Status
-- **Branch**: `feature/unified-platform-v2` (48 commits ahead of origin/simint)
-- **Plan 011**: Unified K3s Platform Architecture - COMPLETE
-- **Plan 012**: Unified Network Architecture Refactoring - ✅ COMPLETE (2026-01-27)
-- **Plan 013**: Test Infrastructure Review - ✅ COMPLETE (2026-01-27)
-- **Plan 014**: L4 Test Parity - ✅ COMPLETE (2026-01-28)
-- **ISAR L3 K3s Service Test**: ✅ VALIDATED (2026-01-29)
-- **ISAR L4 Cluster Test**: ✅ IMPLEMENTED (2026-01-29) - 2-server HA control plane
-- **Test Infrastructure**: Fully integrated NixOS + ISAR backends with shared abstractions
-- **BitBake Memory Limits**: BB_NUMBER_THREADS=8, BB_PRESSURE_MAX_MEMORY=10000 (prevents OOM)
-- **Next Step**: Run and validate isar-k3s-cluster-simple test
+- **Branch**: `main`
+- **Plan 023**: **ACTIVE** (15/23) - CI Infrastructure and Runner Deployment
+  - Remaining: 5 BLOCKED (hardware/creds), 1 DEFERRED, 1 BLOCKED (dependency)
+- **Plan 025**: **ACTIVE** (4/7) - Cross-Architecture Build Environment Requirements
+  - Remaining: 2 PENDING, 1 IN_PROGRESS (needs hardware)
+- **Plans 001-003, 011-014, 016, 018-020**: COMPLETE (archived)
+- **Plan 027**: **COMPLETE** (8/8) - Documentation Cohesion and Navigation
+  - All tasks COMPLETE (2026-02-15). Docs hub, READMEs, cross-links, proprietary scrub.
+  - Plan file: `.claude/user-plans/027-documentation-cohesion.md`
+- **Plan 028**: **COMPLETE** (16/16) - Migrate n3x to NixOS/nixpkgs 25.11
+  - All tasks COMPLETE (T9, T10 SKIPPED as redundant). Final validation (T15) passed 2026-02-16.
+  - Both flakes on 25.11. NixOS test matrix 4/4, Debian cluster test PASS.
+  - Incompatibilities fixed: `services.resolved.settings` (T11), test driver API (T13).
+  - AMI pipeline migrated to native `system.build.images.amazon` API (post-plan).
+  - Fork clone at `/home/tim/src/nixpkgs-vm-rebase/` can be removed.
+  - Plan file: `.claude/user-plans/028-nixpkgs-25.05-migration.md`
+- **Plan 029**: **COMPLETE** (5/5) - Post-Migration Convergence
+  - T0: COMPLETE (2026-02-16) — 4 fixes committed, 9 no-fix findings documented
+  - T1: COMPLETE (2026-02-16) — all 5 diagrams verified accurate, no changes needed
+  - T1.5: COMPLETE (2026-02-16) — no migration needed, repos architecturally independent
+  - T2: COMPLETE (2026-02-16) — validated
+  - T3: COMPLETE (2026-02-16) — ADR audit: no arch discrepancies, 2 minor fixes
+  - Plan file: `.claude/user-plans/029-post-migration-convergence.md`
+- **Plan 031**: **COMPLETE** (10/10) - Backend Restructure + Layer Rename
+  - All tasks COMPLETE (2026-02-18). `infra` branch ready for merge to `main`.
+  - Renames: `backends/isar/`→`backends/debian/`, `lib/isar/`→`lib/debian/`,
+    `tests/isar/`→`tests/debian/`, `meta-isar-k3s/`→`meta-n3x/`, `isar-k3s-image-*`→`n3x-image-*`
+  - DevShell: `.#isar`→`.#debian`. Check names: `debian-k3s-*`→`debian-*`.
+  - 2 archive `.drawio.svg` diagrams still have embedded `isar-k3s` text (manual diagram edit needed)
+  - Plan file: `.claude/user-plans/031-backend-restructure.md`
+- **Plans 021-022**: ARCHIVED - analysis moved to Plan 023
+- **Plan 013**: MIGRATED TO NIXCFG - Distributed Nix Binary Caching
+- **Plan 024**: VALIDATED - ISAR Jetson Orin Nano Kernel 6.12 LTS (cross-compile passes)
+- **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
+- **BitBake Limits**: BB_NUMBER_THREADS=dynamic (min(CPUs, (RAM_GB-4)/3)), BB_PRESSURE_MAX_MEMORY=10000
+- **ISAR Build Matrix** (feature/isar-build-matrix branch, 11 commits ahead of main):
+  - 42 artifacts total across 4 machines, ALL in nix store, all hashes in artifact-hashes.nix
+  - qemuamd64 (33 artifacts): ALL in nix store
+  - amd-v3c18i (1 artifact): IN nix store
+  - qemuarm64 (6 artifacts): ALL in nix store (built 2026-02-19 with debian-snapshot overlay)
+  - jetson-orin-nano (2 artifacts): ALL in nix store (built 2026-02-19 with debian-snapshot overlay)
+  - `isar-artifact-validation` check: PASSES (all 42 artifacts validated)
+  - `nix flake check --no-build`: PASSES
+  - **VM test results** (2026-02-19): 18 PASS, 1 EXCLUDED
+    - PASS (18): vm-boot, k3s-server-boot, k3s-service, swupdate-{bundle-validation,apply},
+      two-vm-network, swupdate-network-ota, network-debug,
+      k3s-network-{simple,vlans,bonding}, k3s-cluster-{simple,vlans,bonding-vlans,dhcp-simple}
+      × {firmware,direct} boot modes where applicable
+    - EXCLUDED: swupdate-boot-switch (grubenv_open fails on vfat EFI partition, needs interactive debug)
+  - `isar-all` check: PASSES (boot-switch excluded from aggregate)
+  - **Test timing** (single execution, wall-clock): single-VM 18-25s, k3s-service 133s,
+    cluster-firmware 82-95s, cluster-direct 73-77s, network-debug 256s, two-vm-network 17s
+  - `nix run '.'` is the default app (isar-build-all); also available as `nix run '.#isar-build-all'`
+  - Debian snapshot overlay (`kas/opt/debian-snapshot.yml`) needed for arm64 builds due to
+    transient GPG "Not live until" timing issue on live trixie-security/trixie-updates mirrors
+  - DO NOT merge to main yet (per user instruction)
 
-### Plan 012 Summary (2026-01-27) - COMPLETE
+### Architecture
 
-**Goal**: Eliminate network configuration duplication between backends
+**CI Target Architecture** (Updated 2026-02-10):
+- Self-managed EC2 runners (x86_64 + Graviton) for ISAR/Nix builds
+- On-prem NixOS bare metal for: VM tests (KVM required), HIL tests
+- JFrog Artifactory for: custom .deb packages + upstream Debian mirror
+- NixOS flake for runner config (reusable for EC2, dev workstations, lab servers)
+- apt-cacher-ng on all build environments
+- **Nix binary cache**: Harmonia + ZFS (local), HTTP substituters (no ZFS replication)
+- **TLS**: Caddy reverse proxy with internal CA
 
-**Accomplished**:
-1. ✅ Created `lib/network/mk-network-config.nix` - unified NixOS module generator
-2. ✅ Created `lib/k3s/mk-k3s-flags.nix` - shared K3s flag generator
-3. ✅ Removed `nodeConfig` and `k3sExtraFlags` from profiles (now data-only)
-4. ✅ Updated `mk-k3s-cluster-test.nix` to use new unified architecture
-5. ✅ Replaced netplan with `systemd-networkd-config` ISAR recipe
-6. ✅ All NixOS smoke tests pass (L1-L3)
-7. ✅ All ISAR network profile tests pass (simple, vlans, bonding-vlans)
+**Binary Cache Architecture** (docs/nix-binary-cache-architecture-decision.md):
+- Each node: ZFS-backed `/nix/store` with zstd compression (1.5-2x savings)
+- Each node: Harmonia serving local store via Caddy (HTTPS)
+- Cache sharing: HTTP substituters with priority configuration
+- NO ZFS replication (multi-master not possible; Nix content-addressing sufficient)
+- ZFS cluster prototype (3x Intel N100 mini PCs) validates architecture before AWS deployment
+- Cluster network via MikroTik CRS326-24G-2S+ managed switch
 
-**Key Architecture**:
-- Profiles export **data only** (ipAddresses, interfaces, vlanIds)
-- `mkNixOSConfig` transforms data → NixOS systemd.network modules
-- `mkSystemdNetworkdFiles` transforms data → ISAR .network/.netdev files
-- `mkK3sFlags.mkExtraFlags` transforms data → k3s --node-ip, --flannel-iface, etc.
+### ISAR Package Parity (Plan 016 Complete)
 
-### Previous Milestones
-- **Phase 8** (Secrets Management): ✅ COMPLETE (2026-01-19)
-- **Multi-Architecture**: ✅ COMPLETE (2026-01-19) - x86_64 and aarch64 k3s server
-- **L1-L2 ISAR Parity**: ✅ COMPLETE (2026-01-26)
-- **Network Profile Parity**: ✅ COMPLETE (2026-01-27)
+Package requirements are verified at **Nix eval time**. Missing packages fail `nix flake check --no-build` immediately.
 
-### Phase 8 Summary (Secrets Management) - Completed 2026-01-19
+```
+lib/debian/package-mapping.nix  →  Defines required packages (Nix→Debian mapping)
+        ↓
+lib/debian/verify-kas-packages.nix  →  Verifies kas YAMLs contain packages
+        ↓
+nix flake check --no-build  →  Fails if packages missing from kas overlays
+```
 
-**Outcome**: Original keys not found on thinky-nixos or Bitwarden. Fresh keys generated and stored.
+See: [tests/README.md](tests/README.md#debian-backend-package-parity-verification-plan-016) for details.
 
-**Completed**:
-1. ✅ Generated 4 new age keys (admin + n100-1/2/3)
-2. ✅ Updated `.sops.yaml` with new public keys + fixed rule ordering
-3. ✅ Generated new k3s tokens and encrypted with all 4 recipients
-4. ✅ Verified decryption works with all keys
-5. ✅ Stored keys in Bitwarden (folder: Infrastructure/Age-Keys)
-6. ✅ Committed changes (see commits f708bde, e20b70a)
+### Key Architecture
+- **Profiles** export data only (ipAddresses, interfaces, vlanIds)
+- **mkNixOSConfig** transforms data → NixOS systemd.network modules
+- **mkSystemdNetworkdFiles** transforms data → ISAR .network/.netdev files
+- **mkK3sFlags.mkExtraFlags** transforms data → k3s CLI flags
 
-**Key Files**:
-- `secrets/keys/*.age` - Private keys (gitignored, backed up to Bitwarden)
-- `secrets/.sops.yaml` - SOPS configuration with public keys
-- `secrets/k3s/tokens.yaml` - Encrypted k3s tokens
-- `docs/SECRETS-SETUP.md` - Multi-deployment documentation
-
-**Deferred**:
-- `.claude/user-plans/004-bitwarden-infrastructure-organization.md` - Cleanup duplicate/old entries
-
-### Completed Implementation Tasks
-
-All core implementation tasks have been completed:
-
-1. **Flake Structure Creation** ✅
-   - Initialized flake.nix with proper inputs (nixpkgs, disko, sops-nix, nixos-anywhere, jetpack-nixos)
-   - Created modular structure under modules/ directory
-   - Set up hosts/ directory for per-node configurations (5 hosts: 3 N100, 2 Jetson)
-
-2. **Hardware Modules** ✅
-   - Created N100-specific hardware module with optimizations
-   - Created Jetson Orin Nano module using jetpack-nixos
-   - Configured kernel parameters and performance tuning
-
-3. **Network Configuration** ✅
-   - Implemented dual-IP bonding module
-   - Configured Multus CNI NetworkAttachmentDefinition
-   - Set up VLAN support for traffic separation
-   - Created storage network configuration for k3s and Longhorn
-
-4. **K3s Setup** ✅
-   - Created server and agent role modules with secure variants
-   - Configured token management with sops-nix
-   - Implemented Kyverno PATH patching for Longhorn
-   - Created common k3s configuration module
-
-5. **Storage Configuration** ✅
-   - Implemented disko partition layouts (standard and ZFS options)
-   - Configured Longhorn module with storage network
-   - Created k3s-storage integration module
-   - Ready for PVC creation and replica management testing
-
-6. **Secrets Management** ✅
-   - Configured sops-nix integration
-   - Created secrets module with age key support
-   - Set up encryption for K3s tokens
-   - Documented secrets workflow
-
-7. **Testing Framework** ✅
-   - Created comprehensive VM testing configurations
-   - Configured test VMs for server, agent, and multi-node clusters
-   - Implemented NixOS integration tests using `nixosTest` framework
-   - Added automated test runner script for manual testing
-   - Integrated tests into `checks` output for CI/CD
-   - Documented testing procedures
-
-### Remaining Tasks
-
-#### Emulation Infrastructure Validation ✅ (Completed 2025-12-09)
-
-**Validated**:
-- [x] `nix flake check` passes (warnings are acceptable)
-- [x] `nix build .#packages.x86_64-linux.emulation-vm` succeeds
-- [x] Emulation VM boots with all services (libvirtd, ovs-vswitchd, ovsdb, dnsmasq)
-- [x] Inner VMs defined in libvirt (n100-1, n100-2, n100-3)
-- [x] OVS bridge topology correct (ovsbr0 with vnet0 @ 192.168.100.1/24)
-- [x] tc constraint script functional (`/etc/tc-simulate-constraints.sh`)
-- [x] Nested virtualization working in WSL2
-
----
-
-### vsim Expansion Roadmap (Current Focus)
-
-The emulation infrastructure is operational. Next steps expand testing capabilities:
-
-#### Phase 1: Network Resilience Testing ✅ (Completed 2025-12-09)
-
-**Goal**: Create automated tests for network constraint scenarios.
-
-**Completed**:
-- [x] Updated `mkTCProfiles.nix` to use correct VM names (n100-1, n100-2, n100-3)
-- [x] Created `tests/integration/network-resilience.nix` nixosTest
-- [x] Test validates OVS bridge topology and host interface configuration
-- [x] Test validates TC profile script execution (default, constrained, lossy)
-- [x] Test validates VM interface detection when VMs are started
-- [x] Test validates TC rule application to running VM interfaces
-- [x] Test validates multi-VM TC management
-- [x] Added `network-resilience` to flake checks output
-
-**Note**: Full inter-VM connectivity testing requires Phase 3 (Inner VM Installation).
-The current test validates the TC infrastructure works correctly.
-
-**Run test**:
+### Test Commands
 ```bash
-nix build .#checks.x86_64-linux.network-resilience
+# NixOS tests
+nix build '.#checks.x86_64-linux.k3s-cluster-simple'
+nix build '.#checks.x86_64-linux.k3s-cluster-vlans'
+nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'
+
+# Debian backend tests
+nix build '.#checks.x86_64-linux.debian-cluster-simple' -L
+nix build '.#checks.x86_64-linux.debian-network-debug' -L
 ```
 
-#### Phase 2: ARM64 Emulation (Jetson Testing) ✅ (Completed 2025-12-09)
+## Technical Learnings
 
-**Goal**: Add Jetson Orin Nano (aarch64) to inner VMs via QEMU TCG.
+### Nix Eval-Time Verification with lib.seq (Plan 016)
 
-**Completed**:
-- [x] Added jetson-1 VM definition to `tests/emulation/embedded-system.nix`
-- [x] Fixed `mkInnerVM.nix` to use correct UEFI firmware path (`${pkgs.qemu}/share/qemu/edk2-aarch64-code.fd`)
-- [x] Added NVRAM initialization for ARM64 VMs in setup-inner-vms service
-- [x] Updated `mkTCProfiles.nix` with jetson-1 traffic control rules
-- [x] Updated MOTD and documentation with ARM64 VM information
-- [x] Verified flake check passes with ARM64 configuration
+**Problem**: `passthru` attributes on derivations aren't evaluated during `nix flake check` unless explicitly accessed. A verification that uses `passthru.verified = throw "error"` will silently pass.
 
-**Configuration**:
+**Solution**: Use `lib.seq` to force evaluation before derivation instantiation:
 ```nix
-(mkInnerVM {
-  hostname = "jetson-1";
-  mac = "52:54:00:12:34:10";
-  ip = "192.168.100.20";
-  arch = "aarch64";           # QEMU TCG emulation
-  memory = 2048;
-  vcpus = 2;
-  qosProfile = "constrained";
-})
+# WRONG: passthru.verified not evaluated during flake check
+pkgs.runCommand "check" {} '' ... '' // { passthru.verified = verified; }
+
+# RIGHT: lib.seq forces 'verified' to evaluate, throw fires at eval time
+lib.seq verified (pkgs.runCommand "check" {} '' ... '')
 ```
 
-**Performance Note**: ARM64 via TCG is very slow (~10-20x). Use only for cross-arch validation.
+**Use case**: Static verification checks that must fail during `nix flake check --no-build` rather than during the build phase.
 
-#### Phase 3: Inner VM Installation Automation ✅ (Completed 2025-12-09)
+### ISAR Test Framework
+- Use NixOS VM Test Driver with ISAR-built .wic images (NOT Avocado)
+- Test images need `nixos-test-backdoor` package via `kas/test-k3s-overlay.yml`
+- VM derivation names must NOT use `run-<name>-vm` pattern
 
-**Goal**: Automate NixOS installation on inner VMs.
+### ISAR Builds - CRITICAL
 
-**Completed**:
-- [x] Created `tests/emulation/lib/inner-vm-base.nix` - Base NixOS module for inner VMs with:
-  - VM-specific hardware settings (virtio, serial console, QEMU guest support)
-  - Simplified storage (no disko partitioning, just single root disk)
-  - Network configuration via systemd-networkd (DHCP from dnsmasq)
-  - Test-friendly authentication (root/test)
-- [x] Created `tests/emulation/lib/mkInnerVMImage.nix` - Image builder function that:
-  - Imports actual n3x host configs from `hosts/`
-  - Overlays inner-vm-base.nix for emulation-specific settings
-  - Uses NixOS `make-disk-image` to create bootable qcow2 images
-  - Handles both x86_64 and aarch64 architectures
-- [x] Updated `mkInnerVM.nix` to accept `diskImagePath` parameter
-- [x] Updated `embedded-system.nix` to:
-  - Build pre-installed qcow2 images at flake evaluation time
-  - Copy images from Nix store to `/var/lib/libvirt/images/` on first boot
-  - Configure x86_64 VMs (n100-1, n100-2, n100-3) with pre-built images
-  - jetson-1 ARM64 image building disabled by default (slow)
-- [x] Fixed flake checks to pass `inputs` to tests
-- [x] All flake checks pass (`nix flake check --no-build`)
+**Claude Code CAN and SHOULD run ISAR builds** using `nix develop .#debian -c`:
 
-**Architecture**:
-```
-Inner VM Image Build:
-  1. hosts/${hostname}/configuration.nix  (actual n3x config)
-  2. + inner-vm-base.nix                  (VM adaptations)
-  3. + emulation-specific settings        (test token, DHCP network)
-  4. = make-disk-image → qcow2 image
-
-Runtime Flow:
-  1. Outer VM boots
-  2. setup-inner-vms.service copies qcow2 from Nix store
-  3. libvirt VMs defined
-  4. `virsh start n100-1` → boots directly to NixOS!
-```
-
-**Usage**:
 ```bash
-# Build emulation VM (first build takes time for inner VM images)
-nix build .#packages.x86_64-linux.emulation-vm
+# CORRECT - Claude Code can run this directly
+nix develop .#debian -c bash -c "cd backends/debian && kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml:kas/test-k3s-overlay.yml:kas/network/simple.yml:kas/node/server-1.yml"
 
-# Run outer VM
-./result/bin/run-nixos-vm
+# ALSO CORRECT - interactive shell then kas-build
+nix develop .#debian
+cd backends/debian
+kas-build kas/base.yml:...
 
-# Inside outer VM - VMs boot directly to NixOS!
-virsh start n100-1 && sleep 10 && virsh console n100-1
-# Login: root / test
+# WRONG - direct docker/podman bypasses kas-container, causes git safe.directory errors
+docker run ... ghcr.io/siemens/kas/kas-isar:5.1 build ...
 ```
 
-**Known Warnings** (not errors, pre-existing):
-- k3s token warning for agent roles (expected - tokens set at deployment)
-- Root password options conflict (VM testing convenience)
-- systemd.network + networking.useDHCP (emulator-vm specific, see MOTD)
+**The constraint is about DIRECT docker/podman invocation, NOT about Claude's ability to run builds.**
 
-**Note**: ARM64 image building is disabled by default because binfmt emulation is very slow. Enable in `embedded-system.nix` by uncommenting `innerVMImages.jetson-1`.
+**Why kas-build wrapper is required**: The wrapper calls `kas-container --isar build`, which:
+1. Handles user namespace mapping (prevents git safe.directory errors)
+2. Manages WSL 9p filesystem unmounting (prevents sgdisk sync() hang)
+3. Sets `KAS_CONTAINER_ENGINE=podman` and correct image version
 
-#### Phase 4: Testing Architecture Redesign (2025-12-12)
-
-**Status**: Architecture decision finalized - pivot to nixosTest multi-node
-
-**Root Cause**: Hyper-V Enlightened VMCS limits virtualization to 2 levels (L0→L1→L2).
-See: [docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md](docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md)
-
----
-
-##### The Problem: Triple-Nested Virtualization on WSL2
-
-The vsim architecture attempted 3-level nesting:
+**Build command structure** (Plan 018):
 ```
-Hyper-V (L0) → WSL2 (L1) → nixosTest VM (L2) → libvirt inner VMs (L3)
-                                                 ↑ BLOCKED
+kas-build kas/base.yml:kas/machine/<machine>.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/<role>.yml:kas/boot/grub.yml:kas/test-k3s-overlay.yml:kas/network/<profile>.yml:kas/node/<node>.yml
 ```
 
-This is architecturally unsupported:
-- Enlightened VMCS optimizes only L0↔L1 communication
-- Shadow VMCS (required for deeper nesting) is disabled under eVMCS v1
-- Microsoft's TLFS defines no L3 terminology - it stops at L2
-- Inner VMs hang indefinitely with no boot output
+**CRITICAL**: Include `kas/boot/grub.yml` for correct GRUB bootloader with:
+- `net.ifnames=0 biosdevname=0` - Legacy eth* naming for NixOS test driver
+- `quiet loglevel=1` - Clean hvc0 for backdoor shell protocol
+- `extra-space 512M` - Space for k3s runtime extraction
 
-##### The Solution: nixosTest Multi-Node (No Nesting)
+**Additional rules**:
+- **ASK before rebuilds** - prefer test-level fixes over image changes
+- **See `.claude/skills/isar-build.md`** for detailed procedures
 
-Use nixosTest nodes directly as k3s cluster nodes - no libvirt layer:
-```
-Native Linux:  Host → nixosTest VMs (1 level) ✓
-WSL2:          Hyper-V → WSL2 → nixosTest VMs (2 levels) ✓
-Darwin:        macOS → Lima/UTM → nixosTest VMs (2 levels) ✓
-Cloud:         Hypervisor → NixOS → nixosTest VMs (2 levels) ✓
-```
+### ISAR Build Matrix and `isar-build-all` (THE Primary Workflow)
 
-Each nixosTest "node" IS a k3s node - no inner VMs needed for cluster testing.
+**`nix run '.'`** is the default app and the command everyone should use. It orchestrates the
+entire ISAR build matrix: build → rename → hash → register in nix store → update hashes file.
 
-##### Architecture Comparison
+```bash
+# Primary workflow commands:
+nix run '.' -- --list                    # Show all 16 build variants
+nix run '.' -- --variant base            # Build one variant
+nix run '.' -- --machine qemuamd64       # Build all variants for one machine
+nix run '.'                              # Build ALL 16 variants
 
-| Approach | Nesting Levels | WSL2 | Native Linux | Darwin | Cloud |
-|----------|----------------|------|--------------|--------|-------|
-| vsim (libvirt inside nixosTest) | 3 | ❌ | ✓ | ❌ | ⚠️ |
-| **nixosTest multi-node** | 1-2 | ✓ | ✓ | ✓ | ✓ |
-| emulation-vm interactive | 2-3 | ⚠️ slow | ✓ | ⚠️ | ⚠️ |
+# Post-build registration (skip kas-build, just register existing outputs):
+nix run '.' -- --variant base-swupdate --rename-existing   # Rename + hash + register
+nix run '.' -- --variant base-swupdate --hash-only         # Hash + register only
 
-##### New Test Architecture
-
-**Primary (CI/automated)**: nixosTest multi-node
-```nix
-nodes.n100-1 = { imports = [ ../hosts/n100-1 ]; };  # k3s server
-nodes.n100-2 = { imports = [ ../hosts/n100-2 ]; };  # k3s agent
-nodes.n100-3 = { imports = [ ../hosts/n100-3 ]; };  # k3s agent
-testScript = ''
-  start_all()
-  n100_1.wait_for_unit("k3s")
-  n100_2.succeed("kubectl get nodes")
-'';
+# Also accessible as:
+nix run '.#isar-build-all' -- --help
 ```
 
-**Secondary (interactive/development)**: emulation-vm on native Linux only
-- Network simulation with OVS and TC constraints
-- Resource constraint testing
-- NOT for CI - manual testing only
+**Three-file architecture** (critical to understand):
+1. **`lib/isar/build-matrix.nix`** (254 lines) - Single source of truth for 16 variants.
+   Defines machines, roles, boot modes, naming functions (`mkVariantId`, `mkArtifactName`,
+   `mkIsarOutputName`, `mkAttrPath`, `mkKasCommand`).
+2. **`lib/isar/artifact-hashes.nix`** (117 lines) - Mutable state: SHA256 hashes for all 42 artifacts.
+   Updated by `isar-build-all` via sed after each build.
+3. **`lib/isar/mk-artifact-registry.nix`** (174 lines) - Generator combining build-matrix + hashes
+   into a `requireFile` attrset. Powers `isarArtifacts.qemuamd64.server.wic` etc.
 
----
+**Why this matters**: Every ISAR VM test depends on artifacts being in the nix store.
+`requireFile` fails at build time if the artifact is missing. `isar-build-all` is the ONLY
+workflow that ensures artifacts are properly named, hashed, and registered.
 
-#### Phase 4A: nixosTest Multi-Node Implementation ✅ (Completed 2025-12-12)
+**Key detail**: `base` and `base-swupdate` variants produce the SAME ISAR output filename
+(`isar-k3s-image-base-debian-trixie-qemuamd64.wic`) because they share `role = "base"`.
+The `--rename-existing` flag copies to unique names to avoid collisions.
 
-**Goal**: Create k3s cluster tests using nixosTest nodes directly.
+### ISAR VM Interface Naming
 
-**Tasks**:
-- [x] Create `tests/integration/k3s-cluster-formation.nix` (2025-12-12)
-  - Uses nixosTest multi-node: each node IS a k3s cluster node
-  - No nested virtualization - works on all platforms (WSL2, Darwin, Cloud)
-  - Tests: 2 servers + 1 agent, cluster formation, node joining, workload deployment
-  - Run: `nix build '.#checks.x86_64-linux.k3s-cluster-formation'`
-- [x] Create `tests/integration/k3s-storage.nix` (2025-12-12)
-  - Validates storage prerequisites (kernel modules, iSCSI, directories)
-  - Tests local-path-provisioner PVC creation and binding
-  - Tests volume mounting and data persistence
-  - Tests StatefulSet volumeClaimTemplates across 3 nodes
-  - Validates Longhorn prerequisites ready for production deployment
-  - Run: `nix build '.#checks.x86_64-linux.k3s-storage'`
-- [x] Create `tests/integration/k3s-network.nix` (2025-12-12)
-  - Tests pod-to-pod communication across nodes
-  - Tests CoreDNS service discovery
-  - Tests flannel VXLAN overlay networking on eth1
-  - Run: `nix build '.#checks.x86_64-linux.k3s-network'`
-- [x] Add network constraints via tc/netem directly on nixosTest nodes (2025-12-12)
-  - Created `tests/integration/k3s-network-constraints.nix`
-  - No OVS needed - applies constraints to eth1 node interfaces directly
-  - Ported TC profiles from vsim to work without nested VMs
-  - Tests: latency (50ms +/-10ms), packet loss (5%), bandwidth (10Mbps), combined edge device simulation
-  - Validates k3s cluster stability under all constraint profiles
-  - Key findings: k3s tolerates moderate network degradation, DNS/API remain responsive
-  - Run: `nix build '.#checks.x86_64-linux.k3s-network-constraints'`
+**QEMU NIC ordering**: net0 (user, restricted) is added first, then vlan1 (VDE switch).
+- **With `net.ifnames=0`** (server/agent images via boot overlay): `eth0` (user), `eth1` (VDE)
+- **Without `net.ifnames=0`** (base/swupdate images): `enp0s2` (user), `enp0s3` (VDE)
+- The VDE switch is ALWAYS the second NIC device.
+- Tests that use swupdate images must use `enp0s3` for cluster networking.
+- Tests that use server/agent images use `eth1` for cluster networking.
 
-#### Phase 4B: Platform-Specific CI Configuration ✅ (Completed 2025-12-12)
+### ISAR Recipe Cleaning and Build State Management
 
-**Goal**: Ensure tests work across all target platforms.
+**NEVER manually delete build state files** (stamps, work dirs, sstate). Use kas-container's built-in cleaning commands:
 
-**Completed**:
-- [x] Created `.gitlab-ci.yml` with full CI/CD pipeline
-  - Validation stage: flake check, formatting
-  - Test stage: individual k3s tests (cluster-formation, storage, network, constraints)
-  - Integration stage: emulation tests, full test suite
-  - Proper KVM runner tagging and timeout configuration
-- [x] Updated `tests/README.md` with comprehensive platform documentation
-- [x] Documented WSL2 (Windows 11) compatibility
-- [x] Documented Darwin (arm64 macOS) Lima/UTM requirements
-- [x] Documented AWS/Cloud NixOS AMI setup
-- [x] Added self-hosted GitLab runner NixOS configuration example
-- [x] Added GitHub Actions example
+```bash
+# Clean specific recipe's build artifacts (keeps sstate and downloads)
+# Use this when a recipe fails and needs rebuild
+nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar clean kas/machine/<machine>.yml:..."
 
-**Platform Support Matrix** (documented in tests/README.md):
+# Clean build artifacts + sstate cache (keeps downloads)
+# Use this for deeper clean - forces rebuild of all recipes
+nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar cleansstate kas/machine/<machine>.yml:..."
+
+# Clean everything including downloads
+# Nuclear option - full rebuild from scratch
+nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar cleanall kas/machine/<machine>.yml:..."
+```
+
+**Stale `.git-downloads` symlink** (common issue):
+- Each kas-container session creates a new tmpdir (`/tmp/tmpXXXXXX`); `.git-downloads` symlink in the build work dir points to the previous session's tmpdir
+- **Fix**: Remove before EVERY new build after a container session change:
+  ```bash
+  rm -f backends/debian/build/tmp/work/debian-trixie-arm64/.git-downloads
+  rm -f backends/debian/build/tmp/work/debian-trixie-amd64/.git-downloads
+  ```
+- Integrate into build command: `rm -f backends/debian/build/tmp/work/debian-trixie-*/.git-downloads && nix develop '.#debian' -c bash -c "cd backends/debian && kas-build ..."`
+
+**Download cache collision** (multi-arch):
+- k3s recipe uses `downloadfilename=k3s` for BOTH architectures — x86_64 and arm64 binaries share the same cache key
+- If switching architectures (e.g., qemuamd64 → jetson-orin-nano), the cached `k3s` binary is the wrong architecture
+- **Fix**: Delete the cached binary AND its fetch stamps:
+  ```bash
+  rm -f ~/.cache/yocto/downloads/k3s ~/.cache/yocto/downloads/k3s.done
+  rm -f backends/debian/build/tmp/stamps/debian-trixie-arm64/k3s-server/1.32.0-r0.do_fetch*
+  rm -f backends/debian/build/tmp/stamps/debian-trixie-arm64/k3s-agent/1.32.0-r0.do_fetch*
+  ```
+- TODO: Fix k3s recipe to use arch-specific `downloadfilename` (e.g., `k3s-arm64` or `k3s-amd64`)
+
+### ISAR Build Cache
+- Shared cache: `DL_DIR="${HOME}/.cache/yocto/downloads"`, `SSTATE_DIR="${HOME}/.cache/yocto/sstate"`
+
+### ZFS Replication Limitations (Plan 023)
+
+**ZFS does NOT support multi-master replication.** Key findings:
+- `zfs send/recv` requires single-master topology (one writer, read-only replicas)
+- If both source and destination have written past the last shared snapshot, they've "diverged" and cannot be merged
+- Tools like zrep/zrepl are active-passive with failover, not simultaneous read-write
+
+**For Nix binary caches with multiple active builders:**
+- Use HTTP substituters instead of ZFS replication
+- Each node: independent ZFS-backed `/nix/store` (for compression benefits)
+- Each node: Harmonia serving local store
+- Before building, Nix queries all substituters; downloads if found, builds if not
+- Nix's content-addressing prevents conflicts (same derivation = same store path)
+
+**ZFS value without replication:**
+- zstd compression: 1.5-2x savings (500GB → 750-1000GB effective)
+- Checksumming: Detects bit rot
+- Snapshots: Pre-GC safety, instant rollback
+- ARC cache: Intelligent read caching
+
+### Test Timing Patterns (Plan 018 N14)
+
+**"It works sometimes" = Timing Bug**. Diagnose with:
+- ICMP works but TCP fails? → TCP establishment latency (add warm-up loop)
+- Works on retry? → Missing readiness check (use `wait_until_succeeds`)
+- Fails under load? → Fixed delay too short (replace `time.sleep` with polling)
+
+**Avoid**: `time.sleep(N)` for service/network readiness
+**Prefer**: Poll for expected condition with timeout
+
+**Reference fix** (bonding-vlans TCP latency):
+```python
+# WRONG: Assume network ready after fixed delay
+time.sleep(2)
+server_2.succeed("systemctl start k3s-server.service")
+
+# RIGHT: Warm up TCP connection before starting service
+for attempt in range(3):
+    code, out = server_2.execute("timeout 15 curl -sk https://server-1:6443/cacerts")
+    if code == 0 or "cacerts" in out.lower():
+        break
+    time.sleep(2)
+server_2.succeed("systemctl start k3s-server.service")
+```
+
+**Resolved latent issues** (Plan 019):
+- Plan 019 A1 added bond state verification via `/proc/net/bonding/bond0`
+- Plan 019 A2 replaced `time.sleep(2)` with `wait_until_succeeds` IP polling
+
+### WIC Generation Hang (WSL2)
+- Cause: `sgdisk` sync() hangs on 9p mounts
+- Solution: `kas-build` wrapper handles mount/unmount automatically
+
+### Platform Support
 | Platform | nixosTest Multi-Node | vsim (Nested Virt) |
 |----------|---------------------|-------------------|
 | Native Linux | YES | YES |
 | WSL2 | YES | NO (2-level limit) |
 | Darwin | YES* | NO |
-| AWS/Cloud | YES | Varies |
 
-*Requires running inside Lima/UTM Linux VM
-
-**Run Tests**:
-```bash
-nix build '.#checks.x86_64-linux.k3s-cluster-formation'
-nix build '.#checks.x86_64-linux.k3s-storage'
-nix build '.#checks.x86_64-linux.k3s-network'
-nix build '.#checks.x86_64-linux.k3s-network-constraints'
-```
-
-**⚠️ Test Validation Caveat** (discovered 2025-12-13):
-
-`nix build` uses caching - tests that previously passed may not re-execute. To verify tests actually run:
-
-| Indicator | Cached (not run) | Actually ran |
-|-----------|------------------|--------------|
-| Duration | 6-10 seconds | 5-15 minutes |
-| VM boot logs | None | `systemd[1]: Initializing...` |
-| Test commands | None | `must succeed:`, `wait_for` |
-
-To force test re-execution:
-```bash
-# Force rebuild (ignores cache)
-nix build '.#checks.x86_64-linux.k3s-cluster-formation' --rebuild
-
-# Or delete cached result first
-nix store delete /nix/store/*-vm-test-run-k3s-cluster-formation
-```
-
-#### Phase 5: Preserve emulation-vm for Interactive Testing ✅ (Completed 2025-12-12)
-
-**Goal**: Keep emulation-vm infrastructure for specialized use cases.
-
-**Use Cases** (native Linux only):
-- Network simulation with OVS bridges
-- TC constraint testing (latency, bandwidth, loss)
-- Multi-node topology visualization
-- ARM64 cross-architecture validation (slow)
-
-**Completed**:
-- [x] Added Platform Compatibility section to `tests/emulation/README.md`
-- [x] Documented platform support matrix (native Linux YES, WSL2 NO, Darwin NO)
-- [x] Explained Hyper-V eVMCS 2-level limit with link to analysis doc
-- [x] Added recommended alternatives (nixosTest multi-node, cloud, native Linux)
-- [x] Added platform verification script
-- [x] Committed Hyper-V analysis documentation
-
----
-
-##### Historical Context (Phase 4 Investigation)
-
-The original vsim approach was thoroughly investigated:
-- POC at `~/src/nested-virt-poc` confirmed L3 hangs
-- OVS naming conflict fixed (commit b499075)
-- dhcpcd interference fixed (commit c8d7f5b)
-- Even with fixes, inner VMs show no boot output after 15+ minutes
-- Root cause: Enlightened VMCS architectural limitation, not software bug
-
-##### References
-
-- [Hyper-V Enlightened VMCS Analysis](docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md)
-- [NixOS Testing Library](https://nixos.wiki/wiki/NixOS_Testing_library)
-- [nix.dev - Integration Testing](https://nix.dev/tutorials/nixos/integration-testing-using-virtual-machines.html)
-- [Red Hat Nested Virtualization](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_and_managing_virtualization/creating-nested-virtual-machines_configuring-and-managing-virtualization)
-
----
-
-#### Phase 6: VLAN Tagging Test Infrastructure ✅ (Implemented 2026-01-17)
-
-**Status**: Implementation complete, awaiting runtime validation
-
-**Goal**: Add 802.1Q VLAN tagging support to nixosTest integration tests for production parity.
-
-**Key Decision**: Use Nix's module system and parameterization to maintain both OVS emulation and nixosTest approaches without code duplication.
-
-**Testing Guide**: [docs/VLAN-TESTING-GUIDE.md](docs/VLAN-TESTING-GUIDE.md) - **START HERE FOR TESTING**
-
-**Implemented**:
-- [x] Created `tests/lib/network-profiles/` with three profiles:
-  - `simple.nix` - Single flat network (baseline, current behavior)
-  - `vlans.nix` - 802.1Q VLAN tagging on eth1 trunk (VLAN 200 cluster, VLAN 100 storage)
-  - `bonding-vlans.nix` - Bonding + VLANs (full production parity)
-- [x] Created `tests/lib/mk-k3s-cluster-test.nix` - Parameterized test builder
-  - Accepts `networkProfile` parameter
-  - Separates test logic from network configuration
-  - Enables easy addition of new profiles without code duplication
-- [x] Updated `flake.nix` with three new test variants:
-  - `k3s-cluster-simple` - Baseline validation
-  - `k3s-cluster-vlans` - VLAN tagging validation
-  - `k3s-cluster-bonding-vlans` - Production parity validation
-- [x] Updated `tests/emulation/README.md` - Clarified use cases for OVS vs nixosTest
-- [x] Updated `tests/README.md` - Added comprehensive network profiles section
-
-**Architecture**:
-```nix
-# Network profiles define topology
-tests/lib/network-profiles/
-├── simple.nix           # Single flat network
-├── vlans.nix            # 802.1Q VLAN tagging
-└── bonding-vlans.nix    # Bonding + VLANs
-
-# Parameterized builder generates tests
-mk-k3s-cluster-test.nix { networkProfile = "vlans"; }
-  → Loads profile
-  → Applies network config to nodes
-  → Runs standard k3s cluster tests
-```
-
-**VLAN Configuration**:
-- **VLAN 200** (Cluster): 192.168.200.0/24 - k3s API, flannel, cluster communication
-- **VLAN 100** (Storage): 192.168.100.0/24 - Longhorn, iSCSI, storage replication
-- VLANs configured via systemd.network with 8021q kernel module
-
-**Run Tests**:
-```bash
-nix build '.#checks.x86_64-linux.k3s-cluster-simple'          # Baseline
-nix build '.#checks.x86_64-linux.k3s-cluster-vlans'           # VLAN tagging
-nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'   # Full production
-```
-
-**Benefits**:
-- **Production Parity**: VLAN tests match future external switch deployment
-- **No Duplication**: Test logic defined once, network configs composed via modules
-- **Platform Support**: Works on WSL2, Darwin, Cloud (no nested virt required)
-- **Maintainable**: New profiles added without touching test code
-- **Nix-Idiomatic**: Uses module system composition, not branching
-
-**OVS Emulation Preserved**:
-The OVS emulation framework remains available for interactive testing on native Linux. Both approaches are complementary:
-- **nixosTest multi-node**: Automated CI/CD, VLAN validation, all platforms
-- **OVS emulation**: Interactive debugging, topology visualization, native Linux only
-
----
-
-##### Testing Status & Validation Checklist
-
-**Implementation**: ✅ Complete (Commits: `8e70f85`, `080eeb3`, `f4dc6cc`, `c845d78`)
-**Runtime Validation**: ✅ Complete (2026-01-19)
-
-| Test Variant | Status | Platform Tested | Notes |
-|--------------|--------|-----------------|-------|
-| k3s-cluster-simple | ✅ PASSED | WSL2 (Hyper-V) | Flat network baseline, ~145s |
-| k3s-cluster-vlans | ✅ PASSED | WSL2 (Hyper-V) | VLAN 200 IPs verified (192.168.200.x), ~199s |
-| k3s-cluster-bonding-vlans | ✅ PASSED | WSL2 (Hyper-V) | Bond + VLAN tagging works, ~156s |
-| k3s-bond-failover | ⚠️ LIMITED | WSL2 (Hyper-V) | Test infra limitation (see below) |
-| k3s-vlan-negative | ✅ VALIDATED | WSL2 (Hyper-V) | Misconfiguration correctly detected |
-
-**Key Fixes Applied**:
-1. `080eeb3` - Fixed k3s HA cluster formation (lib.recursiveUpdate for extraFlags merge)
-2. `f4dc6cc` - Fixed bondConfig invalid ActiveSlave option (moved PrimarySlave to slave network config)
-3. `c845d78` - Fixed VLAN ID assertion patterns for iproute2 output format
-
-**Known Test Limitations** (not bugs):
-
-1. **k3s-bond-failover**: Test fails due to nixosTest infrastructure limitation
-   - `virtualisation.vlans = [1 2]` creates two separate virtual networks
-   - When eth1 goes down, eth2 is on a different network - other nodes unreachable
-   - Real hardware doesn't have this problem (both NICs on same switch)
-   - The bonding module itself works correctly
-
-2. **k3s-vlan-negative**: Intentionally has long timeout (~600s)
-   - Validates that misconfigured VLANs prevent cluster formation
-   - Shows `no route to host` errors as expected
-
-3. **Cross-VLAN isolation**: Best-effort in nixosTest
-   - nixosTest shared bridge doesn't enforce 802.1Q isolation
-   - VLAN interfaces are created correctly with proper tags
-   - Real isolation requires OVS emulation or physical hardware
-
-**Validation Criteria** (all met):
-- ✅ All 3 tests build without Nix errors
-- ✅ VLANs correctly configured (eth1.200 for cluster, eth1.100 for storage)
-- ✅ k3s cluster forms over VLAN interfaces (verified INTERNAL-IP shows 192.168.200.x)
-- ✅ Bonding + VLANs work together (bond0.200, bond0.100)
-- ✅ All 3 nodes reach Ready state
-- ✅ CoreDNS and local-path-provisioner pods reach Running state
-
-**Quick Test Commands**:
-```bash
-# Standard test runs (uses cache)
-nix build '.#checks.x86_64-linux.k3s-cluster-simple'
-nix build '.#checks.x86_64-linux.k3s-cluster-vlans'
-nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'
-
-# Force rebuild (bypasses cache, ~2-3 min each)
-nix build '.#checks.x86_64-linux.k3s-cluster-simple' --rebuild
-```
-
-**Known Behavior & Flakiness**:
-- etcd HA election adds timing variance (~60-120s for cluster formation)
-- Tests may occasionally timeout due to etcd quorum timing; retrying usually works
-- Nameserver limits warning is benign (using 1.1.1.1, 8.8.8.8, 9.9.9.9)
-
-**Test Flakiness Analysis** (2026-01-17 investigation):
-- Root cause: **Host system load**, not timeout values
-- When running `--rebuild` or during system load, VMs get less CPU time
-- etcd leader election can stall, causing k8s API "ServiceUnavailable" errors
-- Tests have generous timeouts (300s for node ready, 240s for primary server)
-- Observed failure: 734s elapsed before timeout at system pod check (120s)
-- Retries typically pass (3/3 passed on clean re-run within same session)
-- Mitigation: Run tests on idle system; use cache when possible (`--rebuild` bypasses cache)
-
----
-
-#### Phase 7: CI Validation Infrastructure 🔄 **DEFERRED**
-
-**Status**: DEFERRED - will be revisited after Phase 8 and Phase 10
-
-**Reason for Deferral**: Prioritizing secrets management (Phase 8) and k8s deployment (Phase 10) tests first.
-
-**Design Document**: [docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md](docs/plans/ATTIC-INFRASTRUCTURE-DESIGN.md) ← Ready when needed
-
----
-
-### Quick Reference
-
-**Build & Run Emulation VM**:
-```bash
-nix build .#packages.x86_64-linux.emulation-vm
-./result/bin/run-nixos-vm
-```
-
-**Inside Outer VM**:
-```bash
-virsh list --all                           # List VMs
-virsh start n100-1                         # Start VM
-virsh console n100-1                       # Console (Ctrl+] to exit)
-ovs-vsctl show                             # OVS topology
-/etc/tc-simulate-constraints.sh status     # TC rules
-/etc/tc-simulate-constraints.sh constrained # Apply constraints
-```
-
-**Known Warnings** (not errors):
-- k3s token warning for agent roles (tokens set at deployment)
-- Root password options (VM testing convenience)
-- systemd.network + networking.useDHCP (emulator-vm specific)
-
----
-
-### Upcoming Phases
-
-#### Phase 8: Secrets Preparation ⏳ **NEXT**
-**Status**: Next priority - includes writing new test suite
-
-1. **Generate Encryption Keys**
-   - Generate age keys for admin and all physical hosts
-   - Document public keys in secrets/public-keys.txt
-   - Securely backup private keys
-
-2. **Create and Encrypt Secrets**
-   - Generate strong K3s server and agent tokens
-   - Encrypt tokens using sops
-   - Validate decryption works with age keys
-
-3. **Write Secrets Test Suite** (NEW)
-   - Create `tests/integration/secrets-*.nix` tests
-   - Validate sops-nix decryption in VM environment
-   - Test age key management workflows
-   - Test token rotation scenarios
-
-#### Phase 9: Hardware Deployment 🔄 **DEFERRED**
-**Status**: DEFERRED - will revisit after Phase 8 and 10
-
-1. **Initial Provisioning** (DEFERRED)
-   - Deploy first N100 server node using nixos-anywhere
-   - Verify successful boot and SSH access
-   - Confirm K3s control plane initialization
-   - Validate secrets decryption on real hardware
-
-2. **Cluster Expansion** (DEFERRED)
-   - Deploy second and third N100 nodes
-   - Deploy Jetson nodes (if available)
-   - Verify all nodes join cluster successfully
-   - Test cross-node communication
-
-#### Phase 10: Kubernetes Stack Deployment ⏳ **UPCOMING**
-**Status**: After Phase 8 - includes writing new test suite
-
-1. **Core Components**
-   - Install Kyverno from manifests/
-   - Verify PATH patching policy applies to pods
-   - Deploy Longhorn via Helm
-   - Confirm Longhorn manager starts without errors
-
-2. **Storage Validation**
-   - Create test PVC and verify provisioning
-   - Test replica distribution across nodes
-   - Validate storage network traffic separation
-   - Benchmark storage performance
-
-3. **Write K8s Deployment Test Suite** (NEW)
-   - Create `tests/integration/k8s-*.nix` tests
-   - Test Kyverno policy enforcement
-   - Test Longhorn deployment and PVC lifecycle
-   - Test storage network isolation
-
-#### Phase 11: Production Hardening 🔄 **DEFERRED**
-**Status**: DEFERRED - will revisit after earlier phases complete
-
-1. **Security** (DEFERRED)
-   - Configure proper TLS certificates for K3s
-   - Rotate default tokens to production values
-   - Set up RBAC policies
-   - Enable audit logging
-
-2. **Operational Readiness** (DEFERRED)
-   - Deploy monitoring stack (Prometheus/Grafana)
-   - Configure alerting rules
-   - Implement backup strategies for etcd and Longhorn
-   - Document operational procedures
-   - Create runbooks for common scenarios
-
-## Development Guidelines
-
-### Code Organization
-- Keep configurations modular and composable
-- Use generator functions to reduce duplication
-- Separate concerns between hardware, networking, and services
-- Maintain clear separation between secrets and configuration
-
-### Testing Approach
-
-**Automated Testing (Preferred):**
-- Use NixOS integration tests (`nixosTest`) for all functional validation
-- Tests are declarative Nix derivations that boot VMs and run assertions
-- Integrated with `nix flake check` for CI/CD pipelines
-- Tests are reproducible and start from clean state every run
-- Located in `tests/integration/`
-
-**Emulation Testing (vsim Integration):**
-- Use nested virtualization for complex multi-node scenarios
-- ARM64 emulation via QEMU TCG for cross-architecture validation
-- Network simulation with OVS and traffic control for resilience testing
-- Resource constraints testing for embedded system scenarios
-- Located in `tests/emulation/` - see [tests/emulation/README.md](tests/emulation/README.md) for comprehensive documentation
-
-**Manual/Interactive Testing:**
-- Use `./tests/run-vm-tests.sh` for quick manual exploration
-- Build VMs directly: `nix build .#nixosConfigurations.vm-NAME.config.system.build.vm`
-- Interactive test debugging: `nix build .#checks.x86_64-linux.TEST-NAME.driverInteractive`
-- Use VMs in `tests/vms/` for manual validation
-
-**Testing Hierarchy:**
-1. **Fast automated** (nixosTest) - CI/CD, quick validation
-2. **Emulation** (vsim) - Complex scenarios, ARM64, network resilience
-3. **Manual VMs** - Interactive debugging
-4. **Bare-metal** - Final validation on real hardware
-
-**General Practices:**
-- Always test in VMs before deploying to hardware
-- Validate each layer independently before integration
-- Write automated tests for critical functionality
-- Use interactive mode for debugging failures
-- Document any hardware-specific quirks discovered
-
-**Test Structure:**
-```nix
-# Example test structure
-pkgs.testers.runNixOSTest {
-  name = "my-test";
-  nodes = {
-    machine1 = { config, ... }: { /* NixOS config */ };
-    machine2 = { config, ... }: { /* NixOS config */ };
-  };
-  testScript = ''
-    start_all()
-    machine1.wait_for_unit("service.service")
-    machine1.succeed("test command")
-  '';
-}
-```
-
-### Documentation
-- Update README.md when implementation decisions are made
-- Document any deviations from the plan
-- Keep configuration examples minimal and focused
-- Add troubleshooting sections as issues are encountered
-
-## Known Constraints
-
-### Hardware Limitations
-- Jetson Orin Nano requires serial console (HDMI doesn't work for console)
-- N100 miniPCs need specific kernel parameters for stability
-- USB boot issues with certain Jetson firmware versions (use 35.2.1, not 35.3.1)
-
-### Software Requirements
-- Kyverno MUST be deployed before Longhorn for PATH compatibility
-- Token management MUST use file paths, never inline secrets
-- K3s manifests deployment requires careful ordering
-
-## Technical Learnings
-
-### ISAR Test Framework
-- **Decision**: Use NixOS VM Test Driver (nixos-test-driver) with ISAR-built .wic images - NOT Avocado
-- ISAR builds images (BitBake/kas produces .wic files), Nix provides test harness
-- Tests run on host NixOS/Nix environment, not inside kas-container
-- Test images need `nixos-test-backdoor` package - include via `kas/test-k3s-overlay.yml`
-- Build test images: `kas-container --isar build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml:kas/image/minimal-base.yml`
-- VM script derivations must NOT use `run-<name>-vm` pattern in derivation name (conflicts with nixos-test-driver regex)
-- nixos-test-driver backdoor protocol: service prints "Spawning backdoor root shell..." to /dev/hvc0 (virtconsole)
-
-### kas-container Build Process
-- **Claude CAN run kas-container builds** - prefer subagents to minimize context usage
-- **Monitoring**: Run in foreground, check `build/tmp/deploy/images/` for progress
-- **Stuck builds**: Check `sudo podman ps -a` for orphaned containers
-- **Cleanup**: `sudo podman rm -f <container_id>` or `pgrep -a podman`
-- **NEVER manually clean sstate/work** - use `bitbake -c cleansstate <recipe>` when needed
-- **ASK before rebuilds** - prefer test-level fixes (QEMU args, kernel cmdline) over image changes
-
-### ISAR Build Cache
-- **Shared cache** configured in `backends/isar/kas/base.yml`:
-  - `DL_DIR = "${HOME}/.cache/yocto/downloads"`
-  - `SSTATE_DIR = "${HOME}/.cache/yocto/sstate"`
-- **Stale sstate fix**: `kas-container shell <kas-config> -c "bitbake -c cleansstate <recipe>"`
-
-### WIC Generation Hang (WSL2)
-- **Symptom**: Build hangs at 96% during `do_image_wic` in WSL2
-- **Root cause**: `sgdisk` calls `sync()` which hangs on 9p mounts (`/mnt/c`)
-- **Solution**: `kas-build` wrapper unmounts `/mnt/[a-z]` drives before build, remounts after
-- **Cleanup after hang**: `wsl --shutdown` from PowerShell, then clean `build/tmp/schroot-overlay/*/upper/tmp/*.wic/`
-
-### ISAR fstab Boot Issue (2026-01-27)
-- **Symptom**: Systemd boot stuck, `dev-sda1.device` waits forever
-- **Root cause**: `/etc/fstab` has `/dev/sda1 /boot` but QEMU virtio disk is `/dev/vda1`
-- **Fix required**: Change WIC/fstab to use `PARTUUID=` instead of `/dev/sda1`
-- **Location**: ISAR WIC kickstart files or base-files recipe
-
-### Jetson Orin Nano OTA (Plan 006)
-- **Fork**: `~/src/jetpack-nixos` branch `feature/pluggable-rootfs`
-- **Key function**: `lib.mkExternalRootfsConfig { som, carrierBoard, rootfsTarball }`
-- **Flash script**: Built with `--impure` (rootfs path is local file)
-- **Jetson produces tar.gz not WIC**: `IMAGE_FSTYPES = "tar.gz"` - L4T flash tools handle partitioning
-- **L4T packages**: ISAR recipes download .deb from NVIDIA repo
-- **Container image**: Use `ghcr.io/siemens/kas/kas-isar:5.1` (includes bubblewrap)
-
-### Nix-ISAR Integration Architecture
-- **Hybrid approach**: ISAR builds artifacts, Nix provides test harness and flash tooling
-- **Pattern 1**: Import ISAR .wic/.tar.gz artifacts into Nix tests
-- **Pattern 2**: External rootfs for Jetson flash script
-- **kas-container**: Functionally equivalent to `buildFHSUserEnvBubblewrap` but containerized
-
-### VDE Multi-VM Networking
-- **Use case**: Multi-VM tests (SWUpdate, network OTA) with VDE virtual ethernet
-- **VDE switch timing**: Needs 3s initial delay + traffic to learn MACs before forwarding
-- **HTTP serving**: Use `socat TCP-LISTEN:8080,fork,reuseaddr EXEC:/handler.sh` (not python http.server)
-- **pkill cleanup**: Use `execute()` not `succeed()` - process may already be gone
-
-### Unified K3s Platform (Plan 011)
-- **Core Terminology**:
-  - **Machine** = Hardware platform (arch + BSP + boot): `qemu-amd64`, `n100-bare`, `jetson-orin-nano`
-  - **System** = Complete buildable artifact (nixosConfiguration / ISAR image recipe)
-  - **Role** = `server` | `agent` only
-- **Architecture**: `tests/lib/` = shared, `backends/nixos/` = NixOS, `backends/isar/` = ISAR
-- **Network Abstraction**: Interface keys (`cluster`, `storage`, `external`), VLAN notation in interface name
-- **Test Layers**: L1 (VM Boot), L2 (Two-VM Network), L3 (K3s Service), L4 (Cluster)
-- **NixOS cluster tests DEFERRED**: Firewall bug blocks multi-node (port 6443 refused from eth1)
-
-### ISAR L4 Cluster Test Architecture (2026-01-29)
-- **Shared infrastructure**: Same network profiles (`lib/network/profiles/`) used by NixOS
-- **Name mapping**: Python vars (`server_1`) ↔ Profile names (`server-1`) via `builtins.replaceStrings`
-- **Runtime network config**: Current workaround since images all have `NETWORKD_NODE_NAME="server-1"`
-- **Proper solution**: Build per-node images with correct `NETWORKD_NODE_NAME` for each
-- **K3s config**: Modified via `/etc/default/k3s-server` env file at runtime
-- **Token sharing**: Copied from primary at test time (`/var/lib/rancher/k3s/server/token`)
-- **Documentation**: [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md)
-- **Test command**: `nix build '.#checks.x86_64-linux.isar-k3s-cluster-simple'`
-
-### ISAR L4 Test Debugging Session (2026-01-28 - 2026-01-29)
-
-**Status**: IN PROGRESS - Network debug test shows connectivity works; L4 test has timing/sequence issue
-
-**Session 1 (2026-01-28) Accomplishments**:
-1. ✅ Added `iputils-ping` to ISAR image (`isar-k3s-image.inc` line 81)
-2. ✅ Rebuilt ISAR image with kas-container
-3. ✅ Updated artifact hash in `isar-artifacts.nix` (sha256: `1cvs18f5kb5q14s8dv8r6shvkg3ci0f2wz2bbfgmvd4n57k6anqq`)
-
-**Session 2 (2026-01-29) Accomplishments**:
-1. ✅ Fixed **hostname issue**: Added `hostname ${profileName}` in `mkVMWorkarounds`
-2. ✅ Fixed **sed pattern for k3s config**: Added `^` anchor to only match uncommented `K3S_SERVER_OPTS=` line
-3. ✅ Fixed **systemd-networkd restart**: Masked (not just stopped) to prevent restart via k3s's `After=network-online.target`
-4. ✅ Verified: server-1 k3s listening on `*:6443`, iptables ACCEPT policy, curl to 127.0.0.1:6443 works
-5. ✅ Verified: ICMP ping from server-2 to server-1 (192.168.1.1) works
-
-**Session 3 (2026-01-29) Key Finding - Network Works in Isolation**:
-1. ✅ Created `tests/isar/network-debug.nix` - minimal network debug test
-2. ✅ Registered in flake as `isar-network-debug` check
-3. ✅ **IPs persist for 60+ seconds** - no disappearance during monitoring
-4. ✅ **TCP to port 6443 WORKS** after k3s starts on vm1: `exit_code=0`, `Connected to 192.168.1.1`
-5. ✅ **k3s on vm1 does NOT affect vm2's network** - vm2's IP remains intact
-
-**Corrected Root Cause Analysis**:
-The original hypothesis (IP disappearing) was WRONG. Network debug test proves:
-- IP addresses persist correctly
-- TCP connectivity to 6443 works
-- No firewall blocking
-
-**Actual L4 Test Failure**:
-- L4 test shows curl timeout BEFORE starting k3s on server-2
-- But k3s on server-2 starts and runs as standalone (not joining cluster)
-- k3s logs: `Started tunnel to 192.168.1.2:6443` (itself, not primary!)
-- k3s doesn't error, just silently becomes standalone
-
-**Likely Issue - Token or Timing**:
-1. Token is written to `/var/lib/rancher/k3s/server/token` AFTER editing env file
-2. k3s may read old token before new one is written
-3. Or k3s starts before `--server` flag is picked up from env file
-4. Need to verify: `systemctl daemon-reload` before starting k3s?
-
-**Files Created This Session**:
-- `tests/isar/network-debug.nix` - Minimal 2-VM network test with k3s startup simulation
-- Added `isar-network-debug` check to `flake.nix`
-
-**Debug Test Command**:
-```bash
-nix build '.#checks.x86_64-linux.isar-network-debug' -L  # ~2 min, tests network isolation
-nix build '.#checks.x86_64-linux.isar-k3s-cluster-simple' -L  # ~10 min, full L4 test
-```
-
-**Next Steps**:
-1. **Add daemon-reload before k3s start** - ensure env file changes are picked up
-2. **Check token timing** - ensure token is written before k3s starts
-3. **Compare exact sequence** - debug test vs L4 test, find the difference
-4. **Check k3s startup logs** - get FULL logs (not just last 30 lines) to see connection attempts
-
-**Lesson Learned - Need Faster Debug Cycle**:
-- Full ISAR L4 test takes ~7-10 minutes per run
-- Proposed: Create lightweight network-only test that validates IP persistence without k3s
-- This would enable rapid iteration on the network config issue
+### ISAR Kernel Selection Mechanism (Plan 024)
+
+**ISAR does NOT use Yocto's `PREFERRED_PROVIDER_virtual/kernel`.**
+
+ISAR kernel selection uses `KERNEL_NAME`:
+- `image.bbclass` sets `KERNEL_IMAGE_PKG = "linux-image-${KERNEL_NAME}"`
+- `linux-kernel.bbclass` extracts `KERNEL_NAME_PROVIDED` from recipe name (e.g., `linux-tegra` → `tegra`)
+- Machine conf sets `KERNEL_NAME ?= "arm64"` (default = stock Debian)
+- To override: `KERNEL_NAME = "tegra"` in kas overlay `local_conf_header`
+
+### QEMU User-Mode for ISAR aarch64 Builds (Plan 024)
+
+**WSL2 NixOS can build ISAR aarch64 images via QEMU user-mode emulation.**
+
+- User's WSL kernel: Custom, based on NixOS-WSL project
+- Requires binfmt_misc registration with F (fix binary) and C (credentials) flags
+- Static QEMU binary from `nixpkgs#pkgsStatic.qemu-user`
+- First build (stock Debian kernel, no kernel compile): ~14 minutes
+- Kernel compile under QEMU TCG emulation: KILLED after 2h49m, still on do_dpkg_build
+  - All 20 vCPUs pegged at 100%, 8 parallel qemu-aarch64 gcc processes
+  - CPU-bound (4.5G/27.4G RAM used), no I/O bottleneck
+  - TCG overhead ~10-20x vs native for compiler workloads
+- **Cross-compilation fix committed (f3011b8)**: Removed ISAR_CROSS_COMPILE="0" from
+  jetson-orin-nano.yml. ISAR default (="1") uses host cross-toolchain.
+- **Cross-compile VALIDATED (2026-02-11)**: Kernel cross-compile succeeded in ~22 minutes
+  - `CROSS_COMPILE=aarch64-linux-gnu-` confirmed in build log
+  - `tegra234-enable.cfg` config fragment merged successfully
+  - `linux-image-tegra` (6.12.69+r0) in image manifest
+  - nvidia-l4t-core + nvidia-l4t-tools (36.4.4) installed
+  - vmlinux: 40MB (tegra) vs 37MB (stock Debian arm64)
+  - Full build with sstate: ~30 minutes total
+  - Improvement: 22min vs 2h49m+ (killed) under TCG emulation
+- Persistent binfmt config: VALIDATED (2026-02-12) — nixcfg WSL module (`binfmt.enable = true`) produces
+  correct `systemd-binfmt.service` registration with POCF flags at boot. No manual registration needed.
+  See `docs/binfmt-requirements.md` for details.
+
+### AWS AMI Registration (register-ami.sh)
+
+- AWS `register-image --architecture` accepts `x86_64` or `arm64` (NOT `aarch64`)
+- Script maps: `--arch aarch64` → `AWS_ARCH="arm64"` for the API call
+- Uses `jq` (not python3) for JSON parsing — lighter dependency
+- EXIT trap handles S3 cleanup on script failure
+
+### Infra Flake Input Management
+
+- **nixos-generators**: Archived 2026-01-30, upstreamed to nixpkgs 25.05.
+  **Removed as flake input** (2026-02-16): initially replaced with manual
+  `system.build.amazonImage` via builder module import. **Migrated to native
+  `system.build.images.amazon` API** (2026-02-16): the 25.11 image framework
+  (`nixos/modules/image/images.nix`) auto-imports all 26 image builders.
+  AMI-only config (e.g., `first-boot-format`) is injected via `image.modules.amazon`
+  deferred module — lives only in the image variant, not the base nixosConfiguration.
+- **ALWAYS use native NixOS 25.11 image APIs** (`system.build.images.*`) — not manual
+  builder module imports from `maintainers/scripts/ec2/`. The `image.modules.*`
+  deferred module pattern cleanly separates image-specific config from base config.
+- **nixos-anywhere**: Not needed as a flake input — run from upstream flake directly.
+  Was adding 14 transitive lock entries including a separate nixpkgs tree.
+- **Caddyfile v2 syntax**: Use named matchers (`@name path /...`) for path-specific
+  headers, not nested `{path ...}` inside header values.
+
+### NixOS 25.11 Migration Workarounds (Plan 028)
+
+**Migration date**: 2026-02-16. Both flakes migrated from nixpkgs master (main) / 24.11 (infra) to 25.11.
+
+1. **`services.resolved.settings` → individual options** (commit `ffbedba`)
+   - `services.resolved.settings.Resolve` is a master-only freeform attrset API, not on 25.11
+   - File: `backends/nixos/modules/common/networking.nix:168`
+   - Fix: `dnssec`, `dnsovertls`, `fallbackDns` as individual options; `DNSStubListener`,
+     `ReadEtcHosts`, `Cache`, `CacheFromLocalhost` via `extraConfig`
+   - WORKAROUND: When nixpkgs upstreams `services.resolved.settings` to stable, revert to
+     structured attrset form. Check 26.05 release notes.
+
+2. **ISAR test driver API: `python3Packages` as attrset** (commit `dd30372`)
+   - On master, test driver accepts individual Python packages as args. On 25.11, it takes
+     `python3Packages` as a single attrset.
+   - File: `tests/lib/debian/mk-debian-test.nix:153-154`
+   - API-ADAPTATION: Not a workaround — 25.11 API is the canonical form. Master's destructured
+     args are the newer (unreleased) pattern.
+
+3. **nixpkgs fork still required** — `virtualisation.bootDiskAdditionalSpace` not upstreamed
+   - Fork: `timblaktu/nixpkgs/vm-bootloader-disk-size` rebased onto `nixos-25.11`
+   - TODO: Submit upstream PR to nixpkgs, then drop fork
+
+4. **gitlab-runner `authenticationTokenConfigFile`** (commit `53f7032`)
+   - `registrationConfigFile` deprecated in GitLab 16.0+, removed in 18.0
+   - File: `infra/nixos-runner/modules/gitlab-runner.nix`
+   - Added new option + mutual exclusion assertion. Both old and new work.
+
+### Key Files
+- `lib/network/mk-network-config.nix` - Unified NixOS module generator
+- `lib/k3s/mk-k3s-flags.nix` - Shared K3s flag generator
+- `tests/lib/mk-k3s-cluster-test.nix` - Parameterized test builder
+- `secrets/.sops.yaml` - SOPS configuration with public keys
 
 ## References
-
-### Project Documentation
-- [README.md](README.md) - Architecture and implementation patterns
-- [tests/emulation/README.md](tests/emulation/README.md) - Emulation testing framework (nested virtualization, network simulation)
-- [VSIM-INTEGRATION-PLAN.md](VSIM-INTEGRATION-PLAN.md) - vsim integration roadmap and session tracking
-- [tests/README.md](tests/README.md) - Testing framework documentation
-- [docs/SECRETS-SETUP.md](docs/SECRETS-SETUP.md) - Secrets management guide
+- [tests/README.md](tests/README.md) - Testing framework
+- [docs/SECRETS-SETUP.md](docs/SECRETS-SETUP.md) - Secrets management
 - [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md) - ISAR L4 cluster test design
-
-### Community References
-- niki-on-github/nixos-k3s (GitOps integration)
-- rorosen/k3s-nix (multi-node examples)
-- Skasselbard/NixOS-K3s-Cluster (CSV provisioning)
-- anduril/jetpack-nixos (Jetson support)
-- ALWAYS remember to stop and check with me anytime you think you need to add apackage or configuration to any ISAR image.
+- [.claude/user-plans/archive/016-image-capability-contracts.md](.claude/user-plans/archive/016-image-capability-contracts.md) - ISAR package parity verification plan
+- [docs/wip-L1.0-mikrotik-setup.md](docs/wip-L1.0-mikrotik-setup.md) - Mikrotik setup reference (Plan 013, in nixcfg)
+- [docs/wip-L1.1-infrastructure-survey.md](docs/wip-L1.1-infrastructure-survey.md) - NUC hardware survey (Plan 013, in nixcfg)
+- ALWAYS ask before adding packages to ISAR images

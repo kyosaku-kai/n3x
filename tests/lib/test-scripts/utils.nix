@@ -15,9 +15,9 @@
 
 {
   # Python imports needed by utilities
+  # Note: 'time' import removed in Phase A (Plan 019) - replaced with wait_until_succeeds
   imports = ''
     import datetime
-    import time
   '';
 
   # Timestamped logging function
@@ -69,9 +69,9 @@
   '';
 
   # All utilities combined (convenience export)
+  # Note: 'time' import removed in Phase A (Plan 019) - replaced with wait_until_succeeds
   all = ''
     import datetime
-    import time
 
     def tlog(msg):
         """Print timestamped log message for test output."""

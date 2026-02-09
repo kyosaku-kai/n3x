@@ -14,36 +14,29 @@ Previously, each network profile duplicated this logic. Now, `mk-k3s-flags.nix` 
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     K3s Flag Generation                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │ Network Profile (lib/network/profiles/*.nix)                   │  │
-│  │   • ipAddresses.${nodeName}.cluster = "192.168.200.1"         │  │
-│  │   • interfaces.cluster = "eth1.200"                            │  │
-│  └───────────────────────────┬───────────────────────────────────┘  │
-│                              │                                       │
-│                              ▼                                       │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │ mk-k3s-flags.nix                                               │  │
-│  │   mkExtraFlags { profile, nodeName, role }                     │  │
-│  │     → "--node-ip=192.168.200.1"                                │  │
-│  │     → "--flannel-iface=eth1.200"                               │  │
-│  │     → "--advertise-address=192.168.200.1" (server only)        │  │
-│  │     → "--tls-san=192.168.200.1" (server only)                  │  │
-│  └───────────────────────────┬───────────────────────────────────┘  │
-│                              │                                       │
-│                              ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │ Consumers:                                                    │    │
-│  │   • tests/lib/mk-k3s-cluster-test.nix (NixOS tests)          │    │
-│  │   • modules/services/k3s/ (production configs)               │    │
-│  │   • ISAR: systemd service files                              │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph profile["Network Profile (lib/network/profiles/*.nix)"]
+        profile_data["ipAddresses.nodeName.cluster = '192.168.200.1'<br/>interfaces.cluster = 'eth1.200'"]
+    end
+
+    subgraph flags["mk-k3s-flags.nix"]
+        mk_extra["mkExtraFlags { profile, nodeName, role }"]
+        generated["--node-ip=192.168.200.1<br/>--flannel-iface=eth1.200<br/>--advertise-address=192.168.200.1 (server only)<br/>--tls-san=192.168.200.1 (server only)"]
+        mk_extra --> generated
+    end
+
+    subgraph consumers["Consumers"]
+        nixos_tests["tests/lib/mk-k3s-cluster-test.nix<br/>(NixOS tests)"]
+        production["modules/services/k3s/<br/>(production configs)"]
+        isar_systemd["ISAR: systemd service files"]
+    end
+
+    profile --> flags --> consumers
+
+    style profile fill:#e3f2fd,stroke:#1565c0
+    style flags fill:#fff3e0,stroke:#ef6c00
+    style consumers fill:#e8f5e9,stroke:#2e7d32
 ```
 
 ## Usage
@@ -164,6 +157,10 @@ mkExtraFlags {
 # Returns: ["--node-ip=192.168.200.3" "--flannel-iface=eth1.200"]
 # Note: No --advertise-address or --tls-san for agents
 ```
+
+## See Also
+
+- [Network Configuration Module](../network/README.md) — Unified network profiles and config generators consumed by this module
 
 ## Migration History
 

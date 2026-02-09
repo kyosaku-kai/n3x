@@ -97,9 +97,12 @@ mkK3sClusterTest {
     server_1.wait_until_succeeds("k3s kubectl get --raw /readyz", timeout=300)
     tlog("  API server is ready")
 
-    # Give etcd time to stabilize
-    import time
-    time.sleep(10)
+    # Wait for etcd cluster to stabilize after initial leader election
+    # Polls /healthz/etcd instead of fixed sleep (Plan 019 A3)
+    server_1.wait_until_succeeds("k3s kubectl get --raw /healthz/etcd 2>&1 | grep -q ok", timeout=60)
+    tlog("  etcd cluster is healthy")
+
+    import time  # Still needed for bond failover timing below
 
     # Wait for all nodes
     server_2.wait_for_unit("k3s.service")

@@ -1,0 +1,9 @@
+# K3s Server Image configuration
+# Builds an image with K3s Kubernetes control plane
+#
+# Usage: kas-container --isar build kas/base.yml:kas/machine/<target>.yml:kas/image/k3s-server.yml
+
+header:
+  version: 14
+
+target: n3x-image-server

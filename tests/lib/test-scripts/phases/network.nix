@@ -1,4 +1,29 @@
-# Network phase - Profile-aware network verification
+# =============================================================================
+# Network Phase - Profile-aware network verification
+# =============================================================================
+#
+# PHASE ORDERING (Plan 019 A6):
+#   Boot → Network → K3s
+#   This phase MUST complete before K3s phase.
+#
+# PRECONDITIONS:
+#   - Boot phase complete (shell access available)
+#   - systemd-networkd.service running (for baked-in config)
+#   - For bonding-vlans: bond0 reconfigured to active-backup mode
+#   - Kernel modules loaded: 8021q (VLANs), bonding (if applicable)
+#
+# POSTCONDITIONS:
+#   - All expected interfaces exist (eth1, eth1.200, bond0.200, etc.)
+#   - Correct IPs assigned to cluster/storage interfaces
+#   - Cross-node connectivity verified (arping/ping works)
+#   - Routing tables configured per interface
+#
+# ORDERING RATIONALE:
+#   Network must complete before K3s because:
+#   1. K3s binds API server to --node-ip (cluster interface IP)
+#   2. K3s etcd members communicate via cluster network
+#   3. Nodes discover each other via IP addresses
+#   4. K3s will fail to start if cluster IP is not routable
 #
 # This phase verifies network configuration based on the selected profile.
 # Supports: simple, vlans, bonding-vlans
@@ -24,17 +49,39 @@ rec {
   # Parameters:
   #   profile: "simple" | "vlans" | "bonding-vlans"
   #   nodePairs: list of { node = "server_1"; name = "server-1"; }
-  verifyInterfaces = { profile, nodePairs }: ''
+  #   timeout: optional seconds to wait for interfaces (default: null = no wait)
+  verifyInterfaces = { profile, nodePairs, timeout ? null }: ''
     log_section("PHASE 2", "Verifying network configuration")
 
+    ${if timeout != null then ''
+    # Wait for interfaces to be ready before verification
+    tlog("  Waiting up to ${toString timeout}s for interfaces to be ready...")
+    for node, name in [${lib.concatMapStringsSep ", " (np: "(${np.node}, \"${np.name}\")") nodePairs}]:
+        ${if profile == "simple" || profile == "dhcp-simple" then ''
+        # Simple/DHCP-simple profile: wait for eth1 with 192.168.1.x
+        node.wait_until_succeeds("ip -4 addr show eth1 | grep -q '192.168.1.'", timeout=${toString timeout})
+        tlog(f"  {name}: eth1 with IP ready")
+        '' else if profile == "vlans" then ''
+        # VLANs profile: wait for eth1.200 with cluster IP
+        node.wait_until_succeeds("ip -4 addr show eth1.200 | grep -q '192.168.200.'", timeout=${toString timeout})
+        tlog(f"  {name}: eth1.200 with IP ready")
+        '' else if profile == "bonding-vlans" then ''
+        # Bonding + VLANs: wait for bond0.200 with cluster IP
+        node.wait_until_succeeds("ip -4 addr show bond0.200 | grep -q '192.168.200.'", timeout=${toString timeout})
+        tlog(f"  {name}: bond0.200 with IP ready")
+        '' else ''
+        # Unknown profile - no wait
+        pass
+        ''}
+    '' else ""}
     for node, name in [${lib.concatMapStringsSep ", " (np: "(${np.node}, \"${np.name}\")") nodePairs}]:
         interfaces = node.succeed("ip -br addr show")
         tlog(f"  {name} interfaces:\n{interfaces}")
 
-        ${if profile == "simple" then ''
-        # Simple profile: eth1 with 192.168.1.x IP
+        ${if profile == "simple" || profile == "dhcp-simple" then ''
+        # Simple/DHCP-simple profile: eth1 with 192.168.1.x IP
         assert "eth1" in interfaces, f"Missing eth1 interface on {name}"
-        assert "192.168.1." in interfaces, f"Missing 192.168.1.x IP on {name} (simple profile requires eth1 with 192.168.1.x)"
+        assert "192.168.1." in interfaces, f"Missing 192.168.1.x IP on {name} (${profile} profile requires eth1 with 192.168.1.x)"
         tlog(f"  {name}: eth1 interface with 192.168.1.x IP - OK")
         '' else if profile == "vlans" then ''
         # VLANs profile: eth1.200 and eth1.100 with their respective IPs
@@ -62,7 +109,7 @@ rec {
   # Verify VLAN tags are configured correctly
   # Only applicable for vlans and bonding-vlans profiles
   verifyVlanTags = { profile, nodePairs }:
-    if profile == "simple" then ""
+    if profile == "simple" || profile == "dhcp-simple" then ""
     else
       let
         vlan_iface = vlanIfaceForProfile profile;
@@ -94,7 +141,7 @@ rec {
   # Verify storage network connectivity between nodes
   # Only applicable for vlans and bonding-vlans profiles
   verifyStorageNetwork = { profile, nodePairs }:
-    if profile == "simple" then ""
+    if profile == "simple" || profile == "dhcp-simple" then ""
     else ''
       log_section("PHASE 2.6", "Verifying storage network connectivity")
 
@@ -120,7 +167,7 @@ rec {
   # Cross-VLAN isolation check (best-effort in nixosTest)
   # Only applicable for vlans and bonding-vlans profiles
   verifyCrossVlanIsolation = { profile, nodePairs }:
-    if profile == "simple" then ""
+    if profile == "simple" || profile == "dhcp-simple" then ""
     else
       let
         vlan_iface = vlanIfaceForProfile profile;
@@ -187,8 +234,10 @@ rec {
 
   # Complete network verification for a profile
   # Combines all network checks appropriate for the profile
-  verifyAll = { profile, nodePairs }: ''
-    ${verifyInterfaces { inherit profile nodePairs; }}
+  # Parameters:
+  #   timeout: optional seconds to wait for interfaces (default: null = no wait)
+  verifyAll = { profile, nodePairs, timeout ? null }: ''
+    ${verifyInterfaces { inherit profile nodePairs timeout; }}
     ${verifyVlanTags { inherit profile nodePairs; }}
     ${verifyStorageNetwork { inherit profile nodePairs; }}
     ${verifyCrossVlanIsolation { inherit profile nodePairs; }}

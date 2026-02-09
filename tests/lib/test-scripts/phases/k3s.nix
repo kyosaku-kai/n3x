@@ -1,4 +1,37 @@
-# K3s phase - Cluster formation and verification
+# =============================================================================
+# K3s Phase - Cluster formation and verification
+# =============================================================================
+#
+# PHASE ORDERING (Plan 019 A6):
+#   Boot → Network → K3s
+#   This phase MUST run after network is fully configured.
+#
+# PRECONDITIONS:
+#   - Boot phase complete (shell access available)
+#   - Network phase complete (cluster IPs assigned and routable)
+#   - Hostname set correctly (k3s uses hostname for node name)
+#   - /dev/kmsg available or symlinked (kubelet requirement)
+#   - Default route exists (k3s connectivity check)
+#
+# POSTCONDITIONS:
+#   - k3s-server.service or k3s.service running
+#   - API server listening on port 6443
+#   - etcd cluster healthy (for HA mode)
+#   - Node(s) in Ready state in kubectl get nodes
+#   - Kubeconfig available at /etc/rancher/k3s/k3s.yaml
+#
+# ORDERING RATIONALE:
+#   K3s must run after network because:
+#   1. API server binds to --node-ip (must exist)
+#   2. etcd peers connect via cluster network IPs
+#   3. Secondary servers --server flag uses primary's cluster IP
+#   4. kubelet registers node with cluster IP address
+#
+# INTRA-PHASE ORDERING (within K3s phase):
+#   Primary server → Secondary servers → Agents
+#   - Primary MUST have etcd healthy before secondary joins
+#   - Secondary needs /var/lib/rancher/k3s/server/token from primary
+#   - Agents need server URL and token to join
 #
 # This phase handles K3s-specific checks:
 # - Primary server readiness
@@ -17,8 +50,8 @@
 #   in ''
 #     # NixOS:
 #     ${k3sPhase.waitForPrimaryServer { node = "server_1"; }}
-#     # ISAR:
-#     ${k3sPhase.isar.waitForK3sServer { node = "server"; }}
+#     # Debian:
+#     ${k3sPhase.debian.waitForK3sServer { node = "server"; }}
 #   ''
 
 { lib ? (import <nixpkgs> { }).lib }:
@@ -41,8 +74,10 @@
     ${node}.wait_until_succeeds("k3s kubectl get --raw /readyz", timeout=300)
     tlog("  API server is ready")
 
-    # Give etcd cluster a moment to stabilize after initial leader election
-    time.sleep(10)
+    # Wait for etcd cluster to stabilize after initial leader election
+    # Polls /healthz/etcd instead of fixed sleep (Plan 019 A3)
+    ${node}.wait_until_succeeds("k3s kubectl get --raw /healthz/etcd 2>&1 | grep -q ok", timeout=60)
+    tlog("  etcd cluster is healthy")
   '';
 
   # Wait for primary server node to reach Ready state
@@ -170,8 +205,10 @@
       ${primary}.wait_until_succeeds("k3s kubectl get --raw /readyz", timeout=300)
       tlog("  API server is ready")
 
-      # Give etcd cluster a moment to stabilize after initial leader election
-      time.sleep(10)
+      # Wait for etcd cluster to stabilize after initial leader election
+      # Polls /healthz/etcd instead of fixed sleep (Plan 019 A3)
+      ${primary}.wait_until_succeeds("k3s kubectl get --raw /healthz/etcd 2>&1 | grep -q ok", timeout=60)
+      tlog("  etcd cluster is healthy")
 
       # PHASE 4: Primary Ready
       log_section("PHASE 4", "Waiting for ${primaryNodeName} to be Ready")
@@ -299,7 +336,7 @@
   # - NixOS: /run/current-system/sw/bin/k3s
   # - ISAR: /usr/bin/k3s
 
-  isar = {
+  debian = {
     # Check K3s binary exists and is executable
     # Parameters:
     #   node: node variable name
@@ -393,7 +430,7 @@
           "K3s binary": "/usr/bin/k3s"
       })
 
-      # Phase 1: Boot (assumed already done via boot.isar.bootWithBackdoor)
+      # Phase 1: Boot (assumed already done via boot.debian.bootWithBackdoor)
 
       # Phase 2: Verify k3s binary
       log_section("PHASE 2", "Verifying k3s binary")

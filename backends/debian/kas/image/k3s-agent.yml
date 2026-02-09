@@ -1,0 +1,9 @@
+# K3s Agent Image configuration
+# Builds an image with K3s Kubernetes worker node
+#
+# Usage: kas-container --isar build kas/base.yml:kas/machine/<target>.yml:kas/image/k3s-agent.yml
+
+header:
+  version: 14
+
+target: n3x-image-agent

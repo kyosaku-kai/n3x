@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# Debian rules file using dh sequencer
+# See debhelper(7) and dh(1) for documentation
+
+# Uncomment for verbose build output
+#export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+# For packages with source code to compile:
+# (default behavior - dh handles make/cmake/autotools automatically)
+
+# For packages with pre-built binaries (like k3s):
+# Uncomment these overrides:
+#
+# override_dh_auto_build:
+# 	# Skip build - using pre-built binary
+#
+# override_dh_auto_install:
+# 	mkdir -p debian/PACKAGE-NAME/usr/bin
+# 	install -m 0755 path/to/binary debian/PACKAGE-NAME/usr/bin/
+#
+# override_dh_auto_test:
+# 	# Skip tests for binary packages
+
+# For config-only packages:
+# override_dh_auto_build:
+# 	# Nothing to build
+#
+# override_dh_auto_install:
+# 	mkdir -p debian/PACKAGE-NAME/etc/myapp
+# 	install -m 0644 debian/myapp.conf debian/PACKAGE-NAME/etc/myapp/

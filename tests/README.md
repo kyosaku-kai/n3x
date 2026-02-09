@@ -15,7 +15,7 @@ n3x supports two build backends with unified test infrastructure:
 | Backend | Build System | Test Framework | Use Case |
 |---------|--------------|----------------|----------|
 | **NixOS** | nixpkgs | nixosTest | Primary development, VM testing |
-| **ISAR** | BitBake/kas | nixosTest + QEMU | Debian-based embedded systems |
+| **Debian** | BitBake/kas (ISAR) | nixosTest + QEMU | Debian-based embedded systems |
 
 Both backends share:
 - **Network profiles** (`lib/network/profiles/`) - Pure data, no functions
@@ -54,12 +54,29 @@ Tests are organized by layer, with higher layers depending on lower layers passi
 
 ### Layer Coverage by Backend
 
-| Layer | NixOS Tests | ISAR Tests |
+| Layer | NixOS Tests | Debian Tests |
 |-------|-------------|------------|
-| L1 | `smoke-vm-boot` | `isar-vm-boot` |
-| L2 | `smoke-two-vm-network` | `isar-two-vm-network` |
-| L3 | `smoke-k3s-service-starts` | `isar-k3s-server-boot` |
-| L3+ | `k3s-cluster-simple`, `k3s-cluster-vlans`, `k3s-cluster-bonding-vlans` | `isar-k3s-network-simple`, `isar-k3s-network-vlans`, `isar-k3s-network-bonding` |
+| L1 | `smoke-vm-boot` | `debian-vm-boot` |
+| L2 | `smoke-two-vm-network` | `debian-two-vm-network` |
+| L3 | `smoke-k3s-service-starts` | `debian-server-boot`, `debian-service` |
+| L4 | 8 tests (4 profiles × 2 boot modes) | 8 tests (4 profiles × 2 boot modes) |
+
+### L4 Cluster Test Parity Matrix (Plan 020 Phase G)
+
+Full test parity: 4 network profiles × 2 boot modes × 2 backends = 16 tests
+
+| Network Profile | NixOS Direct | NixOS UEFI | Debian Firmware | Debian Direct |
+|-----------------|:------------:|:----------:|:-------------:|:-----------:|
+| simple          | ✓ | ✓ | ✓ | ✓ |
+| vlans           | ✓ | ✓ | ✓ | ✓ |
+| bonding-vlans   | ✓ | ✓ | ✓ | ✓ |
+| dhcp-simple     | ✓ | ✓ | ✓ | ✓ |
+
+**Boot Modes:**
+- **NixOS Direct**: Direct kernel boot via QEMU `-kernel`/`-initrd` (default, fastest)
+- **NixOS UEFI**: UEFI firmware → systemd-boot → kernel (validates bootloader)
+- **Debian Firmware**: UEFI → GRUB/systemd-boot from `.wic` image (default, production-like)
+- **Debian Direct**: Direct kernel boot via `-kernel`/`-initrd` (faster, bypasses bootloader)
 
 ---
 
@@ -130,25 +147,25 @@ Network profiles are pure data - they export parameter presets, not functions:
 
 The profile is transformed by:
 - `mkNixOSConfig` → NixOS `systemd.network` modules
-- `mkSystemdNetworkdFiles` → ISAR `.network`/`.netdev` files
+- `mkSystemdNetworkdFiles` → Debian backend `.network`/`.netdev` files
 - `mkK3sFlags.mkExtraFlags` → K3s command-line flags
 
-### Adding a New ISAR Test
+### Adding a New Debian Backend Test
 
-ISAR tests use the `mkIsarTest` wrapper with pre-built `.wic` images:
+Debian backend tests use the `mkDebianTest` wrapper with pre-built `.wic` images:
 
 ```nix
-# tests/isar/my-test.nix
+# tests/debian/my-test.nix
 { pkgs, lib, ... }:
 
 let
-  mkIsarTest = import ../lib/isar/mk-isar-test.nix { inherit pkgs lib; };
-  artifacts = import ../../backends/isar/isar-artifacts.nix;
+  mkDebianTest = import ../lib/debian/mk-debian-test.nix { inherit pkgs lib; };
+  artifacts = import ../../backends/debian/debian-artifacts.nix;
 in
-mkIsarTest {
+mkDebianTest {
   name = "my-test";
 
-  # Define nodes with ISAR images
+  # Define nodes with Debian backend images
   nodes = {
     server = {
       image = artifacts.images."qemuamd64/server" or null;
@@ -169,7 +186,7 @@ mkIsarTest {
 Wire into flake.nix:
 ```nix
 # In checks.x86_64-linux:
-isar-my-test = pkgs.callPackage ./tests/isar/my-test.nix {
+debian-my-test = pkgs.callPackage ./tests/debian/my-test.nix {
   inherit pkgs lib;
 };
 ```
@@ -201,44 +218,94 @@ pkgs.testers.runNixOSTest {
 
 ## Available Tests
 
-### Primary Tests (Phase 4A - nixosTest Multi-Node)
+### NixOS L4 K3s Cluster Tests (Parameterized)
 
-These tests use nixosTest nodes directly as k3s cluster nodes. They work on all platforms.
+These are the primary L4 cluster tests using parameterized network profiles. All tests validate 2-server HA control plane formation.
+
+#### Direct Kernel Boot (default, fastest)
+
+| Test | Network Profile | Description | Run Command |
+|------|-----------------|-------------|-------------|
+| `k3s-cluster-simple` | simple | Flat network | `nix build '.#checks.x86_64-linux.k3s-cluster-simple'` |
+| `k3s-cluster-vlans` | vlans | 802.1Q VLAN tagging | `nix build '.#checks.x86_64-linux.k3s-cluster-vlans'` |
+| `k3s-cluster-bonding-vlans` | bonding-vlans | Active-backup bonding + VLANs | `nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans'` |
+| `k3s-cluster-dhcp-simple` | dhcp-simple | DHCP addressing via dedicated server | `nix build '.#checks.x86_64-linux.k3s-cluster-dhcp-simple'` |
+
+#### UEFI/systemd-boot (Plan 020 Phase G3)
+
+| Test | Network Profile | Description | Run Command |
+|------|-----------------|-------------|-------------|
+| `k3s-cluster-simple-systemd-boot` | simple | UEFI firmware, systemd-boot | `nix build '.#checks.x86_64-linux.k3s-cluster-simple-systemd-boot'` |
+| `k3s-cluster-vlans-systemd-boot` | vlans | UEFI + 802.1Q VLANs | `nix build '.#checks.x86_64-linux.k3s-cluster-vlans-systemd-boot'` |
+| `k3s-cluster-bonding-vlans-systemd-boot` | bonding-vlans | UEFI + bonding + VLANs | `nix build '.#checks.x86_64-linux.k3s-cluster-bonding-vlans-systemd-boot'` |
+| `k3s-cluster-dhcp-simple-systemd-boot` | dhcp-simple | UEFI + DHCP addressing | `nix build '.#checks.x86_64-linux.k3s-cluster-dhcp-simple-systemd-boot'` |
+
+### NixOS Specialized Tests
+
+These tests validate specific scenarios beyond basic cluster formation.
 
 | Test | Description | Run Command |
 |------|-------------|-------------|
-| `k3s-cluster-formation` | 2 servers + 1 agent cluster formation, node joining, workload deployment | `nix build '.#checks.x86_64-linux.k3s-cluster-formation'` |
+| `k3s-cluster-formation` | Legacy 2 servers + 1 agent formation (deprecated, use k3s-cluster-simple) | `nix build '.#checks.x86_64-linux.k3s-cluster-formation'` |
 | `k3s-storage` | Storage prerequisites, local-path PVC provisioning, StatefulSet volumes | `nix build '.#checks.x86_64-linux.k3s-storage'` |
 | `k3s-network` | CoreDNS, flannel VXLAN, service discovery, pod network connectivity | `nix build '.#checks.x86_64-linux.k3s-network'` |
 | `k3s-network-constraints` | Cluster behavior under degraded network (latency, loss, bandwidth limits) | `nix build '.#checks.x86_64-linux.k3s-network-constraints'` |
 | `k3s-bond-failover` | Bond active-backup failover/failback while k3s remains operational | `nix build '.#checks.x86_64-linux.k3s-bond-failover'` |
 | `k3s-vlan-negative` | Validates VLAN misconfiguration causes expected failures | `nix build '.#checks.x86_64-linux.k3s-vlan-negative'` |
 
-### ISAR Backend Tests (Debian-based Embedded Systems)
+### Debian Backend Tests (ISAR-based Embedded Systems)
 
-These tests validate the ISAR (Debian) backend using pre-built `.wic` images.
+These tests validate the Debian backend using pre-built `.wic` images.
+
+**Test Infrastructure Design**: Debian backend tests use NixOS VMs for test infrastructure (DHCP servers, routers, traffic shapers) alongside Debian VMs for cluster nodes. This is intentional:
+- The test framework is NixOS-based (nixosTest, test-driver, backdoor protocol)
+- NixOS declarative config enables fast iteration for test utilities
+- Debian backend images represent production; infrastructure VMs are test harness
+- No need to build/maintain Debian backend images for test scaffolding
 
 | Test | Layer | Description | Run Command |
 |------|-------|-------------|-------------|
-| `isar-vm-boot` | L1 | Single VM boots with backdoor shell | `nix build '.#checks.x86_64-linux.isar-vm-boot'` |
-| `isar-two-vm-network` | L2 | Two VMs communicate via VDE network | `nix build '.#checks.x86_64-linux.isar-two-vm-network'` |
-| `isar-k3s-server-boot` | L3 | K3s binary present and service ready | `nix build '.#checks.x86_64-linux.isar-k3s-server-boot'` |
-| `isar-k3s-network-simple` | L3+ | Simple network profile test | `nix build '.#checks.x86_64-linux.isar-k3s-network-simple'` |
-| `isar-k3s-network-vlans` | L3+ | VLAN network profile test | `nix build '.#checks.x86_64-linux.isar-k3s-network-vlans'` |
-| `isar-k3s-network-bonding` | L3+ | Bonding+VLAN network profile test | `nix build '.#checks.x86_64-linux.isar-k3s-network-bonding'` |
+| `debian-vm-boot` | L1 | Single VM boots with backdoor shell | `nix build '.#checks.x86_64-linux.debian-vm-boot'` |
+| `debian-two-vm-network` | L2 | Two VMs communicate via VDE network | `nix build '.#checks.x86_64-linux.debian-two-vm-network'` |
+| `debian-server-boot` | L3 | K3s binary present and service ready | `nix build '.#checks.x86_64-linux.debian-server-boot'` |
+| `debian-service` | L3 | K3s service starts successfully | `nix build '.#checks.x86_64-linux.debian-service'` |
+| `debian-network-simple` | L3+ | Simple network profile test | `nix build '.#checks.x86_64-linux.debian-network-simple'` |
+| `debian-network-vlans` | L3+ | VLAN network profile test | `nix build '.#checks.x86_64-linux.debian-network-vlans'` |
+| `debian-network-bonding` | L3+ | Bonding+VLAN network profile test | `nix build '.#checks.x86_64-linux.debian-network-bonding'` |
+
+#### Debian L4 Cluster Tests - Firmware Boot (default, production-like)
+
+| Test | Network Profile | Description | Run Command |
+|------|-----------------|-------------|-------------|
+| `debian-cluster-simple` | simple | 2-server HA, flat network | `nix build '.#checks.x86_64-linux.debian-cluster-simple'` |
+| `debian-cluster-vlans` | vlans | 2-server HA with 802.1Q VLANs | `nix build '.#checks.x86_64-linux.debian-cluster-vlans'` |
+| `debian-cluster-bonding-vlans` | bonding-vlans | 2-server HA with bonding+VLANs | `nix build '.#checks.x86_64-linux.debian-cluster-bonding-vlans'` |
+| `debian-cluster-dhcp-simple` | dhcp-simple | 2-server HA with DHCP | `nix build '.#checks.x86_64-linux.debian-cluster-dhcp-simple'` |
+
+#### Debian L4 Cluster Tests - Direct Kernel Boot (Plan 020 Phase G4)
+
+| Test | Network Profile | Description | Run Command |
+|------|-----------------|-------------|-------------|
+| `debian-cluster-simple-direct` | simple | Direct boot, flat network | `nix build '.#checks.x86_64-linux.debian-cluster-simple-direct'` |
+| `debian-cluster-vlans-direct` | vlans | Direct boot with VLANs | `nix build '.#checks.x86_64-linux.debian-cluster-vlans-direct'` |
+| `debian-cluster-bonding-vlans-direct` | bonding-vlans | Direct boot with bonding+VLANs | `nix build '.#checks.x86_64-linux.debian-cluster-bonding-vlans-direct'` |
+| `debian-cluster-dhcp-simple-direct` | dhcp-simple | Direct boot with DHCP | `nix build '.#checks.x86_64-linux.debian-cluster-dhcp-simple-direct'` |
 
 #### SWUpdate Tests (A/B OTA)
 
 | Test | Description | Run Command |
 |------|-------------|-------------|
-| `isar-swupdate-apply` | Apply .swu bundle to inactive partition | `nix build '.#checks.x86_64-linux.isar-swupdate-apply'` |
-| `isar-swupdate-boot-switch` | Reboot between A/B partitions | `nix build '.#checks.x86_64-linux.isar-swupdate-boot-switch'` |
-| `isar-swupdate-bundle-validation` | Validate .swu structure and CMS signatures | `nix build '.#checks.x86_64-linux.isar-swupdate-bundle-validation'` |
-| `isar-swupdate-network-ota` | Two-VM OTA with HTTP server | `nix build '.#checks.x86_64-linux.isar-swupdate-network-ota'` |
+| `debian-swupdate-apply` | Apply .swu bundle to inactive partition | `nix build '.#checks.x86_64-linux.debian-swupdate-apply'` |
+| `debian-swupdate-boot-switch` | Reboot between A/B partitions | `nix build '.#checks.x86_64-linux.debian-swupdate-boot-switch'` |
+| `debian-swupdate-bundle-validation` | Validate .swu structure and CMS signatures | `nix build '.#checks.x86_64-linux.debian-swupdate-bundle-validation'` |
+| `debian-swupdate-network-ota` | Two-VM OTA with HTTP server | `nix build '.#checks.x86_64-linux.debian-swupdate-network-ota'` |
 
-**NOTE**: ISAR tests require pre-built images in `backends/isar/isar-artifacts.nix`. Rebuild images with:
+**NOTE**: Debian backend tests require pre-built images registered in the Nix store. Build and register with:
 ```bash
-nix develop '.#isar' --command bash -c "cd backends/isar && kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml"
+nix run '.'                              # Build and register ALL variants
+nix run '.' -- --machine qemuamd64       # Build all variants for one machine
+nix run '.' -- --variant base            # Build one specific variant
+nix run '.' -- --list                    # Show all 16 variants
 ```
 
 ### Emulation Tests (vsim - Nested Virtualization)
@@ -257,6 +324,54 @@ These tests use nested virtualization for complex scenarios. They require native
 |-------|-------------|-------------|
 | `nixpkgs-fmt` | Nix code formatting validation | `nix build '.#checks.x86_64-linux.nixpkgs-fmt'` |
 | `build-all` | Validates all configurations build | `nix build '.#checks.x86_64-linux.build-all'` |
+| `debian-package-parity` | Debian backend package mapping verification | `nix flake check --no-build` |
+
+### Debian Backend Package Parity Verification (Plan 016)
+
+The `debian-package-parity` check verifies that kas overlay YAML files contain all packages required for Debian backend images. This catches missing packages at **Nix evaluation time** rather than during Debian backend test runtime.
+
+#### How It Works
+
+```
+lib/debian/package-mapping.nix    →    Defines required packages per group
+        ↓
+lib/debian/verify-kas-packages.nix →    Verifies packages exist in kas YAMLs
+        ↓
+nix flake check --no-build         →    Fails immediately if packages missing
+```
+
+**Key design**: Uses `lib.seq` to force verification at eval time:
+```nix
+# Verification happens during nix flake check (eval phase), not build phase
+lib.seq verified (pkgs.runCommand "debian-package-parity" {} ''...'')
+```
+
+#### Package Groups
+
+| Group | Kas File | Packages |
+|-------|----------|----------|
+| `k3s-core` | `kas/packages/k3s-core.yml` | ca-certificates, curl, iptables, conntrack, iproute2, ipvsadm, bridge-utils, procps, util-linux, k3s-system-config |
+| `debug` | `kas/packages/debug.yml` | openssh-server, vim-tiny, less, iputils-ping, sshd-regen-keys |
+| `test` | `kas/test-k3s-overlay.yml` | nixos-test-backdoor |
+
+#### Adding New Packages
+
+1. Add package to `lib/debian/package-mapping.nix` with proper group assignment
+2. Add package to corresponding `kas/packages/*.yml` file
+3. Run `nix flake check --no-build` to verify
+
+If you add to `package-mapping.nix` but forget the kas file, you'll get:
+
+```
+error: Debian Backend Package Parity Verification Failed (Plan 016)
+  - packages/debug.yml: missing iputils-ping
+
+Fix: Add the missing packages to IMAGE_PREINSTALL:append or IMAGE_INSTALL:append
+```
+
+#### Why This Matters
+
+Before Plan 016, Debian backend test failures with `exit code 127` (command not found) required bisecting which package was missing. Now the verification catches missing packages during `nix flake check`.
 
 ### ARM64/aarch64 Validation (Jetson)
 
@@ -329,14 +444,14 @@ See the ["Adding a New Network Profile"](#adding-a-new-network-profile) section 
 
 **Key Points** (Plan 012 Architecture):
 - Profiles export **pure data** - no `nodeConfig` or `k3sExtraFlags` functions
-- Data is transformed by `mkNixOSConfig` → NixOS modules, `mkSystemdNetworkdFiles` → ISAR files
+- Data is transformed by `mkNixOSConfig` → NixOS modules, `mkSystemdNetworkdFiles` → Debian backend files
 - K3s flags generated by `mkK3sFlags.mkExtraFlags` from the same profile data
 
 ### Why Parameterized Tests?
 
 **Benefits**:
 - **No code duplication** - Test logic defined once, network configs separate
-- **DRY across backends** - Same profiles work for NixOS and ISAR
+- **DRY across backends** - Same profiles work for NixOS and Debian
 - **Easy extension** - Add new profiles without touching test code
 - **Production parity** - VLAN tests match future hardware deployment
 - **Maintainability** - Changes to test logic apply to all profiles
@@ -346,7 +461,7 @@ See the ["Adding a New Network Profile"](#adding-a-new-network-profile) section 
 Profile Data (lib/network/profiles/)
     │
     ├─→ mkNixOSConfig()          → NixOS systemd.network modules
-    ├─→ mkSystemdNetworkdFiles() → ISAR .network/.netdev files
+    ├─→ mkSystemdNetworkdFiles() → Debian backend .network/.netdev files
     └─→ mkK3sFlags.mkExtraFlags() → K3s command-line flags
 ```
 
@@ -643,7 +758,7 @@ n3x/
 ├── lib/                              # Shared library functions
 │   ├── network/                      # Network configuration
 │   │   ├── mk-network-config.nix     # mkNixOSConfig(), mkSystemdNetworkdFiles()
-│   │   ├── mk-systemd-networkd.nix   # ISAR file generation (internal)
+│   │   ├── mk-systemd-networkd.nix   # Debian backend file generation (internal)
 │   │   └── profiles/                 # Network profile presets (pure data)
 │   │       ├── simple.nix            # Single flat network
 │   │       ├── vlans.nix             # 802.1Q VLAN tagging
@@ -661,9 +776,9 @@ n3x/
 │   │   ├── k3s-cluster-formation.nix # L4: Cluster forms (legacy)
 │   │   ├── k3s-bond-failover.nix     # Bond failover test
 │   │   └── k3s-vlan-negative.nix     # VLAN misconfiguration test
-│   ├── isar/                         # ISAR backend tests
-│   │   ├── single-vm-boot.nix        # L1: ISAR VM boots
-│   │   ├── two-vm-network.nix        # L2: ISAR VMs can ping
+│   ├── debian/                       # Debian backend tests
+│   │   ├── single-vm-boot.nix        # L1: Debian VM boots
+│   │   ├── two-vm-network.nix        # L2: Debian VMs can ping
 │   │   ├── k3s-server-boot.nix       # L3: K3s binary present
 │   │   ├── k3s-network-*.nix         # Network profile tests
 │   │   └── swupdate-*.nix            # A/B OTA tests
@@ -674,35 +789,313 @@ n3x/
 │   │   │   ├── default.nix           # mkDefaultClusterTestScript
 │   │   │   ├── utils.nix             # tlog(), log_banner()
 │   │   │   └── phases/               # Boot, network, K3s phases
-│   │   └── isar/                     # ISAR test support
-│   │       ├── mk-isar-test.nix      # ISAR test wrapper
-│   │       ├── mk-isar-vm-script.nix # QEMU command generator
-│   │       └── mk-network-config.nix # ISAR network setup
+│   │   └── debian/                   # Debian backend test support
+│   │       ├── mk-debian-test.nix    # Debian backend test wrapper
+│   │       ├── mk-debian-vm-script.nix # QEMU command generator
+│   │       └── mk-network-config.nix # Debian backend network setup
 │   ├── emulation/                    # vsim nested virtualization
 │   └── README.md                     # This file
 │
 └── backends/
-    └── isar/
-        ├── isar-artifacts.nix        # Pre-built image hashes
+    └── debian/
+        ├── debian-artifacts.nix      # Pre-built image hashes
         ├── kas/                      # BitBake/kas configs
-        └── meta-isar-k3s/            # ISAR layer (recipes)
+        └── meta-n3x/            # ISAR layer (recipes)
 ```
 
 ## Interactive Debugging
 
-For debugging test failures:
+The nixos-test-driver provides powerful debugging facilities for investigating test failures.
+
+### Starting Interactive Mode
 
 ```bash
-# Build interactive test driver
+# Build and run the interactive test driver
 nix build '.#checks.x86_64-linux.k3s-cluster-formation.driverInteractive'
 ./result/bin/nixos-test-driver
 
-# In Python REPL:
->>> start_all()
->>> server1.wait_for_unit("k3s")
->>> server1.succeed("kubectl get nodes")
->>> server1.shell_interact()  # Drop into shell
+# Or pass --interactive flag directly
+./result/bin/nixos-test-driver --interactive
 ```
+
+This opens a Python REPL (ptpython/ipython) with all test symbols available.
+
+### Available Symbols in Interactive Mode
+
+When the driver starts, it prints available symbols:
+
+```python
+# Machine objects (named by node config)
+n100_1, n100_2, n100_3    # Direct access to VMs by name
+machine                    # Available when there's exactly one VM
+
+# Driver functions
+start_all()               # Start all VMs
+join_all()                # Wait for all VMs to shut down
+test_script()             # Run the test script
+run_tests()               # Run tests with timeout
+
+# Utilities
+retry(fn, timeout=900)    # Retry function until True or timeout
+subtest("name")           # Context manager for grouped logging
+log                       # Logger instance
+driver                    # Driver instance
+```
+
+### Interactive Session Example
+
+```python
+>>> start_all()
+>>> n100_1.wait_for_unit("multi-user.target")
+>>> n100_1.succeed("k3s kubectl get nodes")
+'NAME     STATUS   ROLES                  AGE   VERSION\n...'
+
+# Check what's running
+>>> n100_1.succeed("systemctl status k3s")
+
+# Inspect network
+>>> n100_1.succeed("ip addr show")
+
+# Drop into interactive shell
+>>> n100_1.shell_interact()
+$ hostname
+n100-1
+$ journalctl -u k3s -n 50
+...
+$ exit  # or Ctrl-D to return to Python REPL
+```
+
+### Keeping VM State Between Runs (`--keep-vm-state`)
+
+By default, VM state is cleared on each run. Use `--keep-vm-state` to preserve it:
+
+```bash
+# Keep VM state for iterative debugging
+./result/bin/nixos-test-driver --keep-vm-state --interactive
+```
+
+**How it works:**
+- VM state stored in: `/tmp/vm-state-<machine-name>/`
+- Without flag: State directory deleted before each run
+- With flag: State persists across runs (disk images, sockets, etc.)
+
+**Use cases:**
+- Debugging boot issues (examine VM disk after failure)
+- Testing reboot behavior (state survives `machine.shutdown()` + `machine.start()`)
+- Iterative development (avoid slow boot on each change)
+
+**Cleaning stale state manually:**
+```bash
+rm -rf /tmp/vm-state-*
+```
+
+### Using Breakpoints
+
+#### Python Built-in Breakpoint
+
+Add `breakpoint()` in your test script to pause execution:
+
+```python
+# In testScript
+start_all()
+n100_1.wait_for_unit("k3s.service")
+breakpoint()  # Execution stops here, drops into pdb
+n100_1.succeed("k3s kubectl get nodes")
+```
+
+When running non-interactively, this requires a terminal. For sandboxed builds, use the debug hook instead.
+
+#### Debug Hook (Sandboxed Builds)
+
+For Nix sandboxed builds, enable the debug hook:
+
+```nix
+# In test definition
+pkgs.testers.runNixOSTest {
+  name = "my-test";
+  # ... nodes ...
+  enableDebugHook = true;  # Enable remote debugging
+  testScript = ''
+    start_all()
+    debug.breakpoint()  # Remote pdb on TCP port 4444
+  '';
+}
+```
+
+When `debug.breakpoint()` is called:
+1. Test pauses and logs: `Breakpoint reached, run 'sudo attach-command <pattern>'`
+2. Opens RemotePdb on `127.0.0.1:4444`
+3. Connect with: `telnet 127.0.0.1 4444` or similar
+
+**Note:** The driver automatically calls `debug.breakpoint()` on assertion failures, allowing post-mortem inspection.
+
+### Machine Debugging Methods
+
+#### `machine.shell_interact()`
+
+Drop into an interactive shell on the VM:
+
+```python
+>>> n100_1.shell_interact()
+# Now in VM shell, run any commands
+$ cat /etc/os-release
+$ journalctl -xe
+$ ip route show
+# Ctrl-D or Ctrl-C to exit
+```
+
+#### `machine.console_interact()`
+
+Interact directly with QEMU's serial console (lower level than shell):
+
+```python
+>>> n100_1.console_interact()
+# Direct QEMU stdin/stdout, useful for boot issues
+# Ctrl-C kills QEMU, Ctrl-D returns to Python
+```
+
+#### `machine.screenshot(filename)`
+
+Capture VM display state:
+
+```python
+>>> n100_1.screenshot("debug-state.png")
+# Saved to output directory
+```
+
+#### `machine.get_screen_text()`
+
+OCR the VM screen (requires Tesseract):
+
+```python
+>>> text = n100_1.get_screen_text()
+>>> print(text)
+# Useful for debugging GUI or boot splash issues
+```
+
+#### `machine.send_key(key)` / `machine.send_chars(string)`
+
+Send keyboard input to VM:
+
+```python
+>>> n100_1.send_key("ctrl-alt-f2")  # Switch to tty2
+>>> n100_1.send_chars("root\n")      # Type login
+```
+
+### Inspecting Test Execution
+
+#### Serial Console Output
+
+Enable serial logging during test:
+
+```python
+>>> serial_stdout_on()   # Print serial output to terminal
+>>> n100_1.start()       # Now see boot messages
+>>> serial_stdout_off()  # Disable when done
+```
+
+#### Checking Command Results
+
+```python
+# succeed() returns stdout, raises on failure
+>>> output = n100_1.succeed("k3s kubectl get nodes")
+
+# execute() returns (exit_code, stdout) - doesn't raise
+>>> code, output = n100_1.execute("k3s kubectl get nodes")
+>>> if code != 0:
+...     print(f"Command failed: {output}")
+```
+
+#### Subtest Grouping
+
+Group related operations in logs:
+
+```python
+with subtest("Verify cluster formation"):
+    n100_1.wait_for_unit("k3s.service")
+    n100_2.wait_for_unit("k3s.service")
+    # If any step fails, logs show it was in "Verify cluster formation"
+```
+
+### Debian Backend Tests Interactive Mode
+
+Debian backend tests also support interactive mode:
+
+```bash
+# Build Debian backend test
+nix build '.#checks.x86_64-linux.debian-cluster-simple'
+
+# Run interactively
+./result/bin/run-test-interactive
+
+# Or build driverInteractive
+nix build '.#checks.x86_64-linux.debian-cluster-simple.driverInteractive'
+./result/bin/nixos-test-driver --interactive
+```
+
+### Common Debugging Workflows
+
+#### 1. Test Fails Intermittently
+
+```bash
+# Run with kept state to preserve failure evidence
+./result/bin/nixos-test-driver --keep-vm-state --interactive
+
+>>> start_all()
+>>> # Run test steps manually, observing behavior
+>>> n100_1.execute("journalctl -u k3s --no-pager")
+```
+
+#### 2. Network Connectivity Issues
+
+```python
+>>> n100_1.succeed("ip addr show")
+>>> n100_1.succeed("ip route show")
+>>> n100_1.succeed("ping -c 3 192.168.1.2")
+>>> n100_2.succeed("ss -tlnp")  # What's listening?
+>>> n100_1.succeed("nc -zv 192.168.1.2 6443")  # Can connect?
+```
+
+#### 3. Service Won't Start
+
+```python
+>>> code, out = n100_1.execute("systemctl status k3s")
+>>> print(out)
+>>> n100_1.succeed("journalctl -u k3s -n 100 --no-pager")
+>>> n100_1.succeed("systemctl cat k3s")  # Check unit file
+```
+
+#### 4. Post-Mortem After Failure
+
+When a test fails, the driver pauses if debug hook is enabled:
+
+```
+Test failed with: command `kubectl get nodes` failed
+Breakpoint reached, run 'sudo /nix/store/.../attach 1234567'
+```
+
+Connect and inspect:
+```python
+>>> n100_1.succeed("dmesg | tail -50")
+>>> n100_1.succeed("free -h")
+>>> n100_1.succeed("df -h")
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `TMPDIR` | Override temp directory for VM state |
+| `XDG_RUNTIME_DIR` | Alternative temp directory location |
+| `LOGFILE` | Enable XML logging to specified file |
+
+### Tips
+
+1. **History file**: Interactive sessions save history to `.nixos-test-history` in current directory
+2. **Multiple sessions**: Each `shell_interact()` is independent; exit one to return to Python
+3. **Timeouts**: Interactive mode has no global timeout (unlike automated runs)
+4. **Screenshots**: Useful for GUI tests or when OCR text doesn't capture issue
+5. **VM names**: Use `pythonize_name()` rules - dashes become underscores (`n100-1` → `n100_1`)
 
 ## Troubleshooting
 
@@ -831,3 +1224,10 @@ nix build '.#checks.x86_64-linux.k3s-cluster-vlans' --rebuild
 - [nix.dev Integration Testing](https://nix.dev/tutorials/nixos/integration-testing-using-virtual-machines.html)
 - [Hyper-V Nested Virtualization Analysis](../docs/hyper-v-enlightened-vmcs-caps-nested-virt-at-2-levels.md)
 - [n3x Main README](../README.md)
+
+## See Also
+
+- [Test Library Reference](lib/README.md) — Test builder internals, machine roles, Debian backend test wrappers
+- [Network Schema](lib/NETWORK-SCHEMA.md) — Network profile data format and validation
+- [Emulation Utilities](emulation/README.md) — vsim nested virtualization infrastructure
+- [Test Coverage Matrix](TEST-COVERAGE.md) — Coverage tracking across backends and profiles

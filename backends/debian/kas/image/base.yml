@@ -1,0 +1,9 @@
+# Base Image configuration
+# Builds a minimal Debian Trixie base image with essential packages
+#
+# Usage: kas-build kas/base.yml:kas/machine/<target>.yml:kas/image/base.yml
+
+header:
+  version: 14
+
+target: n3x-image-base

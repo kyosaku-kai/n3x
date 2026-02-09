@@ -6,13 +6,14 @@
 #
 # Structure:
 #   utils     - Core utilities (tlog, logging helpers)
-#   phases/   - Test phases (boot, network, k3s)
+#   phases/   - Test phases (dhcp, boot, network, k3s)
 #
 # Usage:
 #   let
 #     testScripts = import ./test-scripts { inherit lib; };
 #   in ''
 #     ${testScripts.utils.all}
+#     ${testScripts.phases.dhcp.startDhcpServer { node = "dhcp_server"; }}  # For DHCP profiles
 #     ${testScripts.phases.boot.bootAllNodes { nodes = ["server_1"]; }}
 #     ${testScripts.phases.network.verifyInterfaces { profile = "vlans"; nodePairs = [...]; }}
 #     ${testScripts.phases.k3s.verifyCluster { ... }}
@@ -26,6 +27,7 @@
 
   # Test phases
   phases = {
+    dhcp = import ./phases/dhcp.nix { inherit lib; };
     boot = import ./phases/boot.nix { inherit lib; };
     network = import ./phases/network.nix { inherit lib; };
     k3s = import ./phases/k3s.nix { inherit lib; };
@@ -35,15 +37,20 @@
   # This is equivalent to the current embedded script in mk-k3s-cluster-test.nix
   #
   # Parameters:
-  #   profile: network profile name ("simple", "vlans", "bonding-vlans")
-  #   nodes: { primary, secondary, agent } - node variable names
+  #   profile: network profile name ("simple", "vlans", "bonding-vlans", "dhcp-simple")
+  #   nodes: { primary, secondary, agent, dhcpServer? } - node variable names
   #   nodeNames: { primary, secondary, agent } - kubernetes node names
-  mkDefaultClusterTestScript = { profile, nodes, nodeNames }:
+  #   dhcpReservations: (optional) { nodeName = { expectedIp, mac }; } for DHCP profiles
+  mkDefaultClusterTestScript = { profile, nodes, nodeNames, dhcpReservations ? null }:
     let
       utils = import ./utils.nix;
+      dhcpPhase = import ./phases/dhcp.nix { inherit lib; };
       bootPhase = import ./phases/boot.nix { inherit lib; };
       networkPhase = import ./phases/network.nix { inherit lib; };
       k3sPhase = import ./phases/k3s.nix { inherit lib; };
+
+      # Detect DHCP profile (profile name starts with "dhcp-")
+      isDhcpProfile = lib.hasPrefix "dhcp-" profile;
 
       # Build nodePairs for network verification
       nodePairs = [
@@ -54,10 +61,10 @@
 
       # Build validation list for summary
       validations =
-        if profile == "simple" then [
+        if profile == "simple" || profile == "dhcp-simple" then [
           "All 3 nodes Ready"
           "System components running"
-        ]
+        ] ++ lib.optionals isDhcpProfile [ "DHCP leases verified" ]
         else [
           "VLAN tags (200, 100) verified"
           "Storage network (192.168.100.x) connectivity OK"
@@ -65,20 +72,46 @@
           "All 3 nodes Ready"
           "System components running"
         ];
+
+      # DHCP boot sequence: start dhcp-server first, then cluster nodes
+      dhcpBootSequence = lib.optionalString isDhcpProfile ''
+        # PHASE 0: Start DHCP Server (must be before cluster nodes)
+        ${dhcpPhase.startDhcpServer { node = nodes.dhcpServer or "dhcp_server"; }}
+
+      '';
+
+      # Standard boot sequence for non-DHCP or after DHCP server is ready
+      standardBootSequence = ''
+        # PHASE 1: Boot All Nodes
+        ${bootPhase.bootAllNodes { nodes = [ nodes.primary nodes.secondary nodes.agent ]; }}
+      '';
+
+      # DHCP lease verification (only for DHCP profiles)
+      dhcpLeaseVerification = lib.optionalString (isDhcpProfile && dhcpReservations != null) ''
+        # PHASE 1.5: Verify DHCP Leases
+        ${dhcpPhase.verifyAllDhcpLeases {
+          nodePairs = [
+            { node = nodes.primary; expectedIp = dhcpReservations.${nodeNames.primary}.ip or "192.168.1.1"; interface = "eth1"; }
+            { node = nodes.secondary; expectedIp = dhcpReservations.${nodeNames.secondary}.ip or "192.168.1.2"; interface = "eth1"; }
+            { node = nodes.agent; expectedIp = dhcpReservations.${nodeNames.agent}.ip or "192.168.1.3"; interface = "eth1"; }
+          ];
+        }}
+
+      '';
+
     in
     ''
       ${utils.all}
 
       log_banner("K3s Cluster Test", "${profile}", {
-          "Architecture": "2 servers + 1 agent",
+          "Architecture": "2 servers + 1 agent${lib.optionalString isDhcpProfile " + DHCP server"}",
           "${nodeNames.primary}": "k3s server (cluster init)",
           "${nodeNames.secondary}": "k3s server (joins)",
           "${nodeNames.agent}": "k3s agent (worker)"
       })
 
-      # PHASE 1: Boot All Nodes
-      ${bootPhase.bootAllNodes { nodes = [ nodes.primary nodes.secondary nodes.agent ]; }}
-
+      ${dhcpBootSequence}${standardBootSequence}
+      ${dhcpLeaseVerification}
       # PHASE 2: Network Verification
       ${networkPhase.verifyAll { inherit profile nodePairs; }}
 

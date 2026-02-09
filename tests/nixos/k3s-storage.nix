@@ -113,7 +113,7 @@ let
     services.k3s = {
       enable = true;
       # Pre-load airgap images so k3s doesn't need to pull from internet
-      images = [ pkgs.k3s.passthru.airgapImages ];
+      images = [ pkgs.k3s.passthru."airgap-images" ];
     };
 
     # Create Longhorn data directory

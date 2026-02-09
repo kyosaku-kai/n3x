@@ -1,0 +1,20 @@
+Source: k3s-system-config
+Section: admin
+Priority: optional
+Maintainer: n3x Project <n3x@example.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://k3s.io/
+
+Package: k3s-system-config
+Architecture: all
+Depends: ${misc:Depends}, systemd, kmod
+Description: System configuration for K3s Kubernetes nodes
+ Configures the Linux kernel and system settings required for K3s:
+ .
+  - Loads kernel modules: overlay, br_netfilter, nf_conntrack, iptable_nat
+  - Sets sysctl: ip_forward, bridge-nf-call-iptables, conntrack limits
+  - Disables swap (Kubernetes requirement)
+  - Configures iptables-legacy mode (k3s requirement)
+ .
+ Install on all K3s nodes (both server and agent).

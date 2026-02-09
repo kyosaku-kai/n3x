@@ -2,6 +2,33 @@
 
 This skill provides standardized procedures for ISAR/BitBake builds in the n3x project.
 
+## Automated Build and Registration
+
+The preferred way to build images and register them in the nix store:
+
+```bash
+# Build ALL variants, hash, register, update lib/isar/artifact-hashes.nix
+nix run '.#isar-build-all'
+
+# Build one variant
+nix run '.#isar-build-all' -- --variant server-simple-server-1
+
+# Build all variants for one machine
+nix run '.#isar-build-all' -- --machine qemuamd64
+
+# List all variants
+nix run '.#isar-build-all' -- --list
+
+# After building, stage and verify
+git add lib/isar/artifact-hashes.nix
+nix flake check --no-build
+
+# Run all ISAR tests
+nix build '.#checks.x86_64-linux.isar-all' -L
+```
+
+The build matrix is defined in `lib/isar/build-matrix.nix`. The only mutable state is `lib/isar/artifact-hashes.nix`.
+
 ## Pre-Flight Checklist
 
 **ALWAYS run these checks before starting any ISAR build:**

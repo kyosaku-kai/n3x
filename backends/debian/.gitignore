@@ -1,0 +1,7 @@
+# ISAR build artifacts
+build/
+isar/
+
+# Kas container artifacts
+*.pyc
+__pycache__/

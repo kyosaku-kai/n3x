@@ -1,6 +1,6 @@
 # Unified Network Schema (A4)
 
-This document defines the unified network schema used by all network profiles in the n3x test infrastructure. The schema is designed to scale from simple single-interface configurations to complex multi-VLAN setups, while remaining consumable by both NixOS modules and ISAR netplan generation.
+This document defines the unified network schema used by all network profiles in the n3x test infrastructure. The schema is designed to scale from simple single-interface configurations to complex multi-VLAN setups, while remaining consumable by both NixOS modules and Debian backend systemd-networkd file generation.
 
 ## Schema Overview
 
@@ -82,7 +82,7 @@ ipAddresses = {
 vlanIds = { cluster = 200; storage = 100; };
 ```
 
-### Bonding + VLANs (Maximum Complexity) - DEFERRED
+### Bonding + VLANs (Maximum Complexity)
 ```nix
 interfaces = {
   trunk = "bond0";
@@ -95,7 +95,7 @@ vlanIds = { cluster = 200; storage = 100; };
 bondConfig = { mode = "active-backup"; primary = "eth1"; miimon = 100; };
 ```
 
-**Note**: Bonding tests are deferred indefinitely per Architecture Review decision (2026-01-26).
+**Status**: Implemented and passing for both NixOS and Debian backends (Plan 012, Plan 019).
 
 ## Machine Names
 
@@ -129,39 +129,44 @@ Each profile exports these attributes:
 | `nodeConfig` | function | NixOS module generator |
 | `k3sExtraFlags` | function | K3s flags generator |
 
-## ISAR Netplan Generation
+## Debian Backend systemd-networkd Generation
 
-ISAR backends use `ipAddresses`, `interfaces`, and `vlanIds` to generate netplan YAML:
+Debian backends use `ipAddresses`, `interfaces`, and `vlanIds` to generate systemd-networkd `.network` and `.netdev` files via `lib/network/mk-systemd-networkd.nix`:
 
-```yaml
+```ini
 # Generated from vlans profile for server-1
-network:
-  version: 2
-  ethernets:
-    eth1: {}
-  vlans:
-    eth1.200:
-      id: 200
-      link: eth1
-      addresses:
-        - 192.168.200.1/24
-    eth1.100:
-      id: 100
-      link: eth1
-      addresses:
-        - 192.168.100.1/24
+
+# 10-trunk.network
+[Match]
+Name=eth1
+
+[Network]
+VLAN=eth1.200
+VLAN=eth1.100
+
+# 20-cluster.netdev
+[NetDev]
+Name=eth1.200
+Kind=vlan
+
+[VLAN]
+Id=200
+
+# 20-cluster.network
+[Match]
+Name=eth1.200
+
+[Network]
+Address=192.168.200.1/24
 ```
 
-## Test Priority Matrix (MVP)
-
-Per Architecture Review (2026-01-26):
+## Test Coverage Matrix
 
 ```
-                simple   vlans   bonding
-Single-node     [MVP]    [MVP]   deferred
-Server+Agent    [MVP]    [MVP]   deferred
-HA Cluster      later    later   deferred
-Multi-Agent     later    later   deferred
+                simple   vlans   bonding-vlans
+L1+ Network     PASS     PASS    PASS          (NixOS + Debian)
+L4 Cluster      PASS     PASS    PASS          (NixOS)
+L4 Cluster      exists   exists  exists        (Debian — requires image rebuild)
 ```
 
-MVP = 4 test combinations (2 use cases x 2 network configs)
+See [tests/TEST-COVERAGE.md](../../tests/TEST-COVERAGE.md) for full coverage details.

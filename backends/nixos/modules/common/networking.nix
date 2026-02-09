@@ -165,15 +165,14 @@
   };
 
   # Enable systemd-resolved for DNS management
+  # WORKAROUND: services.resolved.settings.Resolve is master-only (not on nixos-25.11).
+  # Using individual options + extraConfig for settings without dedicated options.
+  # TODO: Switch to settings.Resolve when migrating to nixos-26.05 or later.
   services.resolved = {
     enable = true;
-    dnssec = "allow-downgrade"; # Use DNSSEC when available
-    dnsovertls = "opportunistic"; # Use DNS over TLS when available
-    fallbackDns = [
-      "1.1.1.1"
-      "8.8.8.8"
-    ];
-    # Don't use ISP DNS servers
+    dnssec = "allow-downgrade";
+    dnsovertls = "opportunistic";
+    fallbackDns = [ "1.1.1.1" "8.8.8.8" ];
     extraConfig = ''
       DNSStubListener=no
       ReadEtcHosts=yes

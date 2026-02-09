@@ -21,6 +21,10 @@
 #       ├── n100-3 (k3s Agent)  - 192.168.100.12
 #       └── jetson-1 (k3s Agent, ARM64) - 192.168.100.20
 #
+# DHCP PATTERN: This dnsmasq configuration is the reference implementation for
+# n3x DHCP support. See docs/DHCP-TEST-INFRASTRUCTURE.md for how this pattern
+# is applied to nixosTest multi-node tests.
+#
 # USAGE:
 #   # Build the emulation VM (includes pre-built inner VM images)
 #   nix build .#nixosConfigurations.emulator-vm.config.system.build.vm
@@ -230,13 +234,9 @@ in
       };
 
       # Fast shutdown timeouts for testing environment
-      # NOTE: Using systemd.extraConfig instead of systemd.settings.Manager because
-      # systemd.settings was introduced in nixpkgs ~24.05+, and n3x's current nixpkgs
-      # revision doesn't have this option.
-      # TODO: Convert to systemd.settings.Manager.DefaultTimeoutStopSec = "10s"
-      #       when nixpkgs is updated.
-      # ERROR being worked around: "The option `systemd.settings' does not exist"
-      systemd.extraConfig = "DefaultTimeoutStopSec=10s";
+      # Using systemd.settings.Manager (available in nixpkgs 24.05+) for type-checked config.
+      # This replaces the deprecated systemd.extraConfig option.
+      systemd.settings.Manager.DefaultTimeoutStopSec = "10s";
 
       #############################################################################
       # LIBVIRT CONFIGURATION

@@ -1,0 +1,34 @@
+#!/usr/bin/make -f
+# Debian rules for k3s-system-config
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	@echo "Configuration-only package, nothing to build"
+
+override_dh_auto_install:
+	# Install kernel module configuration
+	mkdir -p debian/k3s-system-config/etc/modules-load.d
+	install -m 0644 debian/k3s.modules-load debian/k3s-system-config/etc/modules-load.d/k3s.conf
+
+	# Install sysctl configuration
+	mkdir -p debian/k3s-system-config/etc/sysctl.d
+	install -m 0644 debian/k3s.sysctl debian/k3s-system-config/etc/sysctl.d/99-k3s.conf
+
+	# Install disable-swap service
+	mkdir -p debian/k3s-system-config/lib/systemd/system
+	install -m 0644 debian/disable-swap.service debian/k3s-system-config/lib/systemd/system/
+
+	# Enable disable-swap service by default
+	mkdir -p debian/k3s-system-config/lib/systemd/system/multi-user.target.wants
+	ln -sf ../disable-swap.service debian/k3s-system-config/lib/systemd/system/multi-user.target.wants/
+
+	# Install iptables-legacy configuration script
+	mkdir -p debian/k3s-system-config/usr/lib/k3s
+	install -m 0755 debian/iptables-legacy.sh debian/k3s-system-config/usr/lib/k3s/
+
+override_dh_auto_test:
+	@echo "No tests for configuration package"

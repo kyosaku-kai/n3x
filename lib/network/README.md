@@ -1,47 +1,43 @@
 # lib/network/ - Unified Network Configuration
 
-This directory contains the **single source of truth** for network configuration across all n3x backends (NixOS and ISAR).
+This directory contains the **single source of truth** for network configuration across all n3x backends (NixOS and Debian).
 
 ## Why This Exists
 
 Previously, network configuration was duplicated:
 - NixOS used `systemd.network.*` module options
-- ISAR used netplan YAML files in separate recipes
+- Debian backend used netplan YAML files in separate ISAR recipes
 
 This created drift between backends. Now, network profiles define everything in one place, and each backend consumes them appropriately.
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                  Unified Network Configuration                       │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │ lib/network/profiles/*.nix                                   │    │
-│  │   SINGLE SOURCE OF TRUTH                                     │    │
-│  │   • ipAddresses - Per-node IP assignments                    │    │
-│  │   • interfaces - Network interface names                     │    │
-│  │   • vlanIds - VLAN tags (optional)                          │    │
-│  │   • serverApi, clusterCidr, serviceCidr                     │    │
-│  └───────────────────────────┬─────────────────────────────────┘    │
-│                              │                                       │
-│              ┌───────────────┼───────────────┐                      │
-│              ▼               ▼               ▼                       │
-│  ┌─────────────────┐  ┌─────────────┐  ┌─────────────────┐         │
-│  │ mk-network-     │  │ mk-k3s-     │  │ mk-systemd-     │         │
-│  │ config.nix      │  │ flags.nix   │  │ networkd.nix    │         │
-│  │ (NixOS module)  │  │ (lib/k3s/)  │  │ (.network gen)  │         │
-│  └────────┬────────┘  └──────┬──────┘  └────────┬────────┘         │
-│           │                  │                  │                    │
-│           ▼                  ▼                  ▼                    │
-│  ┌─────────────────┐  ┌─────────────┐  ┌─────────────────┐         │
-│  │ NixOS Tests     │  │ K3s service │  │ ISAR recipe     │         │
-│  │ (nixosTest)     │  │ extraFlags  │  │ (systemd-       │         │
-│  │                 │  │             │  │ networkd-config)│         │
-│  └─────────────────┘  └─────────────┘  └─────────────────┘         │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph profiles["lib/network/profiles/*.nix<br/>SINGLE SOURCE OF TRUTH"]
+        profile_content["ipAddresses - Per-node IP assignments<br/>interfaces - Network interface names<br/>vlanIds - VLAN tags (optional)<br/>serverApi, clusterCidr, serviceCidr"]
+    end
+
+    subgraph transformers["Transformation Modules"]
+        mk_network["mk-network-config.nix<br/>(NixOS module)"]
+        mk_k3s["mk-k3s-flags.nix<br/>(lib/k3s/)"]
+        mk_systemd["mk-systemd-networkd.nix<br/>(.network gen)"]
+    end
+
+    subgraph consumers["Consumers"]
+        nixos_tests["NixOS Tests<br/>(nixosTest)"]
+        k3s_service["K3s service<br/>extraFlags"]
+        debian_recipe["Debian backend recipe<br/>(systemd-networkd-config)"]
+    end
+
+    profiles --> mk_network & mk_k3s & mk_systemd
+    mk_network --> nixos_tests
+    mk_k3s --> k3s_service
+    mk_systemd --> debian_recipe
+
+    style profiles fill:#e3f2fd,stroke:#1565c0
+    style transformers fill:#fff3e0,stroke:#ef6c00
+    style consumers fill:#e8f5e9,stroke:#2e7d32
 ```
 
 ## Directory Structure
@@ -133,7 +129,7 @@ extraFlags = mkK3sFlags.mkExtraFlags {
 };
 ```
 
-### ISAR Backend
+### Debian Backend
 
 Uses `mk-systemd-networkd.nix` to generate `.network` and `.netdev` files:
 
@@ -142,7 +138,7 @@ Uses `mk-systemd-networkd.nix` to generate `.network` and `.netdev` files:
 nix run '.#generate-networkd-configs'
 ```
 
-Files are generated to `backends/isar/meta-isar-k3s/recipes-support/systemd-networkd-config/files/<profile>/<node>/`.
+Files are generated to `backends/debian/meta-n3x/recipes-support/systemd-networkd-config/files/<profile>/<node>/`.
 
 The `systemd-networkd-config` recipe installs these to `/etc/systemd/network/` based on `NETWORKD_PROFILE` and `NETWORKD_NODE_NAME` variables.
 
@@ -175,13 +171,17 @@ local_conf_header:
    nix build '.#checks.x86_64-linux.k3s-cluster-myprofile'
    ```
 
+## See Also
+
+- [K3s Configuration Module](../k3s/README.md) — Generates K3s command-line flags from network profile data
+
 ## Migration History
 
 - **2026-01-27 (Plan 012)**: Major refactoring for unified architecture
   - Extracted `k3sExtraFlags` to `lib/k3s/mk-k3s-flags.nix`
   - Removed `nodeConfig` from profiles (now in `mk-network-config.nix`)
   - Profiles now export pure data, modules transform it
-  - ISAR uses `systemd-networkd-config` recipe (replaces netplan)
+  - Debian backend uses `systemd-networkd-config` ISAR recipe (replaces netplan)
 - **2026-01-26**: Moved from `tests/lib/network-profiles/` to `lib/network/profiles/`
   - This is IMAGE-BUILDING infrastructure, not test-specific
   - Both backends now consume from this unified location

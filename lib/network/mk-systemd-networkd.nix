@@ -214,6 +214,7 @@ rec {
   # Returns: { filename = content; }
   #
   # Profile detection:
+  #   - mode = "dhcp"? → DHCP configuration (no static IP)
   #   - Has vlanIds? → VLAN profile
   #   - Has bondConfig? → Bonding profile
   #   - Otherwise → Simple flat network
@@ -227,13 +228,25 @@ rec {
       nodeIPs = ipAddresses.${nodeName} or { };
 
       # Detect profile type
+      # - isDhcp: profile uses DHCP instead of static IPs
       # - hasVlans: profile defines vlanIds
       # - hasBond: profile defines bond interface (vlans profile has trunk but not bond/bondMembers)
+      isDhcp = (profile.mode or "static") == "dhcp";
       hasVlans = vlanIds != null;
       hasBond = interfaces ? bond || interfaces ? bondMembers;
 
+      # DHCP simple profile: single interface with DHCP
+      # Used when mode="dhcp" and no VLANs/bonding
+      dhcpSimpleFiles = lib.optionalAttrs (isDhcp && !hasVlans && !hasBond) {
+        "20-${interfaces.cluster or "eth1"}.network" = mkNetworkFile {
+          name = interfaces.cluster or "eth1";
+          addresses = [ ]; # No static addresses - DHCP assigns
+          dhcp = "yes";
+        };
+      };
+
       # Simple profile: single interface with direct IP
-      simpleFiles = lib.optionalAttrs (!hasVlans && !hasBond) {
+      simpleFiles = lib.optionalAttrs (!isDhcp && !hasVlans && !hasBond) {
         "20-${interfaces.cluster or "eth1"}.network" = mkNetworkFile {
           name = interfaces.cluster or "eth1";
           addresses = [ "${nodeIPs.cluster or "0.0.0.0"}/24" ];
@@ -348,7 +361,7 @@ rec {
         else { };
 
     in
-    simpleFiles // vlanFiles // bondingVlanFiles;
+    dhcpSimpleFiles // simpleFiles // vlanFiles // bondingVlanFiles;
 
   # =========================================================================
   # Generate files for all nodes in a profile

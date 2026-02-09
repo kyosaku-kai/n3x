@@ -109,7 +109,7 @@ let
     # Enable k3s with airgap images
     services.k3s = {
       enable = true;
-      images = [ pkgs.k3s.passthru.airgapImages ];
+      images = [ pkgs.k3s.passthru."airgap-images" ];
     };
 
     # Test-friendly authentication

@@ -1,0 +1,37 @@
+# apt-cacher-ng proxy overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Routes ISAR apt traffic through a local apt-cacher-ng proxy running on the
+#   build host. This caches Debian packages locally, reducing network traffic
+#   and speeding up repeated builds.
+#
+# USAGE:
+#   Append to kas config chain on hosts with apt-cacher-ng running:
+#   kas-build kas/base.yml:...:kas/opt/apt-cacher-ng.yml
+#
+# CONFIGURATION:
+#   The proxy runs on localhost:3142 (standard apt-cacher-ng port).
+#   The NixOS runner module (n3x.apt-cacher-ng) configures this automatically.
+#
+# CACHE FLOW:
+#   ISAR apt-get → apt-cacher-ng (localhost:3142) → upstream Debian mirror
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  apt-cacher-ng-proxy: |
+    # Route all apt traffic through local apt-cacher-ng proxy
+    # This overrides the empty DISTRO_APT_PREMIRRORS from base.yml
+    #
+    # Format: original-url replacement-url (newline separated)
+    # apt-cacher-ng intercepts and caches transparently
+    DISTRO_APT_PREMIRRORS = " \
+      http://deb.debian.org http://localhost:3142/deb.debian.org \n \
+      https://deb.debian.org http://localhost:3142/deb.debian.org \n \
+      http://security.debian.org http://localhost:3142/security.debian.org \n \
+      https://security.debian.org http://localhost:3142/security.debian.org \n \
+    "

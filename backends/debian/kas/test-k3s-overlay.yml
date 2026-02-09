@@ -1,0 +1,28 @@
+# K3s Test Overlay - adds NixOS test driver backdoor to k3s images
+# =============================================================================
+#
+# PURPOSE:
+#   Adds the nixos-test-backdoor package to k3s images for VM testing with
+#   the NixOS test driver. Works with both server and agent image targets.
+#
+# USAGE:
+#   Append after an image overlay in the kas build command:
+#     kas-build kas/base.yml:...:kas/image/k3s-server.yml:kas/test-k3s-overlay.yml
+#     kas-build kas/base.yml:...:kas/image/k3s-agent.yml:kas/test-k3s-overlay.yml
+#
+# NOTES:
+#   - Does NOT set target - the image overlay (k3s-server.yml or k3s-agent.yml)
+#     must appear earlier in the chain to set the build target
+#   - Includes nixos-test-backdoor for test driver communication
+#   - Safe for automated testing only - NOT for production
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  test-k3s-config: |
+    # Include NixOS test driver backdoor service
+    # This enables VM testing with nixos-test-driver
+    IMAGE_INSTALL:append = " nixos-test-backdoor"

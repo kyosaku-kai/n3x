@@ -1,0 +1,61 @@
+# Mirror Configuration (Public Upstream — Default)
+# =============================================================================
+#
+# PURPOSE:
+#   Centralizes all external URLs into one overlay. This file is auto-included
+#   by kas/base.yml so all builds get consistent URL definitions.
+#
+#   Recipes reference BitBake variables (NVIDIA_L4T_MIRROR, KERNEL_MIRROR)
+#   in SRC_URI instead of hardcoding URLs, enabling easy URL switching.
+#
+# INTERNAL MIRRORS (future):
+#   When internal mirrors are provisioned (Plan 023), either:
+#   (a) Edit the URLs in this file directly, or
+#   (b) Create a mirrors-internal.yml overlay that overrides these values
+#       and append it to build commands.
+#
+#   See docs/internal-mirror-registry.md for the full mirror mapping.
+#
+# =============================================================================
+
+header:
+  version: 14
+
+# ISAR framework repository
+#
+# IMPORTANT: This will eventually be a FORK, not a plain mirror.
+#
+# ISAR's dpkg-base.bbclass has a bug in do_adjust_git (line 30-34) where
+# os.path.exists() is used to check a symlink, but this follows the symlink
+# target. When the target doesn't exist (stale tmpdir from a previous
+# kas-container session), the dangling symlink isn't cleaned up, and the
+# subsequent os.symlink() call fails with FileExistsError.
+#
+# Fix: change os.path.exists() to os.path.lexists() on line 30 and 33 of
+# meta/classes-recipe/dpkg-base.bbclass in the ISAR source.
+#
+# Upstream file: https://github.com/ilbers/isar/blob/master/meta/classes-recipe/dpkg-base.bbclass
+# Affected function: do_adjust_git() -- symlink creation for .git-downloads
+#
+# Current workaround: rm -f build/tmp/work/debian-trixie-*/.git-downloads
+# before each kas-container build when switching between invocations.
+#
+# Tracking: When internal GitLab mirror is provisioned, create a fork with
+# a patch branch containing the fix, point this URL at the fork, and submit
+# the fix upstream to ilbers/isar.
+repos:
+  isar:
+    url: https://github.com/ilbers/isar.git
+    commit: 16b7b7e37b54be969453466e01ce4aa66e8ccb8e
+    layers:
+      meta:
+      meta-isar:
+
+# BitBake variables for recipe SRC_URI references
+local_conf_header:
+  mirrors-config: |
+    # Mirror base URLs for binary downloads and source tarballs.
+    # Recipes reference these variables in SRC_URI instead of hardcoding URLs.
+    # To switch to internal mirrors, update these values (see header comment).
+    NVIDIA_L4T_MIRROR = "https://repo.download.nvidia.com/jetson"
+    KERNEL_MIRROR = "https://cdn.kernel.org/pub/linux/kernel"

@@ -1,0 +1,9 @@
+k3s (1.35.0-1) unstable; urgency=medium
+
+  * Initial unified package release
+  * Combines k3s-server and k3s-agent into single package
+  * Both service units included, neither enabled by default
+  * Enable k3s-server.service for control plane nodes
+  * Enable k3s-agent.service for worker nodes
+
+ -- n3x Project <n3x@example.com>  Sat, 08 Feb 2026 12:00:00 +0000

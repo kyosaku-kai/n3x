@@ -1,0 +1,17 @@
+#!/bin/sh
+# Post-installation script for k3s-system-config
+
+set -e
+
+case "$1" in
+    configure)
+        # Run iptables-legacy configuration
+        if [ -x /usr/lib/k3s/iptables-legacy.sh ]; then
+            /usr/lib/k3s/iptables-legacy.sh
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

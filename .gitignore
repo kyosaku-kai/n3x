@@ -53,6 +53,9 @@ id_ed25519
 id_ed25519.pub
 *.pem
 
+# Allow internal CA public certificates (these are intentionally public)
+!infra/nixos-runner/certs/*.pem
+
 # Allow tracking encrypted secrets
 !secrets/**/*.yaml
 # Allow example files for reference
@@ -65,6 +68,13 @@ id_ed25519.pub
 /nixos.qcow2
 /*.img
 /*.iso
+
+# Pulumi Go build output
+infra/pulumi/infra
+
+# Pulumi state (managed by Pulumi service or local backend)
+Pulumi.*.yaml
+!infra/pulumi/Pulumi.yaml
 
 # Terraform state (if using Terraform)
 *.tfstate
@@ -84,8 +94,8 @@ docs/_build/
 docs/.doctrees/
 
 # ISAR/Yocto build artifacts (contains root-owned files from kas-container)
-backends/isar/build/
-backends/isar/isar/
+backends/debian/build/
+backends/debian/isar/
 
 # Test artifacts
 test-results/

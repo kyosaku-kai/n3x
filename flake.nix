@@ -3,7 +3,11 @@
 
   inputs = {
     # Core NixOS inputs
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    # TEMPORARY: Using fork with virtualisation.bootDiskAdditionalSpace fix
+    # for bootloader-enabled VM tests (k3s-cluster-simple-systemd-boot).
+    # Fork rebased onto nixos-25.11 (2026-02-16). Revert to nixos-25.11 once merged upstream.
+    # See: docs/nixpkgs-vm-bootloader-disk-limitation.md
+    nixpkgs.url = "github:timblaktu/nixpkgs/vm-bootloader-disk-size";
 
     # Hardware management
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
@@ -115,138 +119,206 @@
         config.allowUnfree = true;
       };
 
+      # Package set for aarch64-darwin (Apple Silicon)
+      pkgsDarwin = import nixpkgs {
+        system = "aarch64-darwin";
+        config.allowUnfree = true;
+      };
+
       # =======================================================================
       # ISAR Backend Support
       # =======================================================================
 
-      # WSL-safe kas-container wrapper script
-      # Handles the sgdisk sync() hang issue on WSL2 by temporarily unmounting 9p filesystems
-      kasBuildWrapper = pkgs.writeShellScriptBin "kas-build" ''
-        set -euo pipefail
+      # Platform-aware kas-container wrapper script
+      # Linux: Handles the sgdisk sync() hang on WSL2 by temporarily unmounting 9p filesystems
+      # Darwin: Uses Docker Desktop as container engine (podman broken on nix-darwin)
+      mkKasBuildWrapper = wrapperPkgs:
+        if wrapperPkgs.stdenv.isDarwin then
+          wrapperPkgs.writeShellScriptBin "kas-build" ''
+            set -euo pipefail
 
-        # ANSI colors
-        RED='\033[0;31m'
-        GREEN='\033[0;32m'
-        YELLOW='\033[1;33m'
-        BLUE='\033[0;34m'
-        NC='\033[0m'
+            # ANSI colors
+            RED='\033[0;31m'
+            GREEN='\033[0;32m'
+            YELLOW='\033[1;33m'
+            BLUE='\033[0;34m'
+            NC='\033[0m'
 
-        log_info() { echo -e "''${BLUE}[INFO]''${NC} $*"; }
-        log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $*"; }
-        log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
-        log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $*"; }
+            log_info() { echo -e "''${BLUE}[INFO]''${NC} $*"; }
+            log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
+            log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $*"; }
 
-        is_wsl() { [[ -n "''${WSL_DISTRO_NAME:-}" ]]; }
+            if [[ $# -lt 1 ]]; then
+              echo "Usage: kas-build <kas-config-files> [additional-args...]"
+              echo ""
+              echo "Wrapper around 'kas-container --isar build' for macOS."
+              echo "Requires Docker Desktop to be running."
+              echo ""
+              echo "Examples:"
+              echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
+              echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/jetson-orin-nano.yml"
+              exit 1
+            fi
 
-        # Only get drvfs mounts under /mnt/[a-z] (Windows drive letters)
-        # EXCLUDE /usr/lib/wsl/drivers - it's read-only and shouldn't cause sync() hangs
-        # The sync() hang is caused by dirty data on rw mounts like /mnt/c
-        get_9p_mounts() {
-          ${pkgs.util-linux}/bin/mount | \
-            ${pkgs.gnugrep}/bin/grep -E 'type 9p' | \
-            ${pkgs.gnugrep}/bin/grep -E ' /mnt/[a-z] ' | \
-            ${pkgs.gawk}/bin/awk '{print $3}' || true
-        }
+            # Validate Docker Desktop is available
+            if ! command -v docker &>/dev/null; then
+              log_error "Docker not found in PATH"
+              echo ""
+              echo "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+              exit 1
+            fi
 
-        UNMOUNTED_MOUNTS=()
+            if ! docker info &>/dev/null 2>&1; then
+              log_error "Docker daemon is not running"
+              echo ""
+              echo "Start Docker Desktop and try again."
+              exit 1
+            fi
 
-        unmount_9p_filesystems() {
-          if ! is_wsl; then return 0; fi
+            kas_config="$1"
+            shift
 
-          local mounts
-          mounts=$(get_9p_mounts)
-          [[ -z "$mounts" ]] && return 0
+            export KAS_CONTAINER_ENGINE=docker
+            export KAS_CONTAINER_IMAGE="ghcr.io/siemens/kas/kas-isar:5.1"
 
-          log_warn "Temporarily unmounting Windows drive mounts to prevent sync() hang..."
-          log_info "Note: /usr/lib/wsl/drivers is left mounted (read-only, doesn't cause hangs)"
+            log_info "Starting kas-container build (engine: docker)..."
+            log_info "Config: $kas_config"
+            echo
 
-          while IFS= read -r mount_point; do
-            if [[ -n "$mount_point" ]]; then
-              log_info "Unmounting: $mount_point"
-              if sudo ${pkgs.util-linux}/bin/umount -l "$mount_point" 2>/dev/null; then
-                UNMOUNTED_MOUNTS+=("$mount_point")
-                log_success "Unmounted: $mount_point"
-              else
-                log_warn "Failed to unmount $mount_point (may already be unmounted)"
+            kas-container --isar build "$kas_config" "$@"
+
+            log_success "Build completed successfully!"
+          ''
+        else
+          wrapperPkgs.writeShellScriptBin "kas-build" ''
+            set -euo pipefail
+
+            # ANSI colors
+            RED='\033[0;31m'
+            GREEN='\033[0;32m'
+            YELLOW='\033[1;33m'
+            BLUE='\033[0;34m'
+            NC='\033[0m'
+
+            log_info() { echo -e "''${BLUE}[INFO]''${NC} $*"; }
+            log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $*"; }
+            log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
+            log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $*"; }
+
+            is_wsl() { [[ -n "''${WSL_DISTRO_NAME:-}" ]]; }
+
+            # Only get drvfs mounts under /mnt/[a-z] (Windows drive letters)
+            # EXCLUDE /usr/lib/wsl/drivers - it's read-only and shouldn't cause sync() hangs
+            # The sync() hang is caused by dirty data on rw mounts like /mnt/c
+            get_9p_mounts() {
+              ${wrapperPkgs.util-linux}/bin/mount | \
+                ${wrapperPkgs.gnugrep}/bin/grep -E 'type 9p' | \
+                ${wrapperPkgs.gnugrep}/bin/grep -E ' /mnt/[a-z] ' | \
+                ${wrapperPkgs.gawk}/bin/awk '{print $3}' || true
+            }
+
+            UNMOUNTED_MOUNTS=()
+
+            unmount_9p_filesystems() {
+              if ! is_wsl; then return 0; fi
+
+              local mounts
+              mounts=$(get_9p_mounts)
+              [[ -z "$mounts" ]] && return 0
+
+              log_warn "Temporarily unmounting Windows drive mounts to prevent sync() hang..."
+              log_info "Note: /usr/lib/wsl/drivers is left mounted (read-only, doesn't cause hangs)"
+
+              while IFS= read -r mount_point; do
+                if [[ -n "$mount_point" ]]; then
+                  log_info "Unmounting: $mount_point"
+                  if sudo ${wrapperPkgs.util-linux}/bin/umount -l "$mount_point" 2>/dev/null; then
+                    UNMOUNTED_MOUNTS+=("$mount_point")
+                    log_success "Unmounted: $mount_point"
+                  else
+                    log_warn "Failed to unmount $mount_point (may already be unmounted)"
+                  fi
+                fi
+              done <<< "$mounts"
+            }
+
+            remount_9p_filesystems() {
+              if ! is_wsl; then return 0; fi
+              [[ ''${#UNMOUNTED_MOUNTS[@]} -eq 0 ]] && return 0
+
+              log_info "Remounting Windows drive mounts..."
+
+              # Standard mount options that preserve execute permissions for Windows binaries
+              local drvfs_opts="metadata,uid=$(id -u),gid=$(id -g)"
+
+              local remount_failed=false
+              for mount_point in "''${UNMOUNTED_MOUNTS[@]}"; do
+                log_info "Remounting: $mount_point"
+
+                # All mounts we unmount are /mnt/[a-z] Windows drives
+                local drive_letter="''${mount_point##*/}"
+                drive_letter="''${drive_letter^^}"
+                if sudo ${wrapperPkgs.util-linux}/bin/mount -t drvfs "''${drive_letter}:" "$mount_point" -o "$drvfs_opts" 2>/dev/null; then
+                  log_success "Remounted: $mount_point"
+                else
+                  log_warn "Could not remount $mount_point - you may need: wsl --shutdown"
+                  remount_failed=true
+                fi
+              done
+
+              if $remount_failed; then
+                log_warn "Some filesystems could not be remounted. To restore:"
+                log_warn "  1. Open PowerShell: wsl --shutdown"
+                log_warn "  2. Restart WSL: wsl"
               fi
+            }
+
+            cleanup() {
+              local exit_code=$?
+              log_info "Cleaning up..."
+              remount_9p_filesystems
+              exit $exit_code
+            }
+
+            trap cleanup EXIT INT TERM
+
+            if [[ $# -lt 1 ]]; then
+              echo "Usage: kas-build <kas-config-files> [additional-args...]"
+              echo ""
+              echo "WSL-safe wrapper around 'kas-container --isar build'"
+              echo "Automatically handles 9p filesystem unmounting on WSL2."
+              echo ""
+              echo "Examples:"
+              echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
+              echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/jetson-orin-nano.yml"
+              exit 1
             fi
-          done <<< "$mounts"
-        }
 
-        remount_9p_filesystems() {
-          if ! is_wsl; then return 0; fi
-          [[ ''${#UNMOUNTED_MOUNTS[@]} -eq 0 ]] && return 0
+            kas_config="$1"
+            shift
 
-          log_info "Remounting Windows drive mounts..."
-
-          # Standard mount options that preserve execute permissions for Windows binaries
-          local drvfs_opts="metadata,uid=$(id -u),gid=$(id -g)"
-
-          local remount_failed=false
-          for mount_point in "''${UNMOUNTED_MOUNTS[@]}"; do
-            log_info "Remounting: $mount_point"
-
-            # All mounts we unmount are /mnt/[a-z] Windows drives
-            local drive_letter="''${mount_point##*/}"
-            drive_letter="''${drive_letter^^}"
-            if sudo ${pkgs.util-linux}/bin/mount -t drvfs "''${drive_letter}:" "$mount_point" -o "$drvfs_opts" 2>/dev/null; then
-              log_success "Remounted: $mount_point"
-            else
-              log_warn "Could not remount $mount_point - you may need: wsl --shutdown"
-              remount_failed=true
+            if is_wsl; then
+              log_info "WSL detected: $WSL_DISTRO_NAME"
+              log_info "Will handle 9p filesystem workaround for WIC generation"
+              unmount_9p_filesystems
             fi
-          done
 
-          if $remount_failed; then
-            log_warn "Some filesystems could not be remounted. To restore:"
-            log_warn "  1. Open PowerShell: wsl --shutdown"
-            log_warn "  2. Restart WSL: wsl"
-          fi
-        }
+            log_info "Starting kas-container build..."
+            log_info "Config: $kas_config"
+            echo
 
-        cleanup() {
-          local exit_code=$?
-          log_info "Cleaning up..."
-          remount_9p_filesystems
-          exit $exit_code
-        }
+            export KAS_CONTAINER_ENGINE=podman
+            # ISAR commit 27651d51 (Sept 2024) requires bubblewrap for rootfs sandboxing
+            # kas-isar:4.7 does NOT have bwrap; kas-isar:5.1+ does
+            # Use KAS_CONTAINER_IMAGE to override the full image path (not KAS_CONTAINER_IMAGE_NAME)
+            export KAS_CONTAINER_IMAGE="ghcr.io/siemens/kas/kas-isar:5.1"
+            kas-container --isar build "$kas_config" "$@"
 
-        trap cleanup EXIT INT TERM
+            log_success "Build completed successfully!"
+          '';
 
-        if [[ $# -lt 1 ]]; then
-          echo "Usage: kas-build <kas-config-files> [additional-args...]"
-          echo ""
-          echo "WSL-safe wrapper around 'kas-container --isar build'"
-          echo "Automatically handles 9p filesystem unmounting on WSL2."
-          echo ""
-          echo "Examples:"
-          echo "  kas-build backends/isar/kas/base.yml:backends/isar/kas/machine/qemu-amd64.yml"
-          echo "  kas-build backends/isar/kas/base.yml:backends/isar/kas/machine/jetson-orin-nano.yml"
-          exit 1
-        fi
-
-        kas_config="$1"
-        shift
-
-        if is_wsl; then
-          log_info "WSL detected: $WSL_DISTRO_NAME"
-          log_info "Will handle 9p filesystem workaround for WIC generation"
-          unmount_9p_filesystems
-        fi
-
-        log_info "Starting kas-container build..."
-        log_info "Config: $kas_config"
-        echo
-
-        export KAS_CONTAINER_ENGINE=podman
-        # ISAR commit 27651d51 (Sept 2024) requires bubblewrap for rootfs sandboxing
-        # kas-isar:4.7 does NOT have bwrap; kas-isar:5.1+ does
-        # Use KAS_CONTAINER_IMAGE to override the full image path (not KAS_CONTAINER_IMAGE_NAME)
-        export KAS_CONTAINER_IMAGE="ghcr.io/siemens/kas/kas-isar:5.1"
-        kas-container --isar build "$kas_config" "$@"
-
-        log_success "Build completed successfully!"
-      '';
+      # Backward-compatible binding for existing references (apps, etc.)
+      kasBuildWrapper = mkKasBuildWrapper pkgs;
 
       # Helper function to build Jetson flash script with ISAR rootfs
       mkJetsonFlashScript =
@@ -261,39 +333,187 @@
         in
         config.config.system.build.initrdFlashScript;
 
-      # Import ISAR artifacts module for checks
-      isarArtifacts = import ./backends/isar/isar-artifacts.nix { inherit pkgs lib; };
+      # Import Debian backend artifacts module for checks
+      debianArtifacts = import ./backends/debian/debian-artifacts.nix { inherit pkgs lib; };
 
       # Import swupdate module for OTA bundle generation
-      swupdateModule = import ./backends/isar/swupdate { inherit pkgs lib; };
+      swupdateModule = import ./backends/debian/swupdate { inherit pkgs lib; };
 
       # Import SWUpdate VM tests
       swupdateTests = {
-        bundle-validation = import ./tests/isar/swupdate-bundle-validation.nix { inherit pkgs lib; };
-        apply = import ./tests/isar/swupdate-apply.nix { inherit pkgs lib; };
-        boot-switch = import ./tests/isar/swupdate-boot-switch.nix { inherit pkgs lib; };
-        network-ota = import ./tests/isar/swupdate-network-ota.nix { inherit pkgs lib; };
+        bundle-validation = import ./tests/debian/swupdate-bundle-validation.nix { inherit pkgs lib; };
+        apply = import ./tests/debian/swupdate-apply.nix { inherit pkgs lib; };
+        boot-switch = import ./tests/debian/swupdate-boot-switch.nix { inherit pkgs lib; };
+        network-ota = import ./tests/debian/swupdate-network-ota.nix { inherit pkgs lib; };
       };
 
-      # Import ISAR parity tests (parallel to NixOS smoke tests)
-      isarParityTests = {
-        vm-boot = import ./tests/isar/single-vm-boot.nix { inherit pkgs lib; };
-        two-vm-network = import ./tests/isar/two-vm-network.nix { inherit pkgs lib; };
+      # Import Debian backend parity tests (parallel to NixOS smoke tests)
+      debianParityTests = {
+        vm-boot = import ./tests/debian/single-vm-boot.nix { inherit pkgs lib; };
+        two-vm-network = import ./tests/debian/two-vm-network.nix { inherit pkgs lib; };
         # K3s server boot test (Layer 3 - k3s binary verification)
-        k3s-server-boot = import ./tests/isar/k3s-server-boot.nix { inherit pkgs lib; };
+        k3s-server-boot = import ./tests/debian/k3s-server-boot.nix { inherit pkgs lib; };
         # K3s service test (Layer 3 - k3s service starts and API responds)
-        k3s-service = import ./tests/isar/k3s-service.nix { inherit pkgs lib; };
+        k3s-service = import ./tests/debian/k3s-service.nix { inherit pkgs lib; };
         # K3s network profile tests (requires images built with network overlays)
-        k3s-network-simple = import ./tests/isar/k3s-network-simple.nix { inherit pkgs lib; };
-        k3s-network-vlans = import ./tests/isar/k3s-network-vlans.nix { inherit pkgs lib; };
-        k3s-network-bonding = import ./tests/isar/k3s-network-bonding.nix { inherit pkgs lib; };
+        k3s-network-simple = import ./tests/debian/k3s-network-simple.nix { inherit pkgs lib; };
+        k3s-network-vlans = import ./tests/debian/k3s-network-vlans.nix { inherit pkgs lib; };
+        k3s-network-bonding = import ./tests/debian/k3s-network-bonding.nix { inherit pkgs lib; };
         # K3s cluster tests (Layer 4 - multi-node HA control plane)
-        k3s-cluster-simple = import ./tests/isar/k3s-cluster.nix { inherit pkgs lib; networkProfile = "simple"; };
-        k3s-cluster-vlans = import ./tests/isar/k3s-cluster.nix { inherit pkgs lib; networkProfile = "vlans"; };
-        k3s-cluster-bonding-vlans = import ./tests/isar/k3s-cluster.nix { inherit pkgs lib; networkProfile = "bonding-vlans"; };
+        # Firmware boot (default) - UEFI → bootloader → kernel
+        k3s-cluster-simple = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "simple"; };
+        k3s-cluster-vlans = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "vlans"; };
+        k3s-cluster-bonding-vlans = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "bonding-vlans"; };
+        k3s-cluster-dhcp-simple = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "dhcp-simple"; };
+        # Direct kernel boot (Plan 020 G4) - faster, bypasses bootloader via -kernel/-initrd
+        k3s-cluster-simple-direct = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "simple"; bootMode = "direct"; };
+        k3s-cluster-vlans-direct = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "vlans"; bootMode = "direct"; };
+        k3s-cluster-bonding-vlans-direct = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "bonding-vlans"; bootMode = "direct"; };
+        k3s-cluster-dhcp-simple-direct = import ./tests/debian/k3s-cluster.nix { inherit pkgs lib; networkProfile = "dhcp-simple"; bootMode = "direct"; };
         # Network debug test (fast iteration for debugging IP persistence issues)
-        network-debug = import ./tests/isar/network-debug.nix { inherit pkgs lib; };
+        network-debug = import ./tests/debian/network-debug.nix { inherit pkgs lib; };
       };
+
+      # ISAR build matrix (for artifact validation generation)
+      buildMatrix = import ./lib/debian/build-matrix.nix { inherit lib; };
+
+      # Debian backend checks (let-bound so debian-all can reference them without recursion)
+      debianPackageParity = import ./lib/debian/verify-kas-packages.nix {
+        inherit lib pkgs;
+        kasPath = ./backends/debian/kas;
+      };
+
+      # Generate artifact validation from the build matrix
+      debianArtifactValidation =
+        let
+          # Build validation commands for each variant from the matrix
+          validationLines = lib.concatMapStringsSep "\n"
+            (variant:
+              let
+                machineInfo = buildMatrix.machines.${variant.machine};
+                variantId = buildMatrix.mkVariantId variant;
+                path = buildMatrix.mkAttrPath variant;
+                # Access the artifacts through the registry using the path
+                artifacts = lib.getAttrFromPath path debianArtifacts;
+              in
+              lib.concatMapStringsSep "\n"
+                (artifactType:
+                  let
+                    typeInfo = machineInfo.artifactTypes.${artifactType};
+                    artifact = artifacts.${typeInfo.attrName};
+                  in
+                  "test -e ${artifact}\necho \"  ok: ${buildMatrix.mkArtifactName variant artifactType}\""
+                )
+                (builtins.attrNames machineInfo.artifactTypes)
+            )
+            buildMatrix.variants;
+        in
+        pkgs.runCommand "validate-debian-artifacts" { } ''
+          echo "Validating ISAR artifacts (${toString buildMatrix.variantCount} variants)..."
+          echo ""
+          ${validationLines}
+          echo ""
+          echo "All ISAR artifacts validated successfully!"
+          touch $out
+        '';
+
+      # Aggregate check: runs all Debian backend tests in one command
+      # NOTE: boot-switch excluded - SWUpdate grubenv_open fails on vfat EFI partition.
+      # Needs interactive debugging (strace, mount state check). See CLAUDE.md.
+      debianAllCheck = pkgs.linkFarm "debian-all-tests" (
+        lib.mapAttrsToList
+          (name: testDef: {
+            name = "debian-${name}";
+            path = testDef.test;
+          })
+          debianParityTests
+        ++ [
+          { name = "debian-package-parity"; path = debianPackageParity; }
+          { name = "debian-artifact-validation"; path = debianArtifactValidation; }
+        ]
+        ++ lib.mapAttrsToList
+          (name: testDef: {
+            name = "test-swupdate-${name}";
+            path = testDef.test;
+          })
+          (lib.filterAttrs (name: _: name != "boot-switch") swupdateTests)
+      );
+
+      # Platform-aware Debian backend development shell
+      # Linux: includes podman, WSL guidance
+      # Darwin: includes Docker Desktop validation, no podman
+      mkDebianShell = shellPkgs: shellPkgs.mkShell {
+        name = "n3x-debian";
+
+        buildInputs = with shellPkgs; [
+          # ISAR/kas tooling
+          kas
+
+          # QEMU for testing
+          qemu
+
+          # Build essentials
+          gnumake
+          git
+
+          # Python for ISAR scripts
+          python3
+
+          # Useful utilities
+          jq
+          yq-go
+          tree
+
+          # Platform-aware build wrapper
+          (mkKasBuildWrapper shellPkgs)
+        ] ++ lib.optionals shellPkgs.stdenv.isLinux [
+          # Container runtime (kas-container uses podman on Linux)
+          podman
+        ];
+
+        shellHook = ''
+          echo "n3x Debian Backend Development Environment"
+          echo "==========================================="
+          echo ""
+          echo "  kas version: $(kas --version 2>&1 | head -1)"
+          echo "  kas-container: $(which kas-container)"
+        '' + (if shellPkgs.stdenv.isDarwin then ''
+          export KAS_CONTAINER_ENGINE=docker
+          if ! command -v docker &>/dev/null; then
+            echo ""
+            echo "  ERROR: Docker not found in PATH"
+            echo "  Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+            echo ""
+          elif ! docker info &>/dev/null 2>&1; then
+            echo "  docker: installed but daemon not running"
+            echo ""
+            echo "  Start Docker Desktop and try again."
+          else
+            echo "  docker version: $(docker --version)"
+            echo "  engine: docker (Docker Desktop)"
+          fi
+        '' else ''
+          export KAS_CONTAINER_ENGINE=podman
+          echo "  podman version: $(podman --version)"
+          if [ -n "''${WSL_DISTRO_NAME:-}" ]; then
+            echo ""
+            echo "WSL2 Environment Detected: $WSL_DISTRO_NAME"
+            echo "  Use 'kas-build' instead of 'kas-container' for WIC image builds"
+            echo "  This handles the sgdisk sync() hang automatically."
+          fi
+        '') + ''
+          echo ""
+          echo "Primary workflow (builds + registers artifacts in Nix store):"
+          echo "  nix run '.' -- --list              # Show all build variants"
+          echo "  nix run '.' -- --variant base      # Build one variant"
+          echo "  nix run '.' -- --machine qemuamd64 # Build all variants for a machine"
+          echo "  nix run '.'                        # Build ALL variants"
+          echo ""
+          echo "Manual kas-build (lower level, does NOT register artifacts):"
+          echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
+          echo ""
+        '';
+      };  # end mkDebianShell
     in
     {
       # NixOS configurations for all nodes
@@ -479,84 +699,21 @@
           ];
         };
 
-        # ISAR development shell
-        isar = pkgs.mkShell {
-          name = "n3x-isar";
+        # Debian backend development shell (generated via mkDebianShell helper)
+        debian = mkDebianShell pkgs;
+      };
 
-          buildInputs = with pkgs; [
-            # ISAR/kas tooling
-            kas
-
-            # Container runtime (kas-container uses podman by default)
-            podman
-
-            # QEMU for testing
-            qemu
-
-            # Build essentials
-            gnumake
-            git
-
-            # Python for ISAR scripts
-            python3
-
-            # Useful utilities
-            jq
-            yq-go
-            tree
-
-            # WSL-safe build wrapper
-            kasBuildWrapper
-          ];
-
-          shellHook = ''
-            export KAS_CONTAINER_ENGINE=podman
-
-            echo "n3x ISAR Development Environment"
-            echo "================================="
-            echo ""
-            echo "  kas version: $(kas --version 2>&1 | head -1)"
-            echo "  kas-container: $(which kas-container)"
-            echo "  podman version: $(podman --version)"
-
-            # WSL-specific guidance
-            if [ -n "''${WSL_DISTRO_NAME:-}" ]; then
-              echo ""
-              echo "WSL2 Environment Detected: $WSL_DISTRO_NAME"
-              echo "  Use 'kas-build' instead of 'kas-container' for WIC image builds"
-              echo "  This handles the sgdisk sync() hang automatically."
-            fi
-
-            echo ""
-            echo "Build commands:"
-            echo "  kas-build backends/isar/kas/base.yml:backends/isar/kas/machine/qemu-amd64.yml"
-            echo "  kas-build backends/isar/kas/base.yml:backends/isar/kas/machine/jetson-orin-nano.yml"
-            echo ""
-          '';
-        };
+      # Debian backend development shell for Apple Silicon Macs
+      # Uses Docker Desktop instead of podman (podman broken on nix-darwin)
+      devShells.aarch64-darwin = {
+        debian = mkDebianShell pkgsDarwin;
       };
 
       # Packages that can be built
       packages.${systems.n100} = {
-        # ISO images for installation
-        # TODO: Add nixos-generators as flake input to enable this
-        # iso = pkgs.nixos-generators.nixosGenerate {
-        #   inherit pkgs;
-        #   modules = [
-        #     ./modules/installer/iso.nix
-        #   ];
-        #   format = "iso";
-        # };
-
-        # VM images for testing
-        # TODO: Add nixos-generators as flake input to enable this
-        # vm = pkgs.nixos-generators.nixosGenerate {
-        #   inherit pkgs;
-        #   modules = [
-        #     ./modules/common/base.nix
-        #   ];
-        #   format = "vm";
-        # };
+        # ISO/VM images: use native 25.11 image framework (system.build.images.*)
+        # instead of nixos-generators (archived, upstreamed to nixpkgs).
+        # See infra/nixos-runner/flake.nix for system.build.images.amazon example.
 
         # Documentation
         docs = pkgs.stdenv.mkDerivation {
@@ -634,7 +791,7 @@
         '';
 
         # =====================================================================
-        # ISAR Backend Packages
+        # Debian Backend Packages
         # =====================================================================
 
         # SWUpdate bundles for OTA updates (require artifact hashes to be populated)
@@ -647,6 +804,32 @@
         test-swupdate-apply-driver = swupdateTests.apply.driver;
         test-swupdate-boot-switch-driver = swupdateTests.boot-switch.driver;
         test-swupdate-network-ota-driver = swupdateTests.network-ota.driver;
+
+        # Jetson Orin Nano flash scripts (with ISAR rootfs)
+        # Usage: nix build .#jetson-flash-script-server  (primary: k3s control plane)
+        #        nix build .#jetson-flash-script-base    (development/testing)
+        # Output: initrd-flash directory in /nix/store ready for flashing
+        jetson-flash-script-server = mkJetsonFlashScript {
+          rootfsTarball = debianArtifacts.jetson-orin-nano.server.rootfs;
+          som = "orin-nano";
+          carrierBoard = "devkit";
+        };
+        jetson-flash-script-base = mkJetsonFlashScript {
+          rootfsTarball = debianArtifacts.jetson-orin-nano.base.rootfs;
+          som = "orin-nano";
+          carrierBoard = "devkit";
+        };
+
+        # Debian packages for ISAR images
+        # Built with Nix, published to JFrog apt repository, consumed by ISAR via IMAGE_PREINSTALL
+        k3s = pkgs.callPackage ./backends/debian/packages/k3s/build.nix { };
+        k3s-system-config = pkgs.callPackage ./backends/debian/packages/k3s-system-config/build.nix { };
+      };
+
+      # Debian packages for aarch64-linux (Jetson)
+      packages.${systems.jetson} = {
+        k3s = pkgsAarch64.callPackage ./backends/debian/packages/k3s/build.nix { };
+        # k3s-system-config is Architecture: all, only need one build
       };
 
       # Utility functions exported for use in modules
@@ -666,65 +849,80 @@
         # ISAR backend helpers
         inherit mkJetsonFlashScript;
 
+        # ISAR build matrix (variant definitions + naming functions)
+        # Used by isar-build-all script via: nix eval --json '.#lib.debian.buildMatrix'
+        debian.buildMatrix = import ./lib/debian/build-matrix.nix { inherit lib; };
+
         # Shared test infrastructure
         # Parameterized K3s cluster test builder (NixOS tests)
         # Usage: mkK3sClusterTest { pkgs, lib, networkProfile ? "simple", ... }
         mkK3sClusterTest = import ./tests/lib/mk-k3s-cluster-test.nix;
 
-        # ISAR VM test builder (for ISAR .wic images)
-        # Usage: mkISARTest { pkgs, lib } { name, machines, testScript, ... }
-        mkISARTest = { pkgs, lib ? pkgs.lib }:
-          import ./tests/lib/isar/mk-isar-test.nix { inherit pkgs lib; };
+        # Debian backend VM test builder (for ISAR .wic images)
+        # Usage: mkDebianTest { pkgs, lib } { name, machines, testScript, ... }
+        mkDebianTest = { pkgs, lib ? pkgs.lib }:
+          import ./tests/lib/debian/mk-debian-test.nix { inherit pkgs lib; };
 
         # Network profiles for K3s cluster tests
-        # Available: simple, vlans, bonding-vlans, vlans-broken
+        # Available: simple, vlans, bonding-vlans, vlans-broken, dhcp-simple
         # UNIFIED: These profiles live in lib/network/ and are consumed by BOTH backends
         networkProfiles = {
           simple = import ./lib/network/profiles/simple.nix { inherit lib; };
           vlans = import ./lib/network/profiles/vlans.nix { inherit lib; };
           bonding-vlans = import ./lib/network/profiles/bonding-vlans.nix { inherit lib; };
           vlans-broken = import ./lib/network/profiles/vlans-broken.nix { inherit lib; };
+          dhcp-simple = import ./lib/network/profiles/dhcp-simple.nix { inherit lib; };
         };
       };
 
       # Flake apps for workflow automation
-      apps.${systems.n100} = {
-        # Automated ISAR artifact build and registration workflow
-        # Usage: nix run '.#rebuild-isar-artifacts' -- --help
-        rebuild-isar-artifacts = {
-          type = "app";
-          program = "${pkgs.writeShellApplication {
-            name = "rebuild-isar-artifacts";
+      apps.${systems.n100} =
+        let
+          isarBuildAllApp = {
+            type = "app";
+            program = "${pkgs.writeShellApplication {
+            name = "isar-build-all";
             runtimeInputs = with pkgs; [
               coreutils
               gnused
               nix
+              jq
+              util-linux
               kas
               podman
               kasBuildWrapper
             ];
-            text = builtins.readFile ./backends/isar/scripts/rebuild-isar-artifacts.sh;
-          }}/bin/rebuild-isar-artifacts";
-          meta = {
-            description = "Build ISAR images and register artifacts in isar-artifacts.nix";
-            mainProgram = "rebuild-isar-artifacts";
+            text = builtins.readFile ./backends/debian/scripts/isar-build-all.sh;
+          }}/bin/isar-build-all";
+            meta = {
+              description = "Build ISAR images from the build matrix and register in Nix store";
+              mainProgram = "isar-build-all";
+            };
           };
-        };
+        in
+        {
+          # Default app: nix run '.' -- --help
+          # Builds ISAR image variants from the build matrix and registers in Nix store.
+          # This is THE primary workflow command for this project.
+          default = isarBuildAllApp;
 
-        # Generate systemd-networkd config files for ISAR from Nix profiles
-        # Usage: nix run '.#generate-networkd-configs'
-        generate-networkd-configs = {
-          type = "app";
-          meta = {
-            description = "Generate systemd-networkd config files from Nix network profiles for ISAR";
-            mainProgram = "generate-networkd-configs";
-          };
-          program = "${pkgs.writeShellApplication {
+          # Explicit name alias: nix run '.#isar-build-all' also works
+          isar-build-all = isarBuildAllApp;
+
+          # Generate systemd-networkd config files for ISAR from Nix profiles
+          # Usage: nix run '.#generate-networkd-configs'
+          generate-networkd-configs = {
+            type = "app";
+            meta = {
+              description = "Generate systemd-networkd config files from Nix network profiles for ISAR";
+              mainProgram = "generate-networkd-configs";
+            };
+            program = "${pkgs.writeShellApplication {
             name = "generate-networkd-configs";
             runtimeInputs = with pkgs; [ coreutils ];
             text = ''
               # Generate systemd-networkd config files from Nix network profiles
-              # Output: backends/isar/meta-isar-k3s/recipes-support/systemd-networkd-config/files/
+              # Output: backends/debian/meta-n3x/recipes-support/systemd-networkd-config/files/
 
               set -euo pipefail
 
@@ -737,7 +935,7 @@
                 exit 1
               fi
 
-              OUTPUT_DIR="''${REPO_ROOT}/backends/isar/meta-isar-k3s/recipes-support/systemd-networkd-config/files"
+              OUTPUT_DIR="''${REPO_ROOT}/backends/debian/meta-n3x/recipes-support/systemd-networkd-config/files"
 
               echo "=== Generating systemd-networkd configs ==="
               echo "Repository: ''${REPO_ROOT}"
@@ -745,7 +943,7 @@
               echo ""
 
               # Profiles to generate
-              PROFILES=("simple" "vlans" "bonding-vlans")
+              PROFILES=("simple" "vlans" "bonding-vlans" "dhcp-simple")
 
               # Node names (match what profiles define)
               NODES=("server-1" "server-2" "agent-1" "agent-2")
@@ -793,32 +991,32 @@
               echo "  3. Commit: git commit -m 'chore: regenerate networkd configs from Nix profiles'"
             '';
           }}/bin/generate-networkd-configs";
-        };
-
-        # WSL filesystem remount utility
-        # Usage: nix run '.#wsl-remount'
-        #
-        # Purpose: Recover from kas-build being killed before it could remount /mnt/c.
-        # The kas-build wrapper temporarily unmounts Windows drives (/mnt/c) to prevent
-        # sgdisk sync() hangs during WIC image generation. It remounts on exit via trap.
-        #
-        # IMPORTANT: /usr/lib/wsl/drivers is NO LONGER unmounted (2026-01-27).
-        # It's read-only and doesn't contribute to sync hangs. WSL utilities (clip.exe, etc.)
-        # live on /mnt/c, not /usr/lib/wsl/drivers.
-        #
-        # When mounts break:
-        # 1. If SIGKILL (-9) was used, traps don't run → /mnt/c stays unmounted
-        # 2. Run this utility to attempt remount
-        # 3. If filesystem appears empty, 9p connection is severed → wsl --shutdown required
-        #
-        # Prevention: Use SIGTERM before SIGKILL when terminating kas-build processes.
-        wsl-remount = {
-          type = "app";
-          meta = {
-            description = "Remount WSL Windows filesystems after kas-build interruption";
-            mainProgram = "wsl-remount";
           };
-          program = "${pkgs.writeShellApplication {
+
+          # WSL filesystem remount utility
+          # Usage: nix run '.#wsl-remount'
+          #
+          # Purpose: Recover from kas-build being killed before it could remount /mnt/c.
+          # The kas-build wrapper temporarily unmounts Windows drives (/mnt/c) to prevent
+          # sgdisk sync() hangs during WIC image generation. It remounts on exit via trap.
+          #
+          # IMPORTANT: /usr/lib/wsl/drivers is NO LONGER unmounted (2026-01-27).
+          # It's read-only and doesn't contribute to sync hangs. WSL utilities (clip.exe, etc.)
+          # live on /mnt/c, not /usr/lib/wsl/drivers.
+          #
+          # When mounts break:
+          # 1. If SIGKILL (-9) was used, traps don't run → /mnt/c stays unmounted
+          # 2. Run this utility to attempt remount
+          # 3. If filesystem appears empty, 9p connection is severed → wsl --shutdown required
+          #
+          # Prevention: Use SIGTERM before SIGKILL when terminating kas-build processes.
+          wsl-remount = {
+            type = "app";
+            meta = {
+              description = "Remount WSL Windows filesystems after kas-build interruption";
+              mainProgram = "wsl-remount";
+            };
+            program = "${pkgs.writeShellApplication {
             name = "wsl-remount";
             runtimeInputs = with pkgs; [ util-linux gnugrep gawk coreutils ];
             text = ''
@@ -921,8 +1119,8 @@
               fi
             '';
           }}/bin/wsl-remount";
+          };
         };
-      };
 
       # Checks run by CI/CD
       # x86_64-linux checks (primary platform - full test coverage)
@@ -944,6 +1142,26 @@
         # VM tests
         vm-test-build = pkgs.runCommand "vm-test-build" { } ''
           echo "Testing VM configurations can be built" > $out
+        '';
+
+        # Debian package builds
+        # Verifies packages/ directory .deb packages build correctly
+        debian-packages = pkgs.runCommand "debian-packages-check" { } ''
+          mkdir -p $out
+          # Verify k3s package built
+          if [ ! -f "${self.packages.${systems.n100}.k3s}/k3s_"*".deb" ]; then
+            echo "ERROR: k3s .deb not found"
+            exit 1
+          fi
+          # Verify k3s-system-config package built
+          if [ ! -f "${self.packages.${systems.n100}.k3s-system-config}/k3s-system-config_"*".deb" ]; then
+            echo "ERROR: k3s-system-config .deb not found"
+            exit 1
+          fi
+          echo "All Debian packages build successfully" > $out/result
+          # Copy packages for inspection
+          cp ${self.packages.${systems.n100}.k3s}/*.deb $out/
+          cp ${self.packages.${systems.n100}.k3s-system-config}/*.deb $out/
         '';
 
         # =====================================================================
@@ -1041,6 +1259,16 @@
           networkProfile = "simple";
         };
 
+        # Simple network profile with systemd-boot bootloader (Plan 019 Phase B)
+        # Tests bootloader parity with ISAR by using UEFI firmware + systemd-boot
+        # instead of direct kernel boot. Slower but validates full boot stack.
+        k3s-cluster-simple-systemd-boot = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "simple";
+          useSystemdBoot = true;
+          testName = "k3s-cluster-simple-systemd-boot";
+        };
+
         # VLAN tagging profile - 802.1Q VLANs on single trunk
         # Tests VLAN tagging with separate cluster (VLAN 200) and storage (VLAN 100) networks
         k3s-cluster-vlans = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
@@ -1053,6 +1281,45 @@
         k3s-cluster-bonding-vlans = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
           inherit pkgs lib;
           networkProfile = "bonding-vlans";
+        };
+
+        # DHCP simple profile - flat network with DHCP-assigned IPs (Plan 019 Phase C)
+        # Tests DHCP client behavior with MAC-based reservations.
+        # Uses dedicated dhcp-server VM running dnsmasq for IP assignment.
+        # See docs/DHCP-TEST-INFRASTRUCTURE.md for architecture rationale.
+        k3s-cluster-dhcp-simple = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "dhcp-simple";
+        };
+
+        # =================================================================
+        # NixOS UEFI/systemd-boot variants (Plan 020 Phase G3)
+        # Tests the same network profiles with UEFI firmware + systemd-boot
+        # instead of direct kernel boot. Validates full boot stack parity.
+        # =================================================================
+
+        # VLANs with systemd-boot bootloader
+        k3s-cluster-vlans-systemd-boot = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "vlans";
+          useSystemdBoot = true;
+          testName = "k3s-cluster-vlans-systemd-boot";
+        };
+
+        # Bonding + VLANs with systemd-boot bootloader
+        k3s-cluster-bonding-vlans-systemd-boot = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "bonding-vlans";
+          useSystemdBoot = true;
+          testName = "k3s-cluster-bonding-vlans-systemd-boot";
+        };
+
+        # DHCP with systemd-boot bootloader
+        k3s-cluster-dhcp-simple-systemd-boot = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
+          inherit pkgs lib;
+          networkProfile = "dhcp-simple";
+          useSystemdBoot = true;
+          testName = "k3s-cluster-dhcp-simple-systemd-boot";
         };
 
         # Bond failover test - validates active-backup failover behavior
@@ -1068,66 +1335,22 @@
         };
 
         # =====================================================================
-        # ISAR Backend Checks
+        # Debian Backend Checks
         # =====================================================================
         # These tests require KVM and are skipped if /dev/kvm is not available.
         # Run interactively: nix build '.#test-swupdate-*-driver' && ./result/bin/run-test-interactive
 
-        # Validate ISAR artifact hashes are correct
-        isar-artifact-validation = pkgs.runCommand "validate-isar-artifacts" { } ''
-          echo "Validating ISAR artifacts..."
-          echo ""
+        # Debian Backend Package Parity Verification (Plan 016)
+        # Verifies kas overlay files contain all packages defined in package-mapping.nix
+        # Fails at eval time if packages are missing
+        debian-package-parity = debianPackageParity;
 
-          # Validate qemuamd64 artifacts (used for VM tests)
-          echo "Checking qemuamd64 base artifacts..."
-          test -e ${isarArtifacts.qemuamd64.base.wic}
-          test -e ${isarArtifacts.qemuamd64.base.vmlinuz}
-          test -e ${isarArtifacts.qemuamd64.base.initrd}
-          echo "  ✓ qemuamd64 base: wic, vmlinuz, initrd"
+        # Validate Debian backend artifact hashes (generated from build matrix)
+        debian-artifact-validation = debianArtifactValidation;
 
-          echo "Checking qemuamd64 server artifacts..."
-          test -e ${isarArtifacts.qemuamd64.server.wic}
-          test -e ${isarArtifacts.qemuamd64.server.vmlinuz}
-          test -e ${isarArtifacts.qemuamd64.server.initrd}
-          echo "  ✓ qemuamd64 server: wic, vmlinuz, initrd"
-
-          echo "Checking qemuamd64 agent artifacts..."
-          test -e ${isarArtifacts.qemuamd64.agent.wic}
-          test -e ${isarArtifacts.qemuamd64.agent.vmlinuz}
-          test -e ${isarArtifacts.qemuamd64.agent.initrd}
-          echo "  ✓ qemuamd64 agent: wic, vmlinuz, initrd"
-
-          # Validate qemuarm64 artifacts
-          echo "Checking qemuarm64 base artifacts..."
-          test -e ${isarArtifacts.qemuarm64.base.ext4}
-          test -e ${isarArtifacts.qemuarm64.base.vmlinux}
-          test -e ${isarArtifacts.qemuarm64.base.initrd}
-          echo "  ✓ qemuarm64 base: ext4, vmlinux, initrd"
-
-          echo "Checking qemuarm64 server artifacts..."
-          test -e ${isarArtifacts.qemuarm64.server.ext4}
-          test -e ${isarArtifacts.qemuarm64.server.vmlinux}
-          test -e ${isarArtifacts.qemuarm64.server.initrd}
-          echo "  ✓ qemuarm64 server: ext4, vmlinux, initrd"
-
-          # Validate amd-v3c18i artifacts (real hardware - agent)
-          echo "Checking amd-v3c18i agent artifacts..."
-          test -e ${isarArtifacts.amd-v3c18i.agent.wic}
-          echo "  ✓ amd-v3c18i agent: wic"
-
-          # Validate jetson-orin-nano artifacts (real hardware - server)
-          echo "Checking jetson-orin-nano server artifacts..."
-          test -e ${isarArtifacts.jetson-orin-nano.server.rootfs}
-          echo "  ✓ jetson-orin-nano server: rootfs tarball"
-
-          echo "Checking jetson-orin-nano base artifacts..."
-          test -e ${isarArtifacts.jetson-orin-nano.base.rootfs}
-          echo "  ✓ jetson-orin-nano base: rootfs tarball"
-
-          echo ""
-          echo "All ISAR artifacts validated successfully!"
-          touch $out
-        '';
+        # Aggregate check: runs ALL Debian backend tests with a single command
+        # Usage: nix build '.#checks.x86_64-linux.debian-all' -L
+        debian-all = debianAllCheck;
 
         # SWUpdate VM Tests
         test-swupdate-bundle-validation = swupdateTests.bundle-validation.test;
@@ -1135,30 +1358,39 @@
         test-swupdate-boot-switch = swupdateTests.boot-switch.test;
         test-swupdate-network-ota = swupdateTests.network-ota.test;
 
-        # ISAR Parity Tests (parallel to NixOS smoke tests for Layer 1-2)
-        isar-vm-boot = isarParityTests.vm-boot.test;
-        isar-two-vm-network = isarParityTests.two-vm-network.test;
+        # Debian Backend Parity Tests (parallel to NixOS smoke tests for Layer 1-2)
+        debian-vm-boot = debianParityTests.vm-boot.test;
+        debian-two-vm-network = debianParityTests.two-vm-network.test;
 
-        # ISAR K3s Server Boot Test (Layer 3 - k3s binary verification)
-        isar-k3s-server-boot = isarParityTests.k3s-server-boot.test;
+        # Debian K3s Server Boot Test (Layer 3 - k3s binary verification)
+        debian-server-boot = debianParityTests.k3s-server-boot.test;
 
-        # ISAR K3s Service Test (Layer 3 - k3s service starts and API responds)
-        isar-k3s-service = isarParityTests.k3s-service.test;
+        # Debian K3s Service Test (Layer 3 - k3s service starts and API responds)
+        debian-service = debianParityTests.k3s-service.test;
 
-        # ISAR K3s Network Profile Tests (requires images with network overlays)
-        # Build images with: rebuild-isar-artifacts build -m qemuamd64 -r server -o test-k3s -o <network>
-        isar-k3s-network-simple = isarParityTests.k3s-network-simple.test;
-        isar-k3s-network-vlans = isarParityTests.k3s-network-vlans.test;
-        isar-k3s-network-bonding = isarParityTests.k3s-network-bonding.test;
+        # Debian K3s Network Profile Tests (requires images with network overlays)
+        # Build images: nix run '.#isar-build-all' -- --machine qemuamd64
+        debian-network-simple = debianParityTests.k3s-network-simple.test;
+        debian-network-vlans = debianParityTests.k3s-network-vlans.test;
+        debian-network-bonding = debianParityTests.k3s-network-bonding.test;
 
-        # ISAR K3s Cluster Tests (Layer 4 - multi-node HA control plane)
-        # Requires: profile-specific images from isar-artifacts.nix
-        isar-k3s-cluster-simple = isarParityTests.k3s-cluster-simple.test;
-        isar-k3s-cluster-vlans = isarParityTests.k3s-cluster-vlans.test;
-        isar-k3s-cluster-bonding-vlans = isarParityTests.k3s-cluster-bonding-vlans.test;
+        # Debian K3s Cluster Tests (Layer 4 - multi-node HA control plane)
+        # Requires: profile-specific images registered via isar-build-all
+        # Firmware boot (default) - UEFI → bootloader → kernel
+        debian-cluster-simple = debianParityTests.k3s-cluster-simple.test;
+        debian-cluster-vlans = debianParityTests.k3s-cluster-vlans.test;
+        debian-cluster-bonding-vlans = debianParityTests.k3s-cluster-bonding-vlans.test;
+        debian-cluster-dhcp-simple = debianParityTests.k3s-cluster-dhcp-simple.test;
 
-        # ISAR Network Debug Test (fast iteration for IP persistence debugging)
-        isar-network-debug = isarParityTests.network-debug.test;
+        # Debian K3s Cluster Tests - Direct kernel boot (Plan 020 G4)
+        # Faster boot via -kernel/-initrd, bypasses UEFI/bootloader
+        debian-cluster-simple-direct = debianParityTests.k3s-cluster-simple-direct.test;
+        debian-cluster-vlans-direct = debianParityTests.k3s-cluster-vlans-direct.test;
+        debian-cluster-bonding-vlans-direct = debianParityTests.k3s-cluster-bonding-vlans-direct.test;
+        debian-cluster-dhcp-simple-direct = debianParityTests.k3s-cluster-dhcp-simple-direct.test;
+
+        # Debian Network Debug Test (fast iteration for IP persistence debugging)
+        debian-network-debug = debianParityTests.network-debug.test;
       };
 
       # aarch64-linux checks (Jetson platform - build validation only)

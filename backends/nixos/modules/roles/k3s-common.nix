@@ -136,21 +136,16 @@
   # Configure systemd to better handle containers
   systemd = {
     # Increase default limits for container workloads
-    # NOTE: Using systemd.extraConfig instead of systemd.settings.Manager because
-    # systemd.settings was introduced in nixpkgs ~24.05+, and n3x's current nixpkgs
-    # revision doesn't have this option.
-    # TODO: Convert to systemd.settings.Manager = { DefaultLimitNOFILE = 1048576; ... }
-    #       when nixpkgs is updated to a version with the systemd.settings option.
-    #       The settings format is preferred because it's type-checked at evaluation.
-    # ERROR being worked around: "The option `systemd.settings' does not exist"
-    extraConfig = ''
-      DefaultLimitNOFILE=1048576
-      DefaultLimitNPROC=512000
-      DefaultLimitCORE=infinity
-      DefaultTasksMax=infinity
-      DefaultTimeoutStartSec=90s
-      DefaultTimeoutStopSec=90s
-    '';
+    # Using systemd.settings.Manager (available in nixpkgs 24.05+) for type-checked config.
+    # This replaces the deprecated systemd.extraConfig option.
+    settings.Manager = {
+      DefaultLimitNOFILE = 1048576;
+      DefaultLimitNPROC = 512000;
+      DefaultLimitCORE = "infinity";
+      DefaultTasksMax = "infinity";
+      DefaultTimeoutStartSec = "90s";
+      DefaultTimeoutStopSec = "90s";
+    };
 
     # Ensure systemd can track container cgroups properly
     services."user@".serviceConfig = {

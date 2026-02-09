@@ -1,0 +1,38 @@
+# K3s Core Packages Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Core packages required for k3s operation. These are the minimum packages
+#   needed for a functional k3s node (server or agent).
+#
+# USAGE:
+#   kas-container --isar build kas/base.yml:kas/machine/<target>.yml:kas/packages/k3s-core.yml:kas/image/k3s-server.yml
+#
+# PACKAGES INCLUDED:
+#   Core runtime:
+#     ca-certificates  - SSL certificate handling
+#     curl             - For k3s installation/updates
+#
+#   Networking (k3s requirements):
+#     iptables         - Network packet filtering (required for pod networking)
+#     conntrack        - Connection tracking tool (required for kube-proxy)
+#     iproute2         - Network configuration (ip command)
+#     ipvsadm          - IPVS load balancing (for kube-proxy IPVS mode)
+#     bridge-utils     - Network bridge management (for CNI)
+#
+#   System utilities:
+#     procps           - Process utilities (ps, top, free)
+#     util-linux       - System utilities (mount, lsblk, etc.)
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  k3s-core-packages: |
+    # Core k3s runtime dependencies (from apt)
+    IMAGE_PREINSTALL:append = " ca-certificates curl iptables conntrack iproute2 ipvsadm bridge-utils procps util-linux"
+    # System configuration package (built by ISAR)
+    # - k3s-system-config: Kernel modules, sysctl, iptables-legacy, swap, hostname
+    IMAGE_INSTALL:append = " k3s-system-config"

@@ -1,0 +1,35 @@
+# Debug Packages Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Debug and development packages for testing and troubleshooting.
+#   Include this overlay for images that need remote access and diagnostic tools.
+#
+# USAGE:
+#   kas-container --isar build kas/base.yml:kas/machine/<target>.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml
+#
+# PACKAGES INCLUDED:
+#   Remote access:
+#     openssh-server   - SSH access for testing (sftp-server removed post-build)
+#     sshd-regen-keys  - Regenerate SSH host keys on first boot (ISAR package)
+#
+#   Diagnostics:
+#     vim-tiny         - Minimal editor
+#     less             - Pager for log viewing
+#     iputils-ping     - Network diagnostics (ping command for cluster tests)
+#
+# NOTE:
+#   For production images, consider omitting this overlay to reduce attack surface.
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  debug-packages: |
+    # Debug and development packages (from apt)
+    IMAGE_PREINSTALL:append = " openssh-server vim-tiny less iputils-ping"
+    # SSH key regeneration service (upstream ISAR)
+    # - sshd-regen-keys: Regenerate SSH host keys on first boot
+    IMAGE_INSTALL:append = " sshd-regen-keys"

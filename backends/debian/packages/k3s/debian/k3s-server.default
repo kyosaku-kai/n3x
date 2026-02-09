@@ -1,0 +1,31 @@
+# K3s Server Configuration
+# This file is sourced by k3s-server.service
+#
+# Full options: https://docs.k3s.io/cli/server
+#
+# The server uses a pre-configured test token at:
+#   /var/lib/rancher/k3s/server/token
+# WARNING: This is for testing only - production should use secure tokens
+
+# Example configurations (uncomment as needed):
+
+# Allow non-root access to kubeconfig:
+# K3S_SERVER_OPTS="--write-kubeconfig-mode 644"
+
+# Disable Traefik ingress:
+# K3S_SERVER_OPTS="--disable traefik"
+
+# Disable ServiceLB:
+# K3S_SERVER_OPTS="--disable servicelb"
+
+# Custom network CIDRs:
+# K3S_SERVER_OPTS="--cluster-cidr 10.42.0.0/16 --service-cidr 10.43.0.0/16"
+
+# Specific node IP (multi-homed hosts):
+# K3S_SERVER_OPTS="--node-ip 192.168.1.100"
+
+# HA with embedded etcd:
+# K3S_SERVER_OPTS="--cluster-init"
+
+# Current configuration:
+K3S_SERVER_OPTS=""

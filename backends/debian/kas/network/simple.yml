@@ -1,0 +1,32 @@
+# Simple Network Profile Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Configures k3s with simple flat network (single eth1, no VLANs, no bonding).
+#   Suitable for basic testing and development.
+#
+# USAGE:
+#   kas-container --isar build \
+#     kas/base.yml:kas/machine/qemu-amd64.yml:kas/network/simple.yml:kas/node/server-1.yml
+#
+# CONFIGURATION:
+#   NETWORKD_NODE_NAME is set by kas/node/*.yml overlays:
+#     - server-1: 192.168.1.1
+#     - server-2: 192.168.1.2
+#     - agent-1:  192.168.1.3
+#     - agent-2:  192.168.1.4
+#
+#   IMPORTANT: Always include a kas/node/*.yml overlay after the network profile!
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  network-simple: |
+    # Simple network profile - single flat network on eth1
+    # Uses systemd-networkd config files generated from Nix profiles
+    IMAGE_INSTALL:append = " systemd-networkd-config"
+    NETWORKD_PROFILE = "simple"
+    # NETWORKD_NODE_NAME set by kas/node/*.yml overlay

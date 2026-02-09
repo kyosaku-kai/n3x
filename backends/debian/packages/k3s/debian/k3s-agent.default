@@ -1,0 +1,25 @@
+# K3s Agent Configuration
+# This file is sourced by k3s-agent.service
+#
+# Full options: https://docs.k3s.io/cli/agent
+#
+# REQUIRED: Set K3S_URL before agent can join cluster
+#
+# The agent uses a pre-configured test token at:
+#   /var/lib/rancher/k3s/server/token
+# Override with K3S_TOKEN or K3S_TOKEN_FILE for production
+
+# Server connection (REQUIRED):
+# K3S_URL="https://192.168.1.100:6443"
+
+# Authentication (use one):
+# K3S_TOKEN="K10abc123..."
+# K3S_TOKEN_FILE="/var/lib/rancher/k3s/server/token"
+
+# Node configuration:
+# K3S_AGENT_OPTS="--node-label role=worker"
+# K3S_AGENT_OPTS="--node-ip 192.168.1.101"
+# K3S_AGENT_OPTS="--node-name my-worker-01"
+
+# Current configuration:
+K3S_AGENT_OPTS=""

@@ -1,0 +1,24 @@
+# Node Identity Overlay: server-2
+# =============================================================================
+#
+# PURPOSE:
+#   Sets NETWORKD_NODE_NAME for node-specific network configuration.
+#   The systemd-networkd-config recipe installs files from:
+#     files/<profile>/<node>/*.network
+#
+# USAGE:
+#   kas-container --isar build \
+#     kas/base.yml:kas/machine/qemu-amd64.yml:kas/network/simple.yml:kas/node/server-2.yml
+#
+# IP ASSIGNMENT (simple profile):
+#   server-2: 192.168.1.2
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  node-identity: |
+    # Node identity for systemd-networkd-config
+    NETWORKD_NODE_NAME = "server-2"

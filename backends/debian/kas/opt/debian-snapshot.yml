@@ -1,0 +1,30 @@
+# Debian snapshot mirror overlay (TEMPORARY WORKAROUND)
+# =============================================================================
+#
+# PURPOSE:
+#   Routes ISAR apt traffic through snapshot.debian.org to work around
+#   transient GPG signature timing issues on the live Debian mirrors.
+#
+# USAGE:
+#   Append to kas config chain when live mirrors have invalid signatures:
+#   kas-build kas/base.yml:...:kas/opt/debian-snapshot.yml
+#
+# WORKAROUND FOR:
+#   Debian trixie-updates InRelease signed with keys whose "Not live until"
+#   timestamp is in the future. Snapshot mirrors serve older, validly-signed
+#   metadata.
+#
+# REMOVE WHEN:
+#   Live Debian mirrors have valid signatures again (check with apt-get update)
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  debian-snapshot: |
+    # Use ISAR's built-in snapshot mirror mechanism
+    # Redirects deb.debian.org -> snapshot.debian.org/archive/debian/<date>
+    ISAR_USE_APT_SNAPSHOT = "1"
+    ISAR_APT_SNAPSHOT_DATE = "20260218T000000Z"

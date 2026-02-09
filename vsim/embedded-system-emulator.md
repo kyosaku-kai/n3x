@@ -25,30 +25,38 @@ This platform demonstrates how to fully emulate an embedded system architecture 
 
 ### Physical Topology Being Emulated
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         PHYSICAL CHASSIS BOARD                          │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                   Jetson/Nano SOM (ARM64)                        │   │
-│  │                   Running: Linux + k3s Server                    │   │
-│  │                   Role: Chassis Controller                       │   │
-│  └──────────────────────────┬──────────────────────────────────────┘   │
-│                             │                                           │
-│  ┌──────────────────────────┴──────────────────────────────────────┐   │
-│  │                    MARVELL SWITCH FABRIC                         │   │
-│  │                    (Embedded on Chassis Board)                   │   │
-│  │    ┌─────────┐        ┌─────────┐        ┌─────────┐            │   │
-│  │    │ Port 1  │        │ Port 2  │        │ Port 3  │            │   │
-│  └────┴────┬────┴────────┴────┬────┴────────┴────┬────┴────────────┘   │
-│            │                  │                  │                      │
-└────────────┼──────────────────┼──────────────────┼──────────────────────┘
-             │                  │                  │
-     ┌───────┴───────┐  ┌───────┴───────┐  ┌───────┴───────┐
-     │ COMPUTE NODE  │  │ STORAGE NODE  │  │ EXTERNAL      │
-     │ (x86_64)      │  │ (x86_64)      │  │ CONNECTIONS   │
-     │ k3s Agent     │  │ k3s Agent     │  │               │
-     │               │  │ + Storage     │  │               │
-     └───────────────┘  └───────────────┘  └───────────────┘
+```mermaid
+flowchart TB
+    subgraph chassis["PHYSICAL CHASSIS BOARD"]
+        subgraph som["Jetson/Nano SOM (ARM64)"]
+            som_info["Linux + k3s Server<br/>Role: Chassis Controller"]
+        end
+
+        subgraph switch["MARVELL SWITCH FABRIC<br/>(Embedded on Chassis Board)"]
+            port1["Port 1"]
+            port2["Port 2"]
+            port3["Port 3"]
+        end
+
+        som --> switch
+    end
+
+    subgraph external["External Nodes"]
+        compute["COMPUTE NODE<br/>(x86_64)<br/>k3s Agent"]
+        storage["STORAGE NODE<br/>(x86_64)<br/>k3s Agent + Storage"]
+        ext["EXTERNAL<br/>CONNECTIONS"]
+    end
+
+    port1 --- compute
+    port2 --- storage
+    port3 --- ext
+
+    style chassis fill:#e3f2fd,stroke:#1565c0
+    style som fill:#bbdefb,stroke:#1976d2
+    style switch fill:#fff3e0,stroke:#ef6c00
+    style external fill:#f5f5f5,stroke:#616161
+    style compute fill:#e8f5e9,stroke:#2e7d32
+    style storage fill:#f3e5f5,stroke:#7b1fa2
 ```
 
 ### Emulated Architecture

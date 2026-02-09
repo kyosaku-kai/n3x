@@ -1,0 +1,39 @@
+# DHCP Simple Network Profile Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Configures k3s with DHCP-enabled flat network (single eth1, DHCP client).
+#   IP addresses are assigned via DHCP from a dedicated DHCP server VM.
+#   Suitable for testing DHCP client behavior in cluster environments.
+#
+# USAGE:
+#   kas-container --isar build \
+#     kas/base.yml:kas/machine/qemu-amd64.yml:kas/network/dhcp-simple.yml:kas/node/server-1.yml
+#
+# CONFIGURATION:
+#   NETWORKD_NODE_NAME is set by kas/node/*.yml overlays.
+#   Unlike static profiles, IP addresses are assigned dynamically via DHCP.
+#   MAC-based reservations ensure deterministic IPs:
+#     - server-1: 52:54:00:01:01:01 -> 192.168.1.1
+#     - server-2: 52:54:00:01:01:02 -> 192.168.1.2
+#     - agent-1:  52:54:00:01:01:03 -> 192.168.1.3
+#     - agent-2:  52:54:00:01:01:04 -> 192.168.1.4
+#
+#   IMPORTANT: Always include a kas/node/*.yml overlay after the network profile!
+#
+# ARCHITECTURE:
+#   See docs/DHCP-TEST-INFRASTRUCTURE.md for full architecture documentation.
+#   DHCP server runs as a separate VM in the test environment (not on target nodes).
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  network-dhcp-simple: |
+    # DHCP simple network profile - single flat network with DHCP on eth1
+    # Uses systemd-networkd config files generated from Nix profiles
+    IMAGE_INSTALL:append = " systemd-networkd-config"
+    NETWORKD_PROFILE = "dhcp-simple"
+    # NETWORKD_NODE_NAME set by kas/node/*.yml overlay
