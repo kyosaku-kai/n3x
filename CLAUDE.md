@@ -78,7 +78,7 @@ This file provides project-specific rules and essential context for Claude Code 
   - Renames: `backends/isar/`→`backends/debian/`, `lib/isar/`→`lib/debian/`,
     `tests/isar/`→`tests/debian/`, `meta-isar-k3s/`→`meta-n3x/`, `isar-k3s-image-*`→`n3x-image-*`
   - DevShell: `.#isar`→`.#debian`. Check names: `debian-k3s-*`→`debian-*`.
-  - 2 archive `.drawio.svg` diagrams still have embedded `isar-k3s` text (manual diagram edit needed)
+  - 2 archive `.drawio.svg` diagrams removed (had embedded `isar-k3s` text)
   - Plan file: `.claude/user-plans/031-backend-restructure.md`
 - **Plans 021-022**: ARCHIVED - analysis moved to Plan 023
 - **Plan 013**: MIGRATED TO NIXCFG - Distributed Nix Binary Caching
@@ -252,7 +252,7 @@ nix run '.#isar-build-all' -- --help
 workflow that ensures artifacts are properly named, hashed, and registered.
 
 **Key detail**: `base` and `base-swupdate` variants produce the SAME ISAR output filename
-(`isar-k3s-image-base-debian-trixie-qemuamd64.wic`) because they share `role = "base"`.
+(`n3x-image-base-debian-trixie-qemuamd64.wic`) because they share `role = "base"`.
 The `--rename-existing` flag copies to unique names to avoid collisions.
 
 ### ISAR VM Interface Naming

@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg content="&lt;mxfile host=&quot;Claude&quot; modified=&quot;2026-02-16&quot;&gt;&lt;diagram name=&quot;CI Pipeline&quot; id=&quot;ci-1&quot;&gt;&lt;mxGraphModel dx=&quot;1500&quot; dy=&quot;1100&quot; grid=&quot;1&quot; gridSize=&quot;10&quot; guides=&quot;1&quot; tooltips=&quot;1&quot; connect=&quot;1&quot; arrows=&quot;1&quot; fold=&quot;1&quot; page=&quot;1&quot; pageScale=&quot;1&quot; pageWidth=&quot;1500&quot; pageHeight=&quot;1100&quot;&gt;&lt;root&gt;&lt;mxCell id=&quot;0&quot;/&gt;&lt;mxCell id=&quot;1&quot; parent=&quot;0&quot;/&gt;&lt;mxCell id=&quot;title&quot; value=&quot;&amp;lt;b&amp;gt;n3x CI Pipeline Architecture&amp;lt;/b&amp;gt;&quot; style=&quot;text;html=1;align=center;verticalAlign=middle;fontSize=18;fontColor=#333333;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;350&quot; y=&quot;10&quot; width=&quot;800&quot; height=&quot;30&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;subtitle&quot; value=&quot;&amp;lt;font style=&amp;quot;font-size:11px;color:#888&amp;quot;&amp;gt;Pipeline stages, runner targeting, and cache topology &amp;amp;mdash; target/final state&amp;lt;/font&amp;gt;&quot; style=&quot;text;html=1;align=center;verticalAlign=middle;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;350&quot; y=&quot;38&quot; width=&quot;800&quot; height=&quot;20&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;pipe-section&quot; value=&quot;&amp;lt;b&amp;gt;PIPELINE STAGES&amp;lt;/b&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;fillColor=#f0f4ff;strokeColor=#6c8ebf;strokeWidth=2;verticalAlign=top;spacingTop=5;fontSize=13;fontColor=#6c8ebf;opacity=40;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;10&quot; y=&quot;60&quot; width=&quot;1480&quot; height=&quot;200&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;trigger&quot; value=&quot;&amp;lt;b&amp;gt;Trigger&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;git push / MR&amp;lt;br&amp;gt;schedule&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=middle;fontSize=11;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;25&quot; y=&quot;95&quot; width=&quot;115&quot; height=&quot;65&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;a-te&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#666666;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;trigger&quot; target=&quot;evaluate&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;evaluate&quot; value=&quot;&amp;lt;b&amp;gt;Evaluate&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;nix flake check --no-build&amp;lt;br&amp;gt;Package parity verification&amp;lt;br&amp;gt;Config type checking&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;verticalAlign=middle;fontSize=11;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;175&quot; y=&quot;88&quot; width=&quot;195&quot; height=&quot;85&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;eval-tag&quot; value=&quot;tags: docker&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#bbbbbb;fontSize=8;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;232&quot; y=&quot;158&quot; width=&quot;80&quot; height=&quot;14&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;a-eb&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#666666;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;evaluate&quot; target=&quot;build&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;build&quot; value=&quot;&amp;lt;b&amp;gt;Build&amp;lt;/b&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;strokeWidth=2;verticalAlign=top;spacingTop=3;fontSize=11;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;415&quot; y=&quot;83&quot; width=&quot;455&quot; height=&quot;160&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;build-debian-x86&quot; value=&quot;&amp;lt;b&amp;gt;Debian x86_64&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;kas-build&amp;lt;br&amp;gt;.wic images&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=middle;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;430&quot; y=&quot;112&quot; width=&quot;130&quot; height=&quot;52&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;build-debian-arm&quot; value=&quot;&amp;lt;b&amp;gt;Debian aarch64&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;kas-build (Jetson)&amp;lt;br&amp;gt;.wic images&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=middle;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;570&quot; y=&quot;112&quot; width=&quot;130&quot; height=&quot;52&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;build-nix&quot; value=&quot;&amp;lt;b&amp;gt;NixOS Packages&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;.deb packages (k3s,&amp;lt;br&amp;gt;system-config) for Debian backend&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=middle;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;710&quot; y=&quot;112&quot; width=&quot;145&quot; height=&quot;52&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;build-tag&quot; value=&quot;tags: nixos, privileged (x86_64 | aarch64)&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#bbbbbb;fontSize=8;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;520&quot; y=&quot;175&quot; width=&quot;245&quot; height=&quot;14&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;a-bt&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#666666;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;build&quot; target=&quot;test&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;test&quot; value=&quot;&amp;lt;b&amp;gt;Test&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;NixOS VM Cluster Tests&amp;lt;br&amp;gt;nixosTest driver + QEMU&amp;lt;br&amp;gt;Both backends (NixOS + Debian)&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;verticalAlign=middle;fontSize=11;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;910&quot; y=&quot;88&quot; width=&quot;225&quot; height=&quot;85&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;test-tag&quot; value=&quot;tags: nixos, kvm, baremetal&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#bbbbbb;fontSize=8;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;955&quot; y=&quot;158&quot; width=&quot;135&quot; height=&quot;14&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;a-tr&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;test&quot; target=&quot;result&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;result&quot; value=&quot;&amp;lt;b&amp;gt;Cache Populated&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;Harmonia auto-serves&amp;lt;br&amp;gt;built paths from /nix/store&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=middle;fontSize=10;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;1175&quot; y=&quot;95&quot; width=&quot;170&quot; height=&quot;65&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;pipe-note&quot; value=&quot;Evaluate runs on any runner; Build/Test require specific capabilities &amp;amp;rarr; jobs routed by GitLab runner tags&quot; style=&quot;text;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#555555;fontStyle=2;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;300&quot; y=&quot;245&quot; width=&quot;600&quot; height=&quot;15&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;run-section&quot; value=&quot;&amp;lt;b&amp;gt;RUNNER INFRASTRUCTURE&amp;lt;/b&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;fillColor=#f5f5f5;strokeColor=#999999;strokeWidth=2;verticalAlign=top;spacingTop=5;fontSize=13;fontColor=#999999;opacity=40;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;10&quot; y=&quot;275&quot; width=&quot;1480&quot; height=&quot;310&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;card-shared&quot; value=&quot;&amp;lt;b&amp;gt;Shared Runner&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;Executor: Docker container&amp;lt;br&amp;gt;OS: GitLab-managed&amp;lt;br&amp;gt;Capabilities: None (unprivileged)&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;Jobs: nix flake check --no-build&amp;lt;br&amp;gt;Tags: docker&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font color=&amp;quot;#b85450&amp;quot;&amp;gt;Cannot build Debian images (no unshare)&amp;lt;br&amp;gt;Cannot run VM tests (no KVM)&amp;lt;/font&amp;gt;&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=top;spacingTop=5;fontSize=10;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;25&quot; y=&quot;305&quot; width=&quot;330&quot; height=&quot;255&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;card-ec2x&quot; value=&quot;&amp;lt;b&amp;gt;EC2 x86_64&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;Instance: c6i.2xlarge (8 vCPU, 16 GB)&amp;lt;br&amp;gt;OS: NixOS 25.11 (custom AMI)&amp;lt;br&amp;gt;Executor: Shell&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;Capabilities:&amp;lt;br&amp;gt;Podman (privileged)&amp;lt;br&amp;gt;unshare + user namespaces&amp;lt;br&amp;gt;Loop devices + CAP_SYS_ADMIN&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;Storage: 3 EBS (root + ZFS + Yocto)&amp;lt;br&amp;gt;Services: Harmonia, Caddy, apt-cacher-ng&amp;lt;br&amp;gt;Tags: nixos, x86_64, privileged&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;spacingTop=5;fontSize=10;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;370&quot; y=&quot;305&quot; width=&quot;330&quot; height=&quot;255&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;card-grav&quot; value=&quot;&amp;lt;b&amp;gt;EC2 Graviton&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;Instance: c7g.2xlarge (8 vCPU, 16 GB)&amp;lt;br&amp;gt;OS: NixOS 25.11 (custom AMI)&amp;lt;br&amp;gt;Executor: Shell&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;Capabilities:&amp;lt;br&amp;gt;aarch64 native&amp;lt;br&amp;gt;Podman (privileged)&amp;lt;br&amp;gt;unshare + user namespaces&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;Storage: 3 EBS (root + ZFS + Yocto)&amp;lt;br&amp;gt;Services: Harmonia, Caddy, apt-cacher-ng&amp;lt;br&amp;gt;Tags: nixos, aarch64, privileged&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;spacingTop=5;fontSize=10;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;715&quot; y=&quot;305&quot; width=&quot;330&quot; height=&quot;255&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;card-onprem&quot; value=&quot;&amp;lt;b&amp;gt;On-prem Bare Metal&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;Hardware: Dual-NIC, KVM-capable&amp;lt;br&amp;gt;OS: NixOS 25.11 (nixos-anywhere)&amp;lt;br&amp;gt;Executor: Shell&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;Capabilities:&amp;lt;br&amp;gt;KVM (/dev/kvm) for QEMU accel&amp;lt;br&amp;gt;Privileged (unshare, namespaces)&amp;lt;br&amp;gt;HIL (Hardware-in-the-Loop)&amp;lt;br&amp;gt;&amp;lt;br&amp;gt;Storage: ZFS on local disk&amp;lt;br&amp;gt;Services: Harmonia, Caddy&amp;lt;br&amp;gt;Tags: nixos, kvm, baremetal&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;spacingTop=5;fontSize=10;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;1060&quot; y=&quot;305&quot; width=&quot;420&quot; height=&quot;255&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;tgt-eval&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;dashed=1;dashPattern=4 4;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;evaluate&quot; target=&quot;card-shared&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;tgt-debian-x86&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=1;dashed=1;dashPattern=4 4;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;build-debian-x86&quot; target=&quot;card-ec2x&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;tgt-debian-arm&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=1;dashed=1;dashPattern=4 4;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;build-debian-arm&quot; target=&quot;card-grav&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;tgt-nix&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1;dashed=1;dashPattern=4 4;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;build-nix&quot; target=&quot;card-ec2x&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;tgt-test&quot; value=&quot;&quot; style=&quot;endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1;dashed=1;dashPattern=4 4;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;test&quot; target=&quot;card-onprem&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cache-section&quot; value=&quot;&amp;lt;b&amp;gt;CACHE TOPOLOGY&amp;lt;/b&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;fillColor=#fffaf0;strokeColor=#d6b656;strokeWidth=2;verticalAlign=top;spacingTop=5;fontSize=13;fontColor=#d6b656;opacity=40;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;10&quot; y=&quot;605&quot; width=&quot;1480&quot; height=&quot;330&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cache-upstream&quot; value=&quot;&amp;lt;b&amp;gt;cache.nixos.org&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;Official upstream substituter&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;verticalAlign=middle;fontSize=10;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;580&quot; y=&quot;635&quot; width=&quot;240&quot; height=&quot;35&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cache-mesh&quot; value=&quot;&amp;lt;b&amp;gt;Harmonia HTTP Substituter Mesh&amp;lt;/b&amp;gt;&amp;lt;br&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;Each node queries all others before building &amp;amp;mdash; cache hit skips entire derivation build&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=5 5;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;verticalAlign=top;spacingTop=5;fontSize=11;fontColor=#333;opacity=60;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;30&quot; y=&quot;690&quot; width=&quot;1440&quot; height=&quot;135&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cn-ec2x&quot; value=&quot;&amp;lt;b&amp;gt;EC2 x86_64&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;ZFS /nix/store (zstd)&amp;lt;br&amp;gt;Harmonia :5000 &amp;amp;rarr; Caddy :443&amp;lt;br&amp;gt;apt-cacher-ng :3142&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;spacingTop=2;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;50&quot; y=&quot;730&quot; width=&quot;280&quot; height=&quot;80&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cn-grav&quot; value=&quot;&amp;lt;b&amp;gt;EC2 Graviton&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;ZFS /nix/store (zstd)&amp;lt;br&amp;gt;Harmonia :5000 &amp;amp;rarr; Caddy :443&amp;lt;br&amp;gt;apt-cacher-ng :3142&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;spacingTop=2;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;370&quot; y=&quot;730&quot; width=&quot;280&quot; height=&quot;80&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cn-onprem&quot; value=&quot;&amp;lt;b&amp;gt;On-prem&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;ZFS /nix/store (zstd)&amp;lt;br&amp;gt;Harmonia :5000 &amp;amp;rarr; Caddy :443&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;spacingTop=2;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;690&quot; y=&quot;730&quot; width=&quot;280&quot; height=&quot;80&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cn-zfs&quot; value=&quot;&amp;lt;b&amp;gt;ZFS Cluster (3x N100)&amp;lt;/b&amp;gt;&amp;lt;hr size=&amp;quot;1&amp;quot;&amp;gt;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;ZFS /nix/store (zstd)&amp;lt;br&amp;gt;Harmonia :5000 &amp;amp;rarr; Caddy :443&amp;lt;br&amp;gt;Dedicated cache (not CI runners)&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;spacingTop=2;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;1010&quot; y=&quot;730&quot; width=&quot;440&quot; height=&quot;80&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;a-upstream&quot; value=&quot;fallback&quot; style=&quot;endArrow=classic;html=1;strokeColor=#9673a6;strokeWidth=1;dashed=1;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;cache-upstream&quot; target=&quot;cache-mesh&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;cache-notes&quot; value=&quot;&amp;lt;font style=&amp;quot;font-size:9px&amp;quot;&amp;gt;&amp;lt;b&amp;gt;Debian Package Caching:&amp;lt;/b&amp;gt; apt-cacher-ng on each build node &amp;amp;rarr; optional JFrog Artifactory upstream&amp;lt;br&amp;gt;&amp;lt;b&amp;gt;Dev Workstations:&amp;lt;/b&amp;gt; Consume cache as HTTP substituters (read-only). Build locally on cache miss.&amp;lt;br&amp;gt;&amp;lt;b&amp;gt;ZFS benefits:&amp;lt;/b&amp;gt; zstd compression (1.5-2x savings), checksumming, snapshots (pre-GC safety), ARC read cache&amp;lt;/font&amp;gt;&quot; style=&quot;text;html=1;align=left;verticalAlign=top;fontSize=9;fontColor=#555555;spacingLeft=10;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;30&quot; y=&quot;840&quot; width=&quot;600&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;priv-box&quot; value=&quot;&amp;lt;font style=&amp;quot;font-size:8px&amp;quot;&amp;gt;&amp;lt;b&amp;gt;Why self-managed?&amp;lt;/b&amp;gt; ISAR: unshare(CLONE_NEWNS) + user namespaces + loop devices. VM tests: /dev/kvm. Shared runners block all. See isar-ci-privileged-build-requirements.md&amp;lt;/font&amp;gt;&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#b85450;strokeWidth=1;dashed=1;dashPattern=4 4;verticalAlign=middle;fontSize=8;fontColor=#333;align=left;spacingLeft=10;opacity=60;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;750&quot; y=&quot;893&quot; width=&quot;730&quot; height=&quot;30&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;leg-title&quot; value=&quot;Legend:&quot; style=&quot;text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#333333;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;25&quot; y=&quot;945&quot; width=&quot;50&quot; height=&quot;20&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;leg-blue&quot; value=&quot;Nix/NixOS&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;80&quot; y=&quot;943&quot; width=&quot;70&quot; height=&quot;22&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;leg-red&quot; value=&quot;Debian&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;160&quot; y=&quot;943&quot; width=&quot;50&quot; height=&quot;22&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;leg-green&quot; value=&quot;Hardware/Result&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;220&quot; y=&quot;943&quot; width=&quot;95&quot; height=&quot;22&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;leg-gray&quot; value=&quot;Infrastructure&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;325&quot; y=&quot;943&quot; width=&quot;85&quot; height=&quot;22&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;leg-yellow&quot; value=&quot;Cache&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;420&quot; y=&quot;943&quot; width=&quot;55&quot; height=&quot;22&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;leg-purple&quot; value=&quot;Upstream&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=center;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;485&quot; y=&quot;943&quot; width=&quot;65&quot; height=&quot;22&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;crossref&quot; value=&quot;See also: n3x-architecture.drawio.svg (system overview), n3x-debian-backend.drawio.svg (Debian backend), n3x-nixos-backend.drawio.svg (NixOS backend)&quot; style=&quot;text;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#666666;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;200&quot; y=&quot;975&quot; width=&quot;900&quot; height=&quot;15&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;/root&gt;&lt;/mxGraphModel&gt;&lt;/diagram&gt;&lt;/mxfile&gt;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="1500" height="1100" viewBox="0 0 1500 1100">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6c8ebf"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#82b366"/>
+    </marker>
+    <marker id="arrow-yellow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d6b656"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#b85450"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#9673a6"/>
+    </marker>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#999"/>
+    </marker>
+  </defs>
+  <g>
+    <!-- TITLE -->
+    <text x="750" y="25" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333">n3x CI Pipeline Architecture</text>
+    <text x="750" y="48" text-anchor="middle" font-size="11" fill="#888">Pipeline stages, runner targeting, and cache topology — target/final state</text>
+
+    <!-- SECTION 1: PIPELINE STAGES -->
+    <rect x="10" y="60" width="1480" height="200" rx="10" ry="10" fill="#f0f4ff" fill-opacity="0.4" stroke="#6c8ebf" stroke-width="2" stroke-dasharray="8 8"/>
+    <text x="30" y="80" font-size="13" font-weight="bold" fill="#6c8ebf">PIPELINE STAGES</text>
+
+    <!-- Trigger -->
+    <rect x="25" y="95" width="115" height="65" rx="8" ry="8" fill="#f5f5f5" stroke="#999"/>
+    <text x="82" y="117" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">Trigger</text>
+    <text x="82" y="133" text-anchor="middle" font-size="9" fill="#555">git push / MR</text>
+    <text x="82" y="147" text-anchor="middle" font-size="9" fill="#555">schedule</text>
+
+    <line x1="140" y1="128" x2="172" y2="128" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- Evaluate -->
+    <rect x="175" y="88" width="195" height="85" rx="8" ry="8" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+    <text x="272" y="108" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">Evaluate</text>
+    <text x="272" y="124" text-anchor="middle" font-size="9" fill="#555">nix flake check --no-build</text>
+    <text x="272" y="138" text-anchor="middle" font-size="8" fill="#555">Package parity verification</text>
+    <text x="272" y="150" text-anchor="middle" font-size="8" fill="#555">Config type checking</text>
+    <rect x="232" y="158" width="80" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="272" y="169" text-anchor="middle" font-size="7" fill="#666">tags: docker</text>
+
+    <line x1="370" y1="128" x2="412" y2="128" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- Build container -->
+    <rect x="415" y="83" width="455" height="160" rx="8" ry="8" fill="#fff" stroke="#6c8ebf" stroke-width="2"/>
+    <text x="642" y="103" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">Build</text>
+
+    <rect x="430" y="112" width="130" height="52" rx="6" ry="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="495" y="130" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">Debian x86_64</text>
+    <text x="495" y="143" text-anchor="middle" font-size="8" fill="#555">kas-build</text>
+    <text x="495" y="155" text-anchor="middle" font-size="8" fill="#555">&#x2192; .wic images</text>
+
+    <rect x="570" y="112" width="130" height="52" rx="6" ry="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="635" y="130" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">Debian aarch64</text>
+    <text x="635" y="143" text-anchor="middle" font-size="8" fill="#555">kas-build (Jetson)</text>
+    <text x="635" y="155" text-anchor="middle" font-size="8" fill="#555">&#x2192; .wic images</text>
+
+    <rect x="710" y="112" width="145" height="52" rx="6" ry="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="782" y="130" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">NixOS Packages</text>
+    <text x="782" y="143" text-anchor="middle" font-size="8" fill="#555">.deb packages (k3s,</text>
+    <text x="782" y="155" text-anchor="middle" font-size="8" fill="#555">system-config) for Debian backend</text>
+
+    <rect x="520" y="175" width="245" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="642" y="186" text-anchor="middle" font-size="7" fill="#666">tags: nixos, privileged (x86_64 | aarch64)</text>
+
+    <line x1="870" y1="128" x2="907" y2="128" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- Test -->
+    <rect x="910" y="88" width="225" height="85" rx="8" ry="8" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+    <text x="1022" y="108" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">Test</text>
+    <text x="1022" y="124" text-anchor="middle" font-size="9" fill="#555">NixOS VM Cluster Tests</text>
+    <text x="1022" y="138" text-anchor="middle" font-size="8" fill="#555">nixosTest driver + QEMU</text>
+    <text x="1022" y="150" text-anchor="middle" font-size="8" fill="#555">Both backends (NixOS + Debian)</text>
+    <rect x="955" y="158" width="135" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="1022" y="169" text-anchor="middle" font-size="7" fill="#666">tags: nixos, kvm, baremetal</text>
+
+    <line x1="1135" y1="128" x2="1172" y2="128" stroke="#82b366" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+    <!-- Cache Populated -->
+    <rect x="1175" y="95" width="170" height="65" rx="8" ry="8" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="1260" y="117" text-anchor="middle" font-size="10" font-weight="bold" fill="#333">Cache Populated</text>
+    <text x="1260" y="133" text-anchor="middle" font-size="8" fill="#555">Harmonia auto-serves</text>
+    <text x="1260" y="146" text-anchor="middle" font-size="8" fill="#555">built paths from /nix/store</text>
+
+    <text x="600" y="250" text-anchor="middle" font-size="9" font-style="italic" fill="#555">Evaluate runs on any runner; Build/Test require specific capabilities &#x2192; jobs routed by GitLab runner tags</text>
+
+    <!-- TARGETING ARROWS -->
+    <line x1="272" y1="173" x2="190" y2="305" stroke="#999" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow-gray)"/>
+    <line x1="495" y1="164" x2="535" y2="305" stroke="#b85450" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow-red)"/>
+    <line x1="635" y1="164" x2="880" y2="305" stroke="#b85450" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow-red)"/>
+    <line x1="782" y1="164" x2="535" y2="305" stroke="#6c8ebf" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow-blue)"/>
+    <line x1="1022" y1="173" x2="1270" y2="305" stroke="#82b366" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow-green)"/>
+
+    <!-- SECTION 2: RUNNER INFRASTRUCTURE -->
+    <rect x="10" y="275" width="1480" height="310" rx="10" ry="10" fill="#f5f5f5" fill-opacity="0.3" stroke="#999" stroke-width="2" stroke-dasharray="8 8"/>
+    <text x="30" y="295" font-size="13" font-weight="bold" fill="#999">RUNNER INFRASTRUCTURE</text>
+
+    <!-- Shared Runner -->
+    <rect x="25" y="305" width="330" height="255" rx="8" ry="8" fill="#f5f5f5" stroke="#999"/>
+    <rect x="25" y="305" width="330" height="25" rx="8" ry="8" fill="#e0e0e0" stroke="#999"/>
+    <rect x="25" y="317" width="330" height="13" fill="#f5f5f5" stroke="none"/>
+    <text x="190" y="322" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">Shared Runner</text>
+    <text x="38" y="347" font-size="9" fill="#555">Executor: Docker container</text>
+    <text x="38" y="362" font-size="9" fill="#555">OS: GitLab-managed</text>
+    <text x="38" y="377" font-size="9" fill="#555">Capabilities: None (unprivileged)</text>
+    <line x1="35" y1="387" x2="345" y2="387" stroke="#ddd"/>
+    <text x="38" y="402" font-size="9" font-weight="bold" fill="#555">Jobs:</text>
+    <text x="48" y="417" font-size="9" fill="#555">nix flake check --no-build</text>
+    <line x1="35" y1="427" x2="345" y2="427" stroke="#ddd"/>
+    <text x="38" y="442" font-size="9" font-weight="bold" fill="#555">Tags:</text>
+    <rect x="80" y="433" width="55" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="107" y="444" text-anchor="middle" font-size="7" fill="#666">docker</text>
+    <line x1="35" y1="457" x2="345" y2="457" stroke="#ddd"/>
+    <text x="38" y="475" font-size="9" fill="#b85450">Cannot build Debian images (no unshare)</text>
+    <text x="38" y="490" font-size="9" fill="#b85450">Cannot run VM tests (no KVM)</text>
+
+    <!-- EC2 x86_64 -->
+    <rect x="370" y="305" width="330" height="255" rx="8" ry="8" fill="#dae8fc" stroke="#6c8ebf"/>
+    <rect x="370" y="305" width="330" height="25" rx="8" ry="8" fill="#b8d4f0" stroke="#6c8ebf"/>
+    <rect x="370" y="317" width="330" height="13" fill="#dae8fc" stroke="none"/>
+    <text x="535" y="322" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">EC2 x86_64</text>
+    <text x="383" y="347" font-size="9" fill="#555">Instance: c6i.2xlarge (8 vCPU, 16 GB)</text>
+    <text x="383" y="362" font-size="9" fill="#555">OS: NixOS 25.11 (custom AMI)</text>
+    <text x="383" y="377" font-size="9" fill="#555">Executor: Shell</text>
+    <line x1="380" y1="387" x2="690" y2="387" stroke="#a0c0e0"/>
+    <text x="383" y="402" font-size="9" font-weight="bold" fill="#555">Capabilities:</text>
+    <text x="393" y="417" font-size="9" fill="#555">&#x2022; Podman (privileged)</text>
+    <text x="393" y="432" font-size="9" fill="#555">&#x2022; unshare + user namespaces</text>
+    <text x="393" y="447" font-size="9" fill="#555">&#x2022; Loop devices + CAP_SYS_ADMIN</text>
+    <line x1="380" y1="457" x2="690" y2="457" stroke="#a0c0e0"/>
+    <text x="383" y="472" font-size="9" fill="#555">Storage: 3 EBS (root + ZFS + Yocto)</text>
+    <text x="383" y="487" font-size="9" fill="#555">Services: Harmonia, Caddy, apt-cacher-ng</text>
+    <line x1="380" y1="497" x2="690" y2="497" stroke="#a0c0e0"/>
+    <text x="383" y="512" font-size="9" font-weight="bold" fill="#555">Tags:</text>
+    <rect x="425" y="503" width="40" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="445" y="514" text-anchor="middle" font-size="7" fill="#666">nixos</text>
+    <rect x="470" y="503" width="50" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="495" y="514" text-anchor="middle" font-size="7" fill="#666">x86_64</text>
+    <rect x="525" y="503" width="62" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="556" y="514" text-anchor="middle" font-size="7" fill="#666">privileged</text>
+
+    <!-- EC2 Graviton -->
+    <rect x="715" y="305" width="330" height="255" rx="8" ry="8" fill="#dae8fc" stroke="#6c8ebf"/>
+    <rect x="715" y="305" width="330" height="25" rx="8" ry="8" fill="#b8d4f0" stroke="#6c8ebf"/>
+    <rect x="715" y="317" width="330" height="13" fill="#dae8fc" stroke="none"/>
+    <text x="880" y="322" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">EC2 Graviton</text>
+    <text x="728" y="347" font-size="9" fill="#555">Instance: c7g.2xlarge (8 vCPU, 16 GB)</text>
+    <text x="728" y="362" font-size="9" fill="#555">OS: NixOS 25.11 (custom AMI)</text>
+    <text x="728" y="377" font-size="9" fill="#555">Executor: Shell</text>
+    <line x1="725" y1="387" x2="1035" y2="387" stroke="#a0c0e0"/>
+    <text x="728" y="402" font-size="9" font-weight="bold" fill="#555">Capabilities:</text>
+    <text x="738" y="417" font-size="9" fill="#555">&#x2022; aarch64 native</text>
+    <text x="738" y="432" font-size="9" fill="#555">&#x2022; Podman (privileged)</text>
+    <text x="738" y="447" font-size="9" fill="#555">&#x2022; unshare + user namespaces</text>
+    <line x1="725" y1="457" x2="1035" y2="457" stroke="#a0c0e0"/>
+    <text x="728" y="472" font-size="9" fill="#555">Storage: 3 EBS (root + ZFS + Yocto)</text>
+    <text x="728" y="487" font-size="9" fill="#555">Services: Harmonia, Caddy, apt-cacher-ng</text>
+    <line x1="725" y1="497" x2="1035" y2="497" stroke="#a0c0e0"/>
+    <text x="728" y="512" font-size="9" font-weight="bold" fill="#555">Tags:</text>
+    <rect x="770" y="503" width="40" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="790" y="514" text-anchor="middle" font-size="7" fill="#666">nixos</text>
+    <rect x="815" y="503" width="52" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="841" y="514" text-anchor="middle" font-size="7" fill="#666">aarch64</text>
+    <rect x="872" y="503" width="62" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="903" y="514" text-anchor="middle" font-size="7" fill="#666">privileged</text>
+
+    <!-- On-prem Bare Metal -->
+    <rect x="1060" y="305" width="420" height="255" rx="8" ry="8" fill="#d5e8d4" stroke="#82b366"/>
+    <rect x="1060" y="305" width="420" height="25" rx="8" ry="8" fill="#b8deb0" stroke="#82b366"/>
+    <rect x="1060" y="317" width="420" height="13" fill="#d5e8d4" stroke="none"/>
+    <text x="1270" y="322" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">On-prem Bare Metal</text>
+    <text x="1073" y="347" font-size="9" fill="#555">Hardware: Dual-NIC, KVM-capable</text>
+    <text x="1073" y="362" font-size="9" fill="#555">OS: NixOS 25.11 (nixos-anywhere)</text>
+    <text x="1073" y="377" font-size="9" fill="#555">Executor: Shell</text>
+    <line x1="1070" y1="387" x2="1470" y2="387" stroke="#a0d0a0"/>
+    <text x="1073" y="402" font-size="9" font-weight="bold" fill="#555">Capabilities:</text>
+    <text x="1083" y="417" font-size="9" fill="#555">&#x2022; KVM (/dev/kvm) — QEMU acceleration</text>
+    <text x="1083" y="432" font-size="9" fill="#555">&#x2022; Privileged (unshare, namespaces)</text>
+    <text x="1083" y="447" font-size="9" fill="#555">&#x2022; HIL (Hardware-in-the-Loop)</text>
+    <line x1="1070" y1="457" x2="1470" y2="457" stroke="#a0d0a0"/>
+    <text x="1073" y="472" font-size="9" fill="#555">Storage: ZFS on local disk</text>
+    <text x="1073" y="487" font-size="9" fill="#555">Services: Harmonia, Caddy</text>
+    <line x1="1070" y1="497" x2="1470" y2="497" stroke="#a0d0a0"/>
+    <text x="1073" y="512" font-size="9" font-weight="bold" fill="#555">Tags:</text>
+    <rect x="1115" y="503" width="40" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="1135" y="514" text-anchor="middle" font-size="7" fill="#666">nixos</text>
+    <rect x="1160" y="503" width="35" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="1177" y="514" text-anchor="middle" font-size="7" fill="#666">kvm</text>
+    <rect x="1200" y="503" width="62" height="14" rx="7" ry="7" fill="#e8e8e8" stroke="#bbb"/>
+    <text x="1231" y="514" text-anchor="middle" font-size="7" fill="#666">baremetal</text>
+
+    <!-- SECTION 3: CACHE TOPOLOGY -->
+    <rect x="10" y="605" width="1480" height="330" rx="10" ry="10" fill="#fffaf0" fill-opacity="0.4" stroke="#d6b656" stroke-width="2" stroke-dasharray="8 8"/>
+    <text x="30" y="625" font-size="13" font-weight="bold" fill="#d6b656">CACHE TOPOLOGY</text>
+
+    <!-- cache.nixos.org -->
+    <rect x="580" y="635" width="240" height="35" rx="8" ry="8" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="700" y="650" text-anchor="middle" font-size="10" font-weight="bold" fill="#333">cache.nixos.org</text>
+    <text x="700" y="663" text-anchor="middle" font-size="8" fill="#555">Official upstream substituter</text>
+
+    <line x1="700" y1="670" x2="700" y2="688" stroke="#9673a6" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow-purple)"/>
+    <text x="720" y="682" font-size="7" fill="#9673a6">fallback</text>
+
+    <!-- Harmonia mesh boundary -->
+    <rect x="30" y="690" width="1440" height="135" rx="8" ry="8" fill="#fff2cc" fill-opacity="0.5" stroke="#d6b656" stroke-width="2" stroke-dasharray="5 5"/>
+    <text x="750" y="706" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">Harmonia HTTP Substituter Mesh</text>
+    <text x="750" y="720" text-anchor="middle" font-size="8" fill="#555">Each node queries all others before building — cache hit skips entire derivation build</text>
+
+    <!-- Cache nodes -->
+    <rect x="50" y="730" width="280" height="80" rx="6" ry="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="190" y="748" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">EC2 x86_64</text>
+    <line x1="60" y1="753" x2="320" y2="753" stroke="#6c8ebf" stroke-width="0.5"/>
+    <text x="190" y="767" text-anchor="middle" font-size="8" fill="#555">ZFS /nix/store (zstd) &#x2192; Harmonia :5000 &#x2192; Caddy :443</text>
+    <text x="190" y="781" text-anchor="middle" font-size="8" fill="#555">apt-cacher-ng :3142 &#x2192; JFrog Artifactory</text>
+    <text x="190" y="800" text-anchor="middle" font-size="7" fill="#888">n3x.internal (HTTPS, internal CA)</text>
+
+    <rect x="370" y="730" width="280" height="80" rx="6" ry="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="510" y="748" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">EC2 Graviton</text>
+    <line x1="380" y1="753" x2="640" y2="753" stroke="#6c8ebf" stroke-width="0.5"/>
+    <text x="510" y="767" text-anchor="middle" font-size="8" fill="#555">ZFS /nix/store (zstd) &#x2192; Harmonia :5000 &#x2192; Caddy :443</text>
+    <text x="510" y="781" text-anchor="middle" font-size="8" fill="#555">apt-cacher-ng :3142 &#x2192; JFrog Artifactory</text>
+    <text x="510" y="800" text-anchor="middle" font-size="7" fill="#888">n3x.internal (HTTPS, internal CA)</text>
+
+    <rect x="690" y="730" width="280" height="80" rx="6" ry="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="830" y="748" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">On-prem</text>
+    <line x1="700" y1="753" x2="960" y2="753" stroke="#82b366" stroke-width="0.5"/>
+    <text x="830" y="767" text-anchor="middle" font-size="8" fill="#555">ZFS /nix/store (zstd) &#x2192; Harmonia :5000 &#x2192; Caddy :443</text>
+    <text x="830" y="781" text-anchor="middle" font-size="8" fill="#555">Local disk (no Yocto cache volume)</text>
+    <text x="830" y="800" text-anchor="middle" font-size="7" fill="#888">n3x.internal (HTTPS, internal CA)</text>
+
+    <rect x="1010" y="730" width="440" height="80" rx="6" ry="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="1230" y="748" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">ZFS Binary Cache Cluster (3x Intel N100)</text>
+    <line x1="1020" y1="753" x2="1440" y2="753" stroke="#d6b656" stroke-width="0.5"/>
+    <text x="1230" y="767" text-anchor="middle" font-size="8" fill="#555">ZFS /nix/store (zstd) &#x2192; Harmonia :5000 &#x2192; Caddy :443</text>
+    <text x="1230" y="781" text-anchor="middle" font-size="8" fill="#555">Dedicated cache nodes (not CI runners)</text>
+    <text x="1230" y="800" text-anchor="middle" font-size="7" fill="#888">MikroTik CRS326 switch, 10.99.0.0/24 cluster net</text>
+
+    <!-- Mesh bidirectional arrows -->
+    <text x="345" y="763" text-anchor="middle" font-size="14" fill="#d6b656">&#x2194;</text>
+    <text x="665" y="763" text-anchor="middle" font-size="14" fill="#d6b656">&#x2194;</text>
+    <text x="985" y="763" text-anchor="middle" font-size="14" fill="#d6b656">&#x2194;</text>
+
+    <!-- Cache notes -->
+    <text x="40" y="845" font-size="9" fill="#555"><tspan font-weight="bold">Debian Package Caching:</tspan> apt-cacher-ng on each build node &#x2192; optional JFrog Artifactory upstream</text>
+    <text x="40" y="862" font-size="9" fill="#555"><tspan font-weight="bold">Dev Workstations:</tspan> Consume cache as HTTP substituters (read-only). Build locally on cache miss.</text>
+    <text x="40" y="879" font-size="9" fill="#555"><tspan font-weight="bold">ZFS benefits:</tspan> zstd compression (1.5-2x savings), checksumming, snapshots (pre-GC safety), ARC read cache</text>
+
+    <!-- Privileged requirements callout -->
+    <rect x="750" y="893" width="730" height="30" rx="6" ry="6" fill="#fce4ec" fill-opacity="0.6" stroke="#b85450" stroke-width="1.5" stroke-dasharray="4 4"/>
+    <text x="760" y="908" font-size="8" fill="#333"><tspan font-weight="bold">Why self-managed?</tspan> ISAR: unshare(CLONE_NEWNS) + user namespaces + loop devices. VM tests: /dev/kvm. Shared runners block all of these.</text>
+    <text x="760" y="920" font-size="7" fill="#888">See: docs/isar-ci-privileged-build-requirements.md</text>
+
+    <!-- LEGEND -->
+    <text x="25" y="960" font-size="10" font-weight="bold" fill="#333">Legend:</text>
+    <rect x="80" y="948" width="70" height="20" rx="4" ry="4" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="115" y="962" text-anchor="middle" font-size="9" fill="#333">Nix/NixOS</text>
+    <rect x="160" y="948" width="50" height="20" rx="4" ry="4" fill="#f8cecc" stroke="#b85450"/>
+    <text x="185" y="962" text-anchor="middle" font-size="9" fill="#333">Debian</text>
+    <rect x="220" y="948" width="95" height="20" rx="4" ry="4" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="267" y="962" text-anchor="middle" font-size="9" fill="#333">Hardware/Result</text>
+    <rect x="325" y="948" width="85" height="20" rx="4" ry="4" fill="#f5f5f5" stroke="#999"/>
+    <text x="367" y="962" text-anchor="middle" font-size="9" fill="#333">Infrastructure</text>
+    <rect x="420" y="948" width="55" height="20" rx="4" ry="4" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="447" y="962" text-anchor="middle" font-size="9" fill="#333">Cache</text>
+    <rect x="485" y="948" width="65" height="20" rx="4" ry="4" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="517" y="962" text-anchor="middle" font-size="9" fill="#333">Upstream</text>
+    <text x="565" y="962" font-size="8" fill="#555">- - - &#x2192; = job targeting (tag routing)</text>
+
+    <!-- Cross-references -->
+    <text x="750" y="990" text-anchor="middle" font-size="9" fill="#666">See also: n3x-architecture.drawio.svg (system overview), n3x-debian-backend.drawio.svg (Debian backend), n3x-nixos-backend.drawio.svg (NixOS backend)</text>
+  </g>
+</svg>

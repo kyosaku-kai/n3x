@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The isar-k3s project combines two fundamentally different build paradigms:
+The n3x project combines two fundamentally different build paradigms:
 
 1. **ISAR/BitBake**: Debian-based image builder that produces `.wic` disk images, rootfs tarballs, kernels, and initrds. Builds run in kas-container (privileged podman), use sstate-cache, and download packages from Debian repositories.
 
@@ -41,11 +41,11 @@ We need Nix derivations (tests, flash scripts) to consume ISAR-built artifacts. 
 
 **Option D: Hybrid with Improved Tooling**
 - Keep requireFile pattern for content-addressability
-- Add flake app `rebuild-isar-artifacts` to automate:
-  - Running kas-build
-  - Computing hash
-  - Adding to nix store
-  - Updating isar-artifacts.nix
+- Add flake app `isar-build-all` to automate:
+  - Reading variant definitions from Nix build matrix
+  - Running kas-build for each variant
+  - Computing hash and adding to nix store
+  - Updating `lib/debian/artifact-hashes.nix`
 - Future: Add CI artifact fetching (Option C) as alternative source
 
 ### Constraints
@@ -84,31 +84,32 @@ kas-container build     --->   build/tmp/deploy/images/
         |                              |
         v                              v
    Update hash in          requireFile { sha256 = "..."; }
-   isar-artifacts.nix              |
+   debian-artifacts.nix              |
                                    v
                            Test/Flash derivations
 ```
 
 ### Implementation Components
 
-1. **`nix/isar-artifacts.nix`**: Registry of all ISAR artifacts using `requireFile` pattern with descriptive error messages showing rebuild instructions
+1. **`lib/debian/build-matrix.nix`**: Declarative variant definitions (machines, roles, profiles, nodes) with naming functions and kas command generation
 
-2. **`nix run .#rebuild-isar-artifacts`**: Flake app that automates the entire workflow:
-   - Accepts machine and role arguments
-   - Runs kas-build with correct config
-   - Computes SHA256 hash
-   - Adds to nix store
-   - Updates isar-artifacts.nix with new hash
-   - Supports shell completion for discoverability
+2. **`lib/debian/artifact-hashes.nix`**: Mutable state -- maps unique artifact filenames to SHA256 hashes (only file modified by the build script)
 
-3. **`scripts/update-artifact-hashes.sh`**: Low-level script for manual hash operations
+3. **`lib/debian/mk-artifact-registry.nix`**: Generator combining build matrix + hashes into a `requireFile` attrset with descriptive error messages
+
+4. **`nix run '.#isar-build-all'`**: Flake app that automates the entire workflow:
+   - Reads variant definitions from Nix eval of the build matrix
+   - Builds each variant with kas-build
+   - Renames ISAR output to unique filename, computes SHA256, adds to nix store
+   - Updates `lib/debian/artifact-hashes.nix` with new hash
+   - Supports `--variant`, `--machine`, `--dry-run`, `--list` filters
 
 ### Future Enhancement: CI Integration
 
 When CI infrastructure is established with Nix binary cache:
 
 ```nix
-# Future: isar-artifacts.nix could support multiple sources
+# Future: debian-artifacts.nix could support multiple sources
 let
   # Try binary cache first, fall back to requireFile
   fetchIsarArtifact = { name, sha256, ciUrl ? null }:
@@ -159,6 +160,6 @@ This allows:
 
 ## References
 
-- `nix/isar-artifacts.nix` - Artifact registry implementation
+- `nix/debian-artifacts.nix` - Artifact registry implementation
 - `docs/nix-isar-integration-guide-revised.md` - Detailed integration patterns
 - `flake.nix` - Flake app definition

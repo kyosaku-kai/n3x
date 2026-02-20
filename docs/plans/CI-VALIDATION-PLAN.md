@@ -1,7 +1,13 @@
+> **PARTIALLY SUPERSEDED**: The binary cache architecture in this plan (Attic/S3-backed) was
+> superseded by a Harmonia-based architecture (local ZFS, HTTP substituters). See
+> [nix-binary-cache-architecture-decision.md](../nix-binary-cache-architecture-decision.md).
+> Phases 2, 3B (Attic deployment) are obsolete. Phase 3 (portable CI architecture) and
+> Phase 5 (GitLab CI) concepts remain valid. CI runner infrastructure is now tracked in Plan 023.
+
 # Plan: CI Validation Infrastructure for VLAN Tests
 
 **Created**: 2026-01-17
-**Status**: Planning phase
+**Status**: Partially superseded (binary cache → Harmonia; CI runners → Plan 023)
 **Goal**: Validate VLAN test infrastructure using GitHub Actions with proper binary caching
 
 ---

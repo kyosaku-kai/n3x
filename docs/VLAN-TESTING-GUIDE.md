@@ -1,9 +1,8 @@
 # VLAN Test Infrastructure - Testing Guide
 
 **Implementation Date**: 2026-01-17
-**Branch**: `simint`
-**Commit**: `8e70f85`
-**Status**: Ready for validation
+**Branch**: `main`
+**Status**: Operational
 
 ---
 
@@ -21,12 +20,15 @@ Three network profiles with parameterized test builder:
 ### Architecture
 
 ```
+lib/network/profiles/
+├── simple.nix                    # Single flat network
+├── vlans.nix                     # 802.1Q VLAN tagging
+├── bonding-vlans.nix             # Bonding + VLANs
+├── dhcp-simple.nix               # DHCP-based simple network
+└── vlans-broken.nix              # Intentionally broken (negative tests)
+
 tests/lib/
-├── mk-k3s-cluster-test.nix          # Parameterized test builder
-└── network-profiles/
-    ├── simple.nix                    # Single flat network
-    ├── vlans.nix                     # 802.1Q VLAN tagging
-    └── bonding-vlans.nix             # Bonding + VLANs
+└── mk-k3s-cluster-test.nix      # Parameterized test builder
 ```
 
 ---
@@ -434,18 +436,18 @@ Once all three tests pass:
 ## Files Modified in This Implementation
 
 ```
-tests/lib/
-├── mk-k3s-cluster-test.nix              # NEW: Parameterized test builder
-└── network-profiles/
-    ├── simple.nix                        # NEW: Baseline profile
-    ├── vlans.nix                         # NEW: VLAN tagging profile
-    └── bonding-vlans.nix                 # NEW: Bonding + VLANs profile
+lib/network/profiles/
+├── simple.nix                            # Baseline profile
+├── vlans.nix                             # VLAN tagging profile
+├── bonding-vlans.nix                     # Bonding + VLANs profile
+├── dhcp-simple.nix                       # DHCP-based simple profile
+└── vlans-broken.nix                      # Negative test profile
 
-flake.nix                                 # MODIFIED: Added 3 test variants
-tests/README.md                           # MODIFIED: Network profiles section
-tests/emulation/README.md                 # MODIFIED: Use cases clarification
-CLAUDE.md                                 # MODIFIED: Phase 6 tracking
-docs/VLAN-TESTING-GUIDE.md                # NEW: This guide
+tests/lib/
+└── mk-k3s-cluster-test.nix              # Parameterized test builder
+
+flake.nix                                 # Test variants registered
+docs/VLAN-TESTING-GUIDE.md                # This guide
 ```
 
 ---

@@ -1,10 +1,10 @@
-# ISAR L4 Multi-Node Cluster Test Architecture
+# Debian Backend L4 Multi-Node Cluster Test Architecture
 
-This document explains the architecture for ISAR L4 (multi-node k3s cluster) tests and how they integrate with the shared test infrastructure.
+This document explains the architecture for Debian backend L4 (multi-node k3s cluster) tests and how they integrate with the shared test infrastructure.
 
 ## Overview
 
-ISAR L4 tests validate multi-node k3s cluster formation using ISAR-built `.wic` images. The test infrastructure is designed to **share network profile data** with NixOS tests while adapting to ISAR's different configuration mechanisms.
+Debian backend L4 tests validate multi-node k3s cluster formation using ISAR-built `.wic` images. The test infrastructure is designed to **share network profile data** with NixOS tests while adapting to ISAR's different configuration mechanisms.
 
 ## Architecture Diagram
 
@@ -29,19 +29,19 @@ ISAR L4 tests validate multi-node k3s cluster formation using ISAR-built `.wic` 
 └─────────────────────────────────────────────────────────────────────────┘
                     │                              │
                     ▼                              ▼
-┌─────────────────────────────┐    ┌─────────────────────────────┐
-│  NixOS Backend              │    │  ISAR Backend               │
-│  mk-k3s-cluster-test.nix    │    │  mk-isar-cluster-test.nix   │
-├─────────────────────────────┤    ├─────────────────────────────┤
-│  Profile → NixOS modules    │    │  Profile → Build-time OR    │
-│  (systemd.network config)   │    │  runtime network config     │
-│  services.k3s options       │    │  /etc/default/k3s-server    │
-└─────────────────────────────┘    └─────────────────────────────┘
+┌─────────────────────────────┐    ┌──────────────────────────────┐
+│  NixOS Backend              │    │  Debian Backend              │
+│  mk-k3s-cluster-test.nix    │    │  mk-debian-cluster-test.nix  │
+├─────────────────────────────┤    ├──────────────────────────────┤
+│  Profile → NixOS modules    │    │  Profile → Build-time OR     │
+│  (systemd.network config)   │    │  runtime network config      │
+│  services.k3s options       │    │  /etc/default/k3s-server     │
+└─────────────────────────────┘    └──────────────────────────────┘
 ```
 
-## Key Differences: NixOS vs ISAR
+## Key Differences: NixOS vs Debian Backend
 
-| Aspect | NixOS | ISAR |
+| Aspect | NixOS | Debian |
 |--------|-------|------|
 | **Network Config Timing** | Build time (NixOS modules) | Build time (preferred) OR runtime |
 | **Network Config Format** | `systemd.network.*` options | systemd-networkd `.network` files |
@@ -50,7 +50,7 @@ ISAR L4 tests validate multi-node k3s cluster formation using ISAR-built `.wic` 
 | **K3s Binary Path** | `/run/current-system/sw/bin/k3s` | `/usr/bin/k3s` |
 | **Boot Detection** | `wait_for_unit("multi-user.target")` | `wait_for_unit("nixos-test-backdoor.service")` |
 
-## ISAR Network Configuration
+## Debian Backend Network Configuration
 
 ### Build-Time Configuration (Preferred)
 
@@ -72,7 +72,7 @@ lib/network/profiles/simple.nix
         │
         ▼ (nix run '.#generate-networkd-configs')
         │
-backends/isar/meta-isar-k3s/recipes-support/systemd-networkd-config/files/
+backends/debian/meta-n3x/recipes-support/systemd-networkd-config/files/
 ├── simple/
 │   ├── server-1/
 │   │   └── 10-eth1.network    # IP: 192.168.1.1
@@ -106,11 +106,11 @@ server_2.succeed("ip addr add 192.168.1.2/24 dev eth1")
 - Full integration testing with proper node identities
 - Testing network configuration itself (VLANs, bonding)
 
-## ISAR K3s Configuration
+## Debian Backend K3s Configuration
 
 ### Environment File Approach
 
-ISAR k3s uses environment files instead of NixOS module options:
+The Debian backend's k3s uses environment files instead of NixOS module options:
 
 ```
 /etc/default/k3s-server    # For k3s-server.service
@@ -145,9 +145,9 @@ token = server_1.succeed("cat /var/lib/rancher/k3s/server/token").strip()
 server_2.succeed(f"mkdir -p /var/lib/rancher/k3s/server && echo '{token}' > /var/lib/rancher/k3s/server/token")
 ```
 
-## ISAR L4 Test Helpers
+## Debian Backend L4 Test Helpers
 
-The `mk-isar-cluster-test.nix` builder provides these helpers:
+The `mk-debian-cluster-test.nix` builder provides these helpers:
 
 ### 1. `mkNetworkSetupCommands` - Runtime Network Configuration
 
@@ -203,20 +203,20 @@ server_1.execute("rm -f /dev/kmsg && ln -s /dev/null /dev/kmsg")
 
 ```nix
 # In flake.nix checks
-mkISARClusterTest = pkgs.callPackage ./tests/lib/isar/mk-isar-cluster-test.nix { inherit pkgs lib; };
+mkDebianClusterTest = pkgs.callPackage ./tests/lib/debian/mk-debian-cluster-test.nix { inherit pkgs lib; };
 
-isar-k3s-cluster-simple = mkISARClusterTest { networkProfile = "simple"; };
+debian-cluster-simple = mkDebianClusterTest { networkProfile = "simple"; };
 ```
 
 ### With Custom Machines
 
 ```nix
-isar-k3s-cluster-custom = mkISARClusterTest {
+debian-cluster-custom = mkDebianClusterTest {
   networkProfile = "vlans";
   machines = {
-    server_1 = { image = isarArtifacts.qemuamd64.server.vlans.wic; memory = 4096; cpus = 4; };
-    server_2 = { image = isarArtifacts.qemuamd64.server.vlans.wic; memory = 4096; cpus = 4; };
-    agent_1 = { image = isarArtifacts.qemuamd64.agent.vlans.wic; memory = 2048; cpus = 2; };
+    server_1 = { image = debianArtifacts.qemuamd64.server.vlans.wic; memory = 4096; cpus = 4; };
+    server_2 = { image = debianArtifacts.qemuamd64.server.vlans.wic; memory = 4096; cpus = 4; };
+    agent_1 = { image = debianArtifacts.qemuamd64.agent.vlans.wic; memory = 2048; cpus = 2; };
   };
 };
 ```
@@ -224,7 +224,7 @@ isar-k3s-cluster-custom = mkISARClusterTest {
 ### With Custom Test Script
 
 ```nix
-isar-k3s-cluster-workload = mkISARClusterTest {
+debian-cluster-workload = mkDebianClusterTest {
   networkProfile = "simple";
   testScript = ''
     ${testScripts.utils.all}
@@ -285,11 +285,11 @@ kas-container --isar build \
 1. **Per-node image builds** - Create kas overlays for each node identity
 2. **Agent testing** - Build agent images, extend test to include agents
 3. **Network profile detection** - Detect if image has baked-in config, skip runtime setup
-4. **ISAR cluster phases** - Extract helpers to `test-scripts/phases/k3s.nix` for reuse
+4. **Debian backend cluster phases** - Extract helpers to `test-scripts/phases/k3s.nix` for reuse
 
 ## Related Documentation
 
 - [tests/lib/README.md](../tests/lib/README.md) - Shared test infrastructure
 - [lib/network/README.md](../lib/network/README.md) - Network configuration system
-- [backends/isar/README.md](../backends/isar/README.md) - ISAR backend overview
+- [backends/debian/README.md](../backends/debian/README.md) - Debian backend overview
 - [CLAUDE.md](../CLAUDE.md) - Project status and technical learnings

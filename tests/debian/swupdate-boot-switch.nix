@@ -118,7 +118,7 @@ let
           "cd /tmp/swupdate-test && "
           "openssl genrsa -out priv.pem 2048 && "
           "openssl req -new -x509 -key priv.pem -out cert.pem -days 1 "
-          "-subj '/CN=SWUpdate Test/O=ISAR-K3S/C=US'"
+          "-subj '/CN=SWUpdate Test/O=n3x/C=US'"
       )
       print("Generated RSA key and X.509 certificate for CMS signing")
 

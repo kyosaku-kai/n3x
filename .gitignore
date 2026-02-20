@@ -94,6 +94,7 @@ docs/_build/
 docs/.doctrees/
 
 # ISAR/Yocto build artifacts (contains root-owned files from kas-container)
+build/
 backends/debian/build/
 backends/debian/isar/
 

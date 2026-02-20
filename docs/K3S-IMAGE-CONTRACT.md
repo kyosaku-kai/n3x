@@ -1,10 +1,10 @@
 # K3s Image Configuration Contract
 
-This document defines the requirements for ISAR images to be compatible with the n3x test infrastructure. When ISAR images meet this contract, they can use shared network profiles and test scripts from `tests/lib/`.
+This document defines the requirements for Debian backend (ISAR-built) images to be compatible with the n3x test infrastructure. When these images meet this contract, they can use shared network profiles and test scripts from `tests/lib/`.
 
 ## Why This Contract Exists
 
-NixOS uses the `services.k3s` module which handles K3s configuration declaratively. ISAR images must be built with equivalent configuration for tests to pass on both backends.
+NixOS uses the `services.k3s` module which handles K3s configuration declaratively. Debian backend images must be built with equivalent configuration for tests to pass on both backends.
 
 ## Contract Version
 
@@ -18,7 +18,7 @@ NixOS uses the `services.k3s` module which handles K3s configuration declarative
 
 | Requirement | Value | Notes |
 |-------------|-------|-------|
-| Location | `/usr/bin/k3s` | ISAR installs here; NixOS has symlink from `/run/current-system/sw/bin` |
+| Location | `/usr/bin/k3s` | Debian backend installs here; NixOS has symlink from `/run/current-system/sw/bin` |
 | Version | 1.32.x | Match ISAR recipe version |
 | Architecture | Auto-selected | `k3s` for amd64, `k3s-arm64` for arm64 |
 | Symlinks | `kubectl`, `crictl`, `ctr` | All link to `/usr/bin/k3s` |
@@ -30,7 +30,7 @@ NixOS uses the `services.k3s` module which handles K3s configuration declarative
 | Server | `k3s-server.service` | Control plane (API, scheduler, controller, etcd) |
 | Agent | `k3s-agent.service` | Worker node (joins server cluster) |
 
-**NixOS Note**: The NixOS k3s module uses `k3s.service` for both roles. ISAR uses role-specific names to avoid package conflicts.
+**NixOS Note**: The NixOS k3s module uses `k3s.service` for both roles. The Debian backend uses role-specific names to avoid package conflicts.
 
 **Service Requirements**:
 ```
@@ -53,15 +53,15 @@ RestartSec=5s
 | `/etc/rancher/k3s/` | Configuration directory | 755 |
 | `/etc/rancher/k3s/config.yaml` | Main config (optional) | 644 |
 | `/etc/rancher/k3s/config.yaml.d/` | Drop-in configs (optional) | 755 |
-| `/etc/default/k3s-server` | Server env vars (ISAR) | 644 |
-| `/etc/default/k3s-agent` | Agent env vars (ISAR) | 644 |
+| `/etc/default/k3s-server` | Server env vars (Debian backend) | 644 |
+| `/etc/default/k3s-agent` | Agent env vars (Debian backend) | 644 |
 | `/var/lib/rancher/k3s/` | Runtime data directory | 755 |
 | `/var/lib/rancher/k3s/server/token` | Cluster token (server) | 600 |
 | `/var/lib/rancher/k3s/server/node-token` | Agent join token | 600 |
 
 ### 4. Runtime Dependencies
 
-Both NixOS and ISAR must provide these packages:
+Both NixOS and the Debian backend must provide these packages:
 
 | Package | Purpose |
 |---------|---------|
@@ -77,7 +77,7 @@ Both NixOS and ISAR must provide these packages:
 | `util-linux` | System utilities (`mount`, `nsenter`) |
 | `systemd` | Service management |
 
-**ISAR recipe**: `DEBIAN_DEPENDS` in `k3s-base.inc`
+**ISAR recipe** (Debian backend): `DEBIAN_DEPENDS` in `k3s-base.inc`
 
 **NixOS module**: Provided via `environment.systemPackages` in `k3s-common.nix`
 
@@ -103,7 +103,7 @@ fs.inotify.max_user_watches=524288
 fs.inotify.max_user_instances=8192
 ```
 
-**ISAR**: Configured via `k3s-system-config` recipe
+**Debian backend**: Configured via ISAR `k3s-system-config` recipe
 
 **NixOS**: Configured via `boot.kernel.sysctl` in `k3s-common.nix`
 
@@ -189,7 +189,7 @@ For offline testing, preload container images to:
 
 **NixOS**: Uses `pkgs.k3s.passthru.airgapImages`
 
-**ISAR**: Would require fetching from releases and including in image (not implemented)
+**Debian backend**: Would require fetching from releases and including in image (not implemented)
 
 ## Contract Verification Test
 
@@ -215,9 +215,9 @@ agent.wait_for_unit("k3s-agent.service")
 agent.succeed("test -x /usr/bin/k3s")
 ```
 
-## Differences Between NixOS and ISAR
+## Differences Between NixOS and Debian Backend
 
-| Aspect | NixOS | ISAR |
+| Aspect | NixOS | Debian |
 |--------|-------|------|
 | Service name | `k3s.service` | `k3s-server.service` / `k3s-agent.service` |
 | Config location | `services.k3s.*` options | `/etc/default/k3s-*` env files |
@@ -225,13 +225,13 @@ agent.succeed("test -x /usr/bin/k3s")
 | Package source | nixpkgs | GitHub releases |
 | Data directory | `/var/lib/k3s` (custom) | `/var/lib/rancher/k3s` (default) |
 
-**Note**: The different data directories are intentional. NixOS uses `/var/lib/k3s` for FHS compliance with symlink from default location. ISAR uses the K3s default.
+**Note**: The different data directories are intentional. NixOS uses `/var/lib/k3s` for FHS compliance with symlink from default location. The Debian backend uses the K3s default.
 
 ## Related Documentation
 
 - `tests/lib/README.md` - Shared test infrastructure
 - `tests/lib/NETWORK-SCHEMA.md` - Unified network schema
-- `backends/isar/meta-isar-k3s/recipes-core/k3s/` - ISAR K3s recipes
+- `backends/debian/meta-n3x/recipes-core/k3s/` - ISAR K3s recipes
 - `backends/nixos/modules/roles/k3s-*.nix` - NixOS K3s modules
 
 ## Version History

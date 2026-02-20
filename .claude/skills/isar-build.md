@@ -55,10 +55,10 @@ ls ~/.cache/yocto/downloads ~/.cache/yocto/sstate 2>/dev/null && echo "✓ Cache
 
 ```bash
 # Enter ISAR shell
-nix develop .#isar
+nix develop .#debian
 
 # Navigate to backend
-cd backends/isar
+cd backends/debian
 
 # Build image (combine overlays with colons)
 kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/network/simple.yml
@@ -170,7 +170,7 @@ sudo podman volume prune
 ### Build Directory Cleanup
 
 ```bash
-cd backends/isar
+cd backends/debian
 
 # Remove schroot overlay leftovers (requires root due to chroot)
 sudo rm -rf build/tmp/schroot-overlay/*/upper/tmp/*.wic/
@@ -189,13 +189,13 @@ rm -rf build/cache/
 
 ```bash
 # Watch build logs
-tail -f backends/isar/build/tmp/log/cooker/*/console-latest.log
+tail -f backends/debian/build/tmp/log/cooker/*/console-latest.log
 
 # Check for output images
-ls -la backends/isar/build/tmp/deploy/images/
+ls -la backends/debian/build/tmp/deploy/images/
 
 # Watch package builds
-ls backends/isar/build/tmp/work/*/
+ls backends/debian/build/tmp/work/*/
 ```
 
 ### Expected Build Times
@@ -239,17 +239,17 @@ Use `bitbake -c cleansstate` when:
 
 ```bash
 # Enter ISAR shell first
-nix develop .#isar
-cd backends/isar
+nix develop .#debian
+cd backends/debian
 
 # For package recipes (e.g., systemd-networkd-config)
 kas-container shell kas/base.yml:kas/machine/qemu-amd64.yml -c \
   "bitbake -c cleansstate systemd-networkd-config"
 
-# For image recipes (e.g., isar-k3s-image-server)
+# For image recipes (e.g., n3x-image-server)
 # Note: Use the FULL kas config including overlays that define the image
 kas-container shell kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml:kas/network/simple.yml -c \
-  "bitbake -c cleansstate isar-k3s-image-server"
+  "bitbake -c cleansstate n3x-image-server"
 
 # Then rebuild normally
 kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/test-k3s-overlay.yml:kas/network/simple.yml

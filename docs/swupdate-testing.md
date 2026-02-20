@@ -35,19 +35,20 @@ The SWUpdate VM tests validate the complete OTA workflow in QEMU virtual machine
 
 1. **Build SWUpdate-enabled ISAR image**:
    ```bash
-   nix develop --command kas-build \
-     kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/minimal-base.yml:kas/feature/swupdate.yml
+   nix develop '.#debian' --command kas-build \
+     kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/base.yml:kas/feature/swupdate.yml
    ```
 
 2. **Register artifact in nix store** (if not already done):
    ```bash
-   # Update artifact hashes
-   ./scripts/update-artifact-hashes.sh
+   # Build and register via automated script
+   nix run '.#isar-build-all' -- --variant base-swupdate
+   git add lib/isar/artifact-hashes.nix
    ```
 
 3. **Verify artifact is available**:
    ```bash
-   nix eval '.#isarArtifacts.qemuamd64.swupdate.wic' --raw
+   nix eval '.#debianArtifacts.qemuamd64.swupdate.wic' --raw
    ```
 
 ## Running Tests
@@ -165,15 +166,15 @@ fi
    }:
 
    let
-     isarArtifacts = import ../isar-artifacts.nix { inherit pkgs lib; };
-     mkISARTest = pkgs.callPackage ../lib/mk-isar-test.nix { inherit pkgs lib; };
+     debianArtifacts = import ../debian-artifacts.nix { inherit pkgs lib; };
+     mkDebianTest = pkgs.callPackage ../lib/mk-debian-test.nix { inherit pkgs lib; };
 
-     test = mkISARTest {
+     test = mkDebianTest {
        name = "swupdate-<name>";
 
        machines = {
          testvm = {
-           image = isarArtifacts.qemuamd64.swupdate.wic;
+           image = debianArtifacts.qemuamd64.swupdate.wic;
            memory = 2048;
            cpus = 2;
          };
@@ -204,7 +205,7 @@ fi
 
 ### "nixos-test-backdoor.service" not found
 
-The ISAR image must include the test backdoor package. Verify:
+The Debian backend image must include the test backdoor package. Verify:
 ```bash
 # In the VM or extracted rootfs
 systemctl status nixos-test-backdoor.service
@@ -259,8 +260,7 @@ Common issues:
 
 ## Related Documentation
 
-- [CRITICAL-DECISION-SUMMARY.md](CRITICAL-DECISION-SUMMARY.md) - Why we use NixOS test driver
-- [nixos-vm-test-driver.md](nixos-vm-test-driver.md) - Test driver internals
+- [Test Framework README](../tests/README.md) - NixOS test driver usage and test catalog
 - [jetson-orin-ota-guide-revised.md](jetson-orin-ota-guide-revised.md) - Full OTA reference including Jetson-specific nvbootctrl
 
 ## Test File Reference
@@ -271,7 +271,7 @@ Common issues:
 | `nix/tests/swupdate-apply.nix` | Tests writing update to APP_b partition |
 | `nix/tests/swupdate-boot-switch.nix` | Tests A/B partition switching with reboot |
 | `nix/tests/swupdate-network-ota.nix` | Tests multi-VM HTTP-based OTA |
-| `nix/lib/mk-isar-test.nix` | Test framework for ISAR images |
-| `nix/isar-artifacts.nix` | Artifact registry (WIC image paths) |
+| `nix/lib/mk-debian-test.nix` | Test framework for Debian backend images |
+| `nix/debian-artifacts.nix` | Artifact registry (WIC image paths) |
 | `kas/feature/swupdate.yml` | Kas overlay enabling SWUpdate |
-| `meta-isar-k3s/wic/sdimage-efi-ab.wks` | A/B partition layout template |
+| `meta-n3x/wic/sdimage-efi-ab.wks` | A/B partition layout template |

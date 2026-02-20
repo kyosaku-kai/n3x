@@ -3,8 +3,8 @@
 ## Document Overview
 
 **Revised**: 2026-01-22
-**Original Source**: `file:///C:/Users/blackt1/Downloads/jetson-orin-ota-nix-guide.md`
-**Integration Target**: `isar-k3s` project
+**Original Source**: `jetson-orin-ota-nix-guide.md` (local draft)
+**Integration Target**: `n3x` project
 
 This document describes building an OTA-capable system for Jetson Orin Nano using:
 - **ISAR**: Debian-based embedded Linux image builder (already established in this project)
@@ -99,8 +99,8 @@ Missing for Jetson OTA work:
     │  └── jetpack-nixos flash tools → Initial flashing       │
     │                                                         │
     │  Build Outputs:                                         │
-    │  ├── isar/build/.../isar-k3s-image-*.wic (base image)   │
-    │  └── isar/build/.../isar-k3s-image-*.swu (OTA package)  │
+    │  ├── isar/build/.../n3x-image-*.wic (base image)   │
+    │  └── isar/build/.../n3x-image-*.swu (OTA package)  │
     └─────────────────────────────────────────────────────────┘
                               │
               USB Recovery Mode (initial flash only)
@@ -160,7 +160,7 @@ The existing `flake.nix` provides ISAR/kas tooling. To add Jetson flash support:
         };
       in {
         devShells.default = pkgs.mkShell {
-          name = "isar-k3s";
+          name = "n3x";
 
           buildInputs = with pkgs; [
             # Existing ISAR/kas tooling
@@ -188,7 +188,7 @@ The existing `flake.nix` provides ISAR/kas tooling. To add Jetson flash support:
           shellHook = ''
             export KAS_CONTAINER_ENGINE=podman
 
-            echo "isar-k3s Isar Development Environment"
+            echo "n3x Isar Development Environment"
             echo ""
             echo "ISAR Build:"
             echo "  kas-container --isar build kas/base.yml:kas/machine/jetson-orin-nano.yml"
@@ -220,12 +220,12 @@ The existing `flake.nix` provides ISAR/kas tooling. To add Jetson flash support:
 ### Clone and Configure isar-cip-core
 
 ```bash
-cd /home/tim/src/isar-k3s
+cd /home/tim/src/n3x
 
 # Clone isar-cip-core as a submodule or layer
 git submodule add https://gitlab.com/cip-project/cip-core/isar-cip-core.git isar/isar-cip-core
 
-# Alternative: Add as kas remote repo in isar-k3s.yml
+# Alternative: Add as kas remote repo in n3x.yml
 ```
 
 ### Create kas overlay for SWUpdate: `kas/opt/swupdate.yml`
@@ -280,7 +280,7 @@ local_conf_header:
 ### Build Base Image
 
 ```bash
-cd /home/tim/src/isar-k3s
+cd /home/tim/src/n3x
 nix develop
 
 cd isar/
@@ -302,9 +302,9 @@ kas-container --isar build kas/base.yml:kas/machine/jetson-orin-nano.yml:kas/opt
 After successful build:
 ```
 isar/build/tmp/deploy/images/jetson-orin-nano/
-├── isar-k3s-image-*-debian-trixie-arm64.tar.gz  # Rootfs tarball
-├── isar-k3s-image-*-debian-trixie-arm64.wic     # Disk image
-└── isar-k3s-image-*-debian-trixie-arm64.swu     # OTA update package (if swupdate.yml used)
+├── n3x-image-*-debian-trixie-arm64.tar.gz  # Rootfs tarball
+├── n3x-image-*-debian-trixie-arm64.wic     # Disk image
+└── n3x-image-*-debian-trixie-arm64.swu     # OTA update package (if swupdate.yml used)
 ```
 
 ---
@@ -314,7 +314,7 @@ isar/build/tmp/deploy/images/jetson-orin-nano/
 ### Download L4T BSP
 
 ```bash
-cd /home/tim/src/isar-k3s
+cd /home/tim/src/n3x
 
 # Download JetPack 6 / L4T R36.4.3
 wget https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v4.3/release/Jetson_Linux_R36.4.3_aarch64.tbz2
@@ -332,7 +332,7 @@ cd Linux_for_Tegra
 sudo rm -rf rootfs/*
 
 # Extract ISAR rootfs
-sudo tar -xf ../isar/build/tmp/deploy/images/jetson-orin-nano/isar-k3s-image-*-debian-trixie-arm64.tar.gz -C rootfs/
+sudo tar -xf ../isar/build/tmp/deploy/images/jetson-orin-nano/n3x-image-*-debian-trixie-arm64.tar.gz -C rootfs/
 
 # Apply NVIDIA proprietary binaries (drivers, firmware)
 sudo ./apply_binaries.sh
@@ -501,7 +501,7 @@ software = {
 ### Build .swu Package
 
 ```bash
-cd /home/tim/src/isar-k3s
+cd /home/tim/src/n3x
 mkdir -p swu-build && cd swu-build
 
 # Create ext4 from ISAR rootfs
@@ -510,7 +510,7 @@ mkfs.ext4 -L APP_b rootfs.ext4
 
 mkdir -p mnt
 sudo mount rootfs.ext4 mnt
-sudo tar -xf ../isar/build/tmp/deploy/images/jetson-orin-nano/isar-k3s-image-*-debian-trixie-arm64.tar.gz -C mnt/
+sudo tar -xf ../isar/build/tmp/deploy/images/jetson-orin-nano/n3x-image-*-debian-trixie-arm64.tar.gz -C mnt/
 sudo umount mnt
 
 # Compress
@@ -521,7 +521,7 @@ sha256sum rootfs.ext4.zst | cut -d' ' -f1 > rootfs.ext4.zst.sha256
 
 # Package (sw-description MUST be first)
 echo -e "sw-description\nrootfs.ext4.zst\npost-update.sh" | \
-    cpio -ov -H crc > isar-k3s-update-1.0.0.swu
+    cpio -ov -H crc > n3x-update-1.0.0.swu
 ```
 
 ---

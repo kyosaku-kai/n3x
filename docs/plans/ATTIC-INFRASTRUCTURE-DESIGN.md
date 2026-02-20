@@ -1,9 +1,14 @@
+> **ARCHIVED / SUPERSEDED**: This document describes an Attic-based binary cache design that
+> was superseded by a Harmonia-based architecture. See
+> [nix-binary-cache-architecture-decision.md](../nix-binary-cache-architecture-decision.md)
+> for the current architecture decision record.
+
 # Attic Binary Cache Infrastructure Design
 
 **Project**: n3x (Nix-based k3s cluster for embedded Linux)
 **Document Version**: 1.0
 **Created**: 2026-01-17
-**Status**: Design Review - Awaiting DevOps Team Input
+**Status**: ARCHIVED — Superseded by Harmonia ADR
 **Owner**: Development Team
 **Implementer**: DevOps/Platform Team
 
