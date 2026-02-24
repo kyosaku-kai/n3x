@@ -113,6 +113,14 @@
       # Standard library
       lib = pkgs.lib;
 
+      # Git hooks setup snippet (shared across all dev shells)
+      # Configures git to use .githooks/ for commit-msg and pre-commit validation
+      gitHooksSetup = ''
+        if [ -d .githooks ]; then
+          git config --local core.hooksPath .githooks 2>/dev/null || true
+        fi
+      '';
+
       # Version from VERSION file + git rev
       baseVersion = lib.trim (builtins.readFile ./VERSION);
       version =
@@ -477,7 +485,7 @@
           podman
         ];
 
-        shellHook = ''
+        shellHook = gitHooksSetup + ''
           echo "n3x Debian Backend Development Environment"
           echo "==========================================="
           echo ""
@@ -657,6 +665,9 @@
             jq
             yq
 
+            # Code quality (used by .githooks/pre-commit)
+            nixpkgs-fmt
+
             # Network debugging
             tcpdump
             dig
@@ -667,7 +678,7 @@
             inputs.nixos-anywhere.packages.${systems.n100}.default
           ];
 
-          shellHook = ''
+          shellHook = gitHooksSetup + ''
             echo "n3x Development Environment"
             echo "=========================="
             echo ""

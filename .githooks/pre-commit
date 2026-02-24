@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Pre-commit hook: format Nix files and validate flake
+#
+# 1. Runs nixpkgs-fmt on staged .nix files and re-stages them
+# 2. Runs nix flake check --no-build for evaluation-time verification
+#
+# Installed automatically by `nix develop` shell hook.
+
+set -euo pipefail
+
+# Format staged .nix files
+staged_nix=$(git diff --cached --name-only --diff-filter=ACM -- '*.nix' || true)
+if [[ -n "$staged_nix" ]]; then
+  echo "Formatting staged .nix files..."
+  echo "$staged_nix" | xargs nixpkgs-fmt 2>/dev/null || true
+  echo "$staged_nix" | xargs git add
+fi
+
+# Run flake check (evaluation only, no builds)
+# This is advisory — CI is the authoritative gate.
+# Skip with: SKIP_FLAKE_CHECK=1 git commit ...
+if [[ -z "${SKIP_FLAKE_CHECK:-}" ]]; then
+  echo "Running nix flake check --no-build (skip with SKIP_FLAKE_CHECK=1)..."
+  if ! nix flake check --no-build 2>&1; then
+    echo ""
+    echo "WARNING: nix flake check --no-build failed."
+    echo "CI will catch this if it's a real problem."
+    echo "To skip this check: SKIP_FLAKE_CHECK=1 git commit ..."
+  fi
+fi
