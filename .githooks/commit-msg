@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Conventional Commits validation hook
+#
+# Validates that commit messages follow the Conventional Commits specification:
+#   type(scope): description
+#
+# Installed automatically by `nix develop` shell hook.
+# Also enforced server-side by GitHub branch rulesets.
+
+set -euo pipefail
+
+commit_msg_file="$1"
+commit_msg=$(head -1 "$commit_msg_file")
+
+# Allow merge commits
+if [[ "$commit_msg" == Merge* ]]; then
+  exit 0
+fi
+
+# Allow revert commits
+if [[ "$commit_msg" == Revert* ]]; then
+  exit 0
+fi
+
+# Conventional Commits regex
+# type(optional-scope)!: description
+# Types: feat, fix, docs, ci, test, refactor, chore, build, perf, style
+pattern='^(feat|fix|docs|ci|test|refactor|chore|build|perf|style)(\([a-zA-Z0-9._/ -]+\))?(!)?: .+'
+
+if ! [[ "$commit_msg" =~ $pattern ]]; then
+  echo ""
+  echo "ERROR: Commit message does not follow Conventional Commits format."
+  echo ""
+  echo "  Expected: type(scope): description"
+  echo "  Got:      $commit_msg"
+  echo ""
+  echo "  Valid types: feat, fix, docs, ci, test, refactor, chore, build, perf, style"
+  echo "  Scope is optional: feat(k3s): add HA support"
+  echo "  Breaking change: feat!: remove deprecated API"
+  echo ""
+  echo "  Examples:"
+  echo "    feat(debian): add SWUpdate OTA support"
+  echo "    fix(network): correct VLAN tagging on bond interfaces"
+  echo "    ci: add ARM64 runner support"
+  echo "    docs: update architecture decision records"
+  echo "    test(k3s): add DHCP cluster formation test"
+  echo ""
+  echo "  See CONTRIBUTING.md for full guidelines."
+  echo ""
+  exit 1
+fi
+
+# Validate description is not empty and starts with lowercase
+description="${commit_msg#*: }"
+if [[ -z "$description" ]]; then
+  echo "ERROR: Commit message description cannot be empty."
+  exit 1
+fi

@@ -1,0 +1,10 @@
+# Code Owners for n3x
+#
+# These owners are automatically requested for review on pull requests
+# that modify matching files. Requires "Require review from Code Owners"
+# in the branch ruleset.
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all files require review from the maintainer
+* @timblaktu
