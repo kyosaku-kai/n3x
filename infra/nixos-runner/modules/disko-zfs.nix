@@ -102,69 +102,70 @@ in
     boot.loader.efi.canTouchEfiVariables = lib.mkIf (cfg.diskLayout == "single-disk") (lib.mkDefault true);
 
     disko.devices = {
-      disk = if cfg.diskLayout == "dedicated" then {
-        # Dedicated disk: whole device is a single ZFS partition
-        ${cfg.poolName} = {
-          type = "disk";
-          device = cfg.device;
-          content = {
-            type = "gpt";
-            partitions = {
-              zfs = {
-                size = "100%";
-                content = {
-                  type = "zfs";
-                  pool = cfg.poolName;
+      disk =
+        if cfg.diskLayout == "dedicated" then {
+          # Dedicated disk: whole device is a single ZFS partition
+          ${cfg.poolName} = {
+            type = "disk";
+            device = cfg.device;
+            content = {
+              type = "gpt";
+              partitions = {
+                zfs = {
+                  size = "100%";
+                  content = {
+                    type = "zfs";
+                    pool = cfg.poolName;
+                  };
+                };
+              };
+            };
+          };
+        } else {
+          # Single-disk: ESP + root ext4 + ZFS on one drive
+          main = {
+            type = "disk";
+            device = cfg.device;
+            content = {
+              type = "gpt";
+              partitions = {
+                esp = {
+                  size = cfg.espSize;
+                  type = "EF00";
+                  content = {
+                    type = "filesystem";
+                    format = "vfat";
+                    mountpoint = "/boot";
+                    mountOptions = [ "umask=0077" ];
+                  };
+                };
+                root = {
+                  size = cfg.rootSize;
+                  content = {
+                    type = "filesystem";
+                    format = "ext4";
+                    mountpoint = "/";
+                  };
+                };
+                zfs = {
+                  size = "100%";
+                  content = {
+                    type = "zfs";
+                    pool = cfg.poolName;
+                  };
                 };
               };
             };
           };
         };
-      } else {
-        # Single-disk: ESP + root ext4 + ZFS on one drive
-        main = {
-          type = "disk";
-          device = cfg.device;
-          content = {
-            type = "gpt";
-            partitions = {
-              esp = {
-                size = cfg.espSize;
-                type = "EF00";
-                content = {
-                  type = "filesystem";
-                  format = "vfat";
-                  mountpoint = "/boot";
-                  mountOptions = [ "umask=0077" ];
-                };
-              };
-              root = {
-                size = cfg.rootSize;
-                content = {
-                  type = "filesystem";
-                  format = "ext4";
-                  mountpoint = "/";
-                };
-              };
-              zfs = {
-                size = "100%";
-                content = {
-                  type = "zfs";
-                  pool = cfg.poolName;
-                };
-              };
-            };
-          };
-        };
-      };
 
       zpool.${cfg.poolName} = {
         type = "zpool";
 
         # Pool-level options (zpool create -o)
         options = {
-          ashift = "12";      # 4K sectors for NVMe/modern storage
-          autotrim = "on";    # Continuous TRIM for SSD health
+          ashift = "12"; # 4K sectors for NVMe/modern storage
+          autotrim = "on"; # Continuous TRIM for SSD health
           cachefile = "none"; # NixOS manages pool imports
         };
 
@@ -200,13 +201,15 @@ in
               refreservation = cfg.reservedSpace;
             };
           };
-        } // lib.mapAttrs (name: ds: {
-          type = "zfs_fs";
-          mountpoint = ds.mountpoint;
-          options = {
-            mountpoint = "legacy";
-          } // ds.properties;
-        }) cfg.extraDatasets;
+        } // lib.mapAttrs
+          (name: ds: {
+            type = "zfs_fs";
+            mountpoint = ds.mountpoint;
+            options = {
+              mountpoint = "legacy";
+            } // ds.properties;
+          })
+          cfg.extraDatasets;
       };
     };
 

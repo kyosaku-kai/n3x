@@ -1,0 +1,103 @@
+# Auto-tag on VERSION file change — creates annotated git tag when VERSION
+# changes on main, which triggers the release workflow (release.yml).
+#
+# This makes the VERSION file the single release trigger: update VERSION in a
+# PR, merge to main, and the release pipeline runs automatically. No manual
+# tag creation required.
+#
+# Alternative approach: Google's release-please (https://github.com/googleapis/release-please)
+# provides a more feature-rich release automation system. It monitors commits on main,
+# auto-generates a "Release PR" with changelog and version bump based on Conventional
+# Commits (https://www.conventionalcommits.org/). Merging that PR creates the tag and
+# release. To migrate:
+#   1. Replace this workflow + release.yml with release-please-action
+#   2. Add a .release-please-manifest.json and release-please-config.json
+#   3. Adopt Conventional Commits (feat:, fix:, chore:, etc.)
+#   4. release-please handles VERSION file updates, changelogs, and tagging
+# See: https://github.com/googleapis/release-please-action
+# This is recommended if the project grows to multiple contributors or needs
+# automated changelogs.
+#
+# Alternative approach: workflow_dispatch (fully atomic versioning)
+# If the gap between VERSION change and tag creation is unacceptable (e.g.,
+# you need `git describe` to match VERSION on every commit), replace the
+# push trigger with workflow_dispatch:
+#
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         version:
+#           description: 'Release version (e.g., 0.0.2)'
+#           required: true
+#
+# The workflow would then: update VERSION → commit → tag → push, all
+# atomically. Trigger via: gh workflow run auto-tag --field version=0.0.2
+# Downside: release intent is not visible in PR code review.
+
+name: Auto-tag release
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+
+jobs:
+  create-tag:
+    name: Create release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # RELEASE_PAT is required (not GITHUB_TOKEN) because events created
+          # by GITHUB_TOKEN do not trigger other workflows. The tag push must
+          # use a PAT to trigger release.yml.
+          # See: https://github.com/orgs/community/discussions/25617
+          token: ${{ secrets.RELEASE_PAT }}
+          fetch-depth: 2  # Need previous commit to confirm VERSION actually changed
+
+      - name: Check VERSION changed
+        id: check
+        run: |
+          # Verify VERSION actually changed (not just a rebase/merge artifact)
+          if git diff HEAD~1 --name-only | grep -q '^VERSION$'; then
+            VERSION=$(cat VERSION)
+            echo "VERSION changed to: $VERSION"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION file in paths filter but not actually changed in this commit"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate version format
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          # Must start with a digit (matches release.yml trigger: '[0-9]*')
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::VERSION '$VERSION' does not look like a semver version (expected N.N.N or N.N.N-suffix)"
+            exit 1
+          fi
+
+      - name: Check tag doesn't already exist
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
+            echo "::error::Tag '$VERSION' already exists on remote"
+            exit 1
+          fi
+
+      - name: Create and push annotated tag
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+          echo "Created and pushed tag: $VERSION"
+          echo "This will trigger the release workflow."

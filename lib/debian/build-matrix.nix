@@ -29,9 +29,11 @@ let
       };
     };
     qemuarm64 = {
-      kasFile = "qemu-arm64";
+      kasFile = "qemu-arm64-orin";
+      # Produces WIC images (matching release.yml) — Orin emulation profile
+      # with UEFI boot and zstd compression
       artifactTypes = {
-        disk = { extension = ".ext4"; attrName = "ext4"; };
+        wic = { extension = ".wic"; attrName = "wic"; };
         kernel = { extension = "-vmlinux"; attrName = "vmlinux"; };
         initrd = { extension = "-initrd.img"; attrName = "initrd"; };
       };

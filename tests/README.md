@@ -56,9 +56,9 @@ Tests are organized by layer, with higher layers depending on lower layers passi
 
 | Layer | NixOS Tests | Debian Tests |
 |-------|-------------|------------|
-| L1 | `smoke-vm-boot` | `debian-vm-boot` |
-| L2 | `smoke-two-vm-network` | `debian-two-vm-network` |
-| L3 | `smoke-k3s-service-starts` | `debian-server-boot`, `debian-service` |
+| L1 | `nixos-smoke-vm-boot` | `debian-vm-boot` |
+| L2 | `nixos-smoke-two-vm-network` | `debian-two-vm-network` |
+| L3 | `nixos-smoke-k3s-service-starts` | `debian-server-boot`, `debian-service` |
 | L4 | 8 tests (4 profiles × 2 boot modes) | 8 tests (4 profiles × 2 boot modes) |
 
 ### L4 Cluster Test Parity Matrix (Plan 020 Phase G)
@@ -322,13 +322,13 @@ These tests use nested virtualization for complex scenarios. They require native
 
 | Check | Description | Run Command |
 |-------|-------------|-------------|
-| `nixpkgs-fmt` | Nix code formatting validation | `nix build '.#checks.x86_64-linux.nixpkgs-fmt'` |
+| `lint-nixpkgs-fmt` | Nix code formatting validation | `nix build '.#checks.x86_64-linux.lint-nixpkgs-fmt'` |
 | `build-all` | Validates all configurations build | `nix build '.#checks.x86_64-linux.build-all'` |
-| `debian-package-parity` | Debian backend package mapping verification | `nix flake check --no-build` |
+| `lint-debian-package-parity` | Debian backend package mapping verification | `nix flake check --no-build` |
 
 ### Debian Backend Package Parity Verification (Plan 016)
 
-The `debian-package-parity` check verifies that kas overlay YAML files contain all packages required for Debian backend images. This catches missing packages at **Nix evaluation time** rather than during Debian backend test runtime.
+The `lint-debian-package-parity` check verifies that kas overlay YAML files contain all packages required for Debian backend images. This catches missing packages at **Nix evaluation time** rather than during Debian backend test runtime.
 
 #### How It Works
 

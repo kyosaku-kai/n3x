@@ -29,12 +29,14 @@ let
   # Fetch the k3s binary
   k3sBinary = fetchurl {
     url = "https://github.com/k3s-io/k3s/releases/download/${versionUrl}/${binaryName}";
-    sha256 = if stdenv.hostPlatform.isAarch64
+    sha256 =
+      if stdenv.hostPlatform.isAarch64
       then "0a52k28v3svjffrj551416a74zjc6bjk8siki65a4ygba9pdficz"  # arm64
       else "0xzzbcnhg3mkyn9jnxlqclpa8cr97ygywd9ckmzmym32cl5vx6fg"; # amd64
   };
 
-in stdenv.mkDerivation {
+in
+stdenv.mkDerivation {
   pname = "k3s";
   inherit version;
 

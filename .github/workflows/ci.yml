@@ -1,0 +1,432 @@
+# n3x CI Pipeline — 22 jobs across 5 tiers, all parallel
+#
+# Tier 1: Eval/lint (eval, lint-*) — fast, Nix only
+# Tier 2: Nix package build (pkg-*) — builds .deb packages (x86_64 + aarch64)
+# Tier 3: NixOS VM tests (7 tests) — KVM required
+# Tier 4: ISAR builds by machine (4 jobs) — privileged Docker, build-only
+# Tier 5: Debian VM tests (5 groups) — KVM + privileged Docker, build+test
+#
+# All tiers run in parallel (no cross-tier dependencies).
+# Cost: $0/month (public repo = unlimited free standard runner minutes).
+#
+# ISAR builds use kas-container with --privileged (required for mmdebstrap's
+# unshare(2) mount namespace isolation). Build cache (downloads + sstate) is
+# persisted via actions/cache and forwarded into the container via kas-container's
+# DL_DIR/SSTATE_DIR mount mechanism, with the ci-cache.yml kas overlay ensuring
+# BitBake uses the container-mounted paths.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same branch/PR (save runner minutes)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # Tier 1 — Eval/lint (fast, no KVM, no ISAR)
+  # ===========================================================================
+
+  eval:
+    name: Nix evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # Targeted evaluation instead of `nix flake check --no-build`.
+      # Full flake check evaluates every NixOS VM test derivation (~1-2GB each),
+      # exceeding the runner's 7GB available RAM.
+      - name: Verify flake metadata
+        run: nix flake metadata
+
+      - name: Evaluate devShells
+        run: nix eval '.#devShells.x86_64-linux' --apply 'builtins.attrNames' --json
+
+      - name: Evaluate packages
+        run: nix eval '.#packages.x86_64-linux' --apply 'builtins.attrNames' --json
+
+  format:
+    name: Nix formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build '.#checks.x86_64-linux.lint-nixpkgs-fmt'
+
+  package-parity:
+    name: Debian package parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build '.#checks.x86_64-linux.lint-debian-package-parity'
+
+  version:
+    name: VERSION file semver
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build '.#checks.x86_64-linux.lint-version'
+
+  # ===========================================================================
+  # Tier 2 — Nix package build
+  # ===========================================================================
+
+  deb-packages-x86_64:
+    name: Debian packages (x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build '.#checks.x86_64-linux.pkg-debian-x86_64'
+
+  deb-packages-aarch64:
+    name: Debian packages (aarch64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build '.#checks.aarch64-linux.pkg-debian-aarch64'
+
+  # ===========================================================================
+  # Tier 3 — NixOS VM tests (KVM required)
+  # ===========================================================================
+
+  nixos-test:
+    name: "Test: ${{ matrix.test }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - nixos-smoke-vm-boot
+          - nixos-smoke-two-vm-network
+          - nixos-smoke-k3s-service-starts
+          - k3s-cluster-simple
+          - k3s-cluster-vlans
+          - k3s-cluster-bonding-vlans
+          - k3s-cluster-dhcp-simple
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Verify KVM
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::KVM not available — VM tests require hardware virtualization"
+            exit 1
+          fi
+          ls -la /dev/kvm
+
+      - name: Run test
+        run: nix build '.#checks.x86_64-linux.${{ matrix.test }}' -L
+
+  # ===========================================================================
+  # Tier 4 — ISAR builds, build-only (privileged Docker)
+  #
+  # Each job builds ALL variants for its machine in sequence, maximizing
+  # sstate sharing within the job. Nix is installed for `nix eval` to
+  # retrieve kas overlay chains from the build matrix.
+  # ===========================================================================
+
+  build-isar:
+    name: "Build: debian-${{ matrix.machine }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - machine: qemuamd64
+            runner: ubuntu-latest
+          - machine: qemuarm64
+            runner: ubuntu-24.04-arm
+          - machine: jetson-orin-nano
+            runner: ubuntu-24.04-arm
+          - machine: amd-v3c18i
+            runner: ubuntu-latest
+    steps:
+      # jlumbroso/free-disk-space doesn't support ARM64 runners;
+      # ARM64 runners have less pre-installed bloat anyway (~23GB vs ~49GB)
+      - name: Free disk space (x86_64)
+        if: runner.arch == 'X64'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
+          tool-cache: false
+
+      - name: Free disk space (ARM64)
+        if: runner.arch == 'ARM64'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell 2>/dev/null || true
+          sudo apt-get autoremove -y 2>/dev/null || true
+          df -h /
+
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Install kas
+        run: pip install kas==5.1
+
+      # Separate caches for downloads (arch-split as defense-in-depth; the root
+      # cause — k3s downloadfilename collision — is fixed in k3s-base.inc)
+      # and sstate (per-machine for targeted cache hits)
+      - name: Restore download cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/downloads
+          key: isar-dl-${{ runner.arch }}-${{ hashFiles('backends/debian/kas/**') }}
+          restore-keys: isar-dl-${{ runner.arch }}-
+
+      - name: Restore sstate cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/sstate
+          key: isar-sstate-${{ matrix.machine }}-${{ hashFiles('backends/debian/kas/**', 'backends/debian/meta-n3x/**') }}
+          restore-keys: isar-sstate-${{ matrix.machine }}-
+
+      - name: Prepare cache directories
+        run: mkdir -p .ci-cache/downloads .ci-cache/sstate
+
+      - name: Build all variants
+        env:
+          KAS_CONTAINER_ENGINE: docker
+          KAS_CONTAINER_IMAGE: ghcr.io/siemens/kas/kas-isar:5.1
+          DL_DIR: ${{ github.workspace }}/.ci-cache/downloads
+          SSTATE_DIR: ${{ github.workspace }}/.ci-cache/sstate
+          MACHINE: ${{ matrix.machine }}
+        working-directory: backends/debian
+        run: |
+          set -euo pipefail
+
+          # Get all variants for this machine via nix eval
+          VARIANTS=$(nix eval --json '.#lib.debian.buildMatrix' --apply "
+            matrix: builtins.map (v: {
+              id = matrix.mkVariantId v;
+              kasCommand = matrix.mkKasCommand v;
+            }) (builtins.filter (v: v.machine == \"$MACHINE\") matrix.variants)
+          ")
+
+          # Detect native build: append native-build.yml when host == target arch
+          HOST_ARCH=$(uname -m)
+          case "$MACHINE" in
+            qemuarm64|jetson-orin-nano) TARGET_ARCH=aarch64 ;;
+            *)                          TARGET_ARCH=x86_64 ;;
+          esac
+
+          NATIVE_OVERLAY=""
+          if [ "$HOST_ARCH" = "$TARGET_ARCH" ]; then
+            NATIVE_OVERLAY=":kas/opt/native-build.yml"
+            echo "Native build detected ($HOST_ARCH == $TARGET_ARCH)"
+          else
+            echo "Cross-compilation ($HOST_ARCH → $TARGET_ARCH)"
+          fi
+
+          VARIANT_COUNT=$(echo "$VARIANTS" | jq 'length')
+          echo "Building $VARIANT_COUNT variants for $MACHINE"
+
+          for IDX in $(seq 0 $((VARIANT_COUNT - 1))); do
+            ID=$(echo "$VARIANTS" | jq -r ".[$IDX].id")
+            KAS_CMD=$(echo "$VARIANTS" | jq -r ".[$IDX].kasCommand")
+            FULL_CMD="${KAS_CMD}:kas/opt/ci-cache.yml${NATIVE_OVERLAY}"
+
+            echo "::group::[$((IDX + 1))/$VARIANT_COUNT] Building variant: $ID"
+            echo "kas command: $FULL_CMD"
+
+            # Clean stale .git-downloads symlink (kas-container tmpdir changes between sessions)
+            rm -f build/tmp/work/debian-trixie-*/.git-downloads 2>/dev/null || true
+
+            kas-container --isar build "$FULL_CMD"
+            echo "::endgroup::"
+          done
+
+      - name: Show build results
+        if: always()
+        run: |
+          echo "=== Build artifacts ==="
+          ls -lh "backends/debian/build/tmp/deploy/images/${{ matrix.machine }}/" 2>/dev/null || echo "No artifacts found"
+          echo ""
+          echo "=== Disk usage ==="
+          df -h /
+          echo ""
+          echo "=== Cache sizes ==="
+          du -sh .ci-cache/downloads/ .ci-cache/sstate/ 2>/dev/null || echo "No cache data"
+
+  # ===========================================================================
+  # Tier 5 — Debian VM tests: combined ISAR build + artifact registration + test
+  #
+  # Each job:
+  #   1. Builds required qemuamd64 ISAR variant(s) via kas-container
+  #   2. Registers artifacts in nix store via isar-build-all --rename-existing
+  #   3. Runs nix build for each test in the group
+  #
+  # Test-to-variant mappings verified from source code (2026-02-21):
+  #   - debian-vm-boot, debian-two-vm-network → base-swupdate
+  #   - debian-server-boot, debian-service, debian-network-* → server-{profile}-server-{1,2}
+  #   - debian-cluster-* → server-{profile}-server-{1,2}
+  # ===========================================================================
+
+  debian-test:
+    name: "Test: debian-${{ matrix.group }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: swupdate
+            variants: "base-swupdate"
+            tests: "debian-vm-boot debian-two-vm-network test-swupdate-bundle-validation test-swupdate-apply"
+          - group: simple
+            variants: "server-simple-server-1 server-simple-server-2"
+            tests: "debian-server-boot debian-service debian-network-simple debian-cluster-simple debian-cluster-simple-direct"
+          - group: vlans
+            variants: "server-vlans-server-1 server-vlans-server-2"
+            tests: "debian-network-vlans debian-cluster-vlans debian-cluster-vlans-direct"
+          - group: bonding
+            variants: "server-bonding-vlans-server-1 server-bonding-vlans-server-2"
+            tests: "debian-network-bonding debian-cluster-bonding-vlans debian-cluster-bonding-vlans-direct"
+          - group: dhcp
+            variants: "server-dhcp-simple-server-1 server-dhcp-simple-server-2"
+            tests: "debian-cluster-dhcp-simple debian-cluster-dhcp-simple-direct"
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
+          tool-cache: false
+
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Verify KVM
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::KVM not available — VM tests require hardware virtualization"
+            exit 1
+          fi
+          ls -la /dev/kvm
+
+      - name: Install kas
+        run: pip install kas==5.1
+
+      - name: Restore download cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/downloads
+          key: isar-dl-X64-${{ hashFiles('backends/debian/kas/**') }}
+          restore-keys: isar-dl-X64-
+
+      - name: Restore sstate cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/sstate
+          key: isar-sstate-qemuamd64-${{ hashFiles('backends/debian/kas/**', 'backends/debian/meta-n3x/**') }}
+          restore-keys: isar-sstate-qemuamd64-
+
+      - name: Prepare cache directories
+        run: mkdir -p .ci-cache/downloads .ci-cache/sstate
+
+      # Build and register each variant immediately (interleaved).
+      # ISAR variants sharing the same role produce identical output filenames
+      # (e.g., server-1 and server-2 both output n3x-image-server-...wic).
+      # Registration must happen before the next build overwrites the file.
+      - name: Build and register ISAR variants
+        env:
+          KAS_CONTAINER_ENGINE: docker
+          KAS_CONTAINER_IMAGE: ghcr.io/siemens/kas/kas-isar:5.1
+          DL_DIR: ${{ github.workspace }}/.ci-cache/downloads
+          SSTATE_DIR: ${{ github.workspace }}/.ci-cache/sstate
+          VARIANTS: ${{ matrix.variants }}
+        run: |
+          set -euo pipefail
+
+          for VARIANT_ID in $VARIANTS; do
+            echo "::group::Build+register: $VARIANT_ID"
+
+            # Get kas command for this specific variant (machine is always qemuamd64 for Tier 5)
+            KAS_CMD=$(nix eval --raw '.#lib.debian.buildMatrix' --apply "
+              matrix: matrix.mkKasCommand (builtins.head (builtins.filter
+                (v: v.machine == \"qemuamd64\" && matrix.mkVariantId v == \"$VARIANT_ID\")
+                matrix.variants))
+            ")
+
+            FULL_CMD="${KAS_CMD}:kas/opt/ci-cache.yml"
+            echo "kas command: $FULL_CMD"
+
+            # Clean stale .git-downloads symlink
+            cd backends/debian
+            rm -f build/tmp/work/debian-trixie-*/.git-downloads 2>/dev/null || true
+
+            # Build
+            kas-container --isar build "$FULL_CMD"
+            cd ../..
+
+            # Register immediately (before next build overwrites the shared output filename)
+            nix run '.#isar-build-all' -- \
+              --machine qemuamd64 \
+              --variant "$VARIANT_ID" \
+              --rename-existing \
+              --no-color
+
+            echo "::endgroup::"
+          done
+
+      # Phase 3: Run tests
+      - name: Run tests
+        env:
+          TESTS: ${{ matrix.tests }}
+        run: |
+          set -euo pipefail
+
+          for TEST in $TESTS; do
+            echo "::group::Test: $TEST"
+            nix build ".#checks.x86_64-linux.${TEST}" -L
+            echo "::endgroup::"
+          done
+
+      - name: Show results
+        if: always()
+        run: |
+          echo "=== Build artifacts ==="
+          ls -lh backends/debian/build/tmp/deploy/images/qemuamd64/ 2>/dev/null || echo "No artifacts found"
+          echo ""
+          echo "=== Disk usage ==="
+          df -h /

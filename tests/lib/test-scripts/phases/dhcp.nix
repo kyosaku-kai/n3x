@@ -109,6 +109,23 @@
     tlog("  All DHCP leases and routes verified")
   '';
 
+  # Shutdown the DHCP server VM to free I/O resources (Plan 032)
+  # Parameters:
+  #   node: dhcp server node variable name
+  #   displayName: human-readable name for logging (default: "DHCP server")
+  #
+  # RATIONALE: After DHCP leases are verified, the DHCP server is no longer
+  # needed (lease time is 12h, test completes in <30 min). Shutting it down
+  # frees 512MB RAM and removes one QEMU VM from I/O contention, reducing
+  # etcd WAL write starvation on resource-constrained CI runners.
+  #
+  # Returns Python code string
+  shutdownDhcpServer = { node, displayName ? "DHCP server" }: ''
+    tlog("  Shutting down ${displayName} to free I/O resources (leases valid for 12h)")
+    ${node}.shutdown()
+    tlog("  ${displayName} shut down — reduced VM count from 4 to 3")
+  '';
+
   # Collect DHCP diagnostics on failure
   # Parameters:
   #   dhcpNode: dhcp server node variable name

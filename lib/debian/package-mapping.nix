@@ -43,7 +43,7 @@ let
     {
       nix = "cacert";
       debian = "ca-certificates";
-      commands = [];  # No user command, provides SSL certs
+      commands = [ ]; # No user command, provides SSL certs
       group = "k3s-core";
       source = "apt";
       description = "SSL certificate handling for HTTPS";
@@ -51,7 +51,7 @@ let
     {
       nix = "curl";
       debian = "curl";
-      commands = ["curl"];
+      commands = [ "curl" ];
       group = "k3s-core";
       source = "apt";
       description = "HTTP client for k3s downloads and health checks";
@@ -59,7 +59,7 @@ let
     {
       nix = "iptables";
       debian = "iptables";
-      commands = ["iptables" "iptables-save" "iptables-restore"];
+      commands = [ "iptables" "iptables-save" "iptables-restore" ];
       group = "k3s-core";
       source = "apt";
       description = "Network packet filtering (required for pod networking)";
@@ -67,7 +67,7 @@ let
     {
       nix = "conntrack-tools";
       debian = "conntrack";
-      commands = ["conntrack"];
+      commands = [ "conntrack" ];
       group = "k3s-core";
       source = "apt";
       description = "Connection tracking (required for kube-proxy)";
@@ -75,7 +75,7 @@ let
     {
       nix = "iproute2";
       debian = "iproute2";
-      commands = ["ip" "ss" "bridge"];
+      commands = [ "ip" "ss" "bridge" ];
       group = "k3s-core";
       source = "apt";
       description = "Network configuration (ip command)";
@@ -83,7 +83,7 @@ let
     {
       nix = "ipvsadm";
       debian = "ipvsadm";
-      commands = ["ipvsadm"];
+      commands = [ "ipvsadm" ];
       group = "k3s-core";
       source = "apt";
       description = "IPVS load balancing (for kube-proxy IPVS mode)";
@@ -91,7 +91,7 @@ let
     {
       nix = "bridge-utils";
       debian = "bridge-utils";
-      commands = ["brctl"];
+      commands = [ "brctl" ];
       group = "k3s-core";
       source = "apt";
       description = "Network bridge management (for CNI)";
@@ -99,7 +99,7 @@ let
     {
       nix = "procps";
       debian = "procps";
-      commands = ["ps" "top" "free" "pgrep" "pkill"];
+      commands = [ "ps" "top" "free" "pgrep" "pkill" ];
       group = "k3s-core";
       source = "apt";
       description = "Process utilities for monitoring";
@@ -107,27 +107,27 @@ let
     {
       nix = "util-linux";
       debian = "util-linux";
-      commands = ["mount" "lsblk" "findmnt"];
+      commands = [ "mount" "lsblk" "findmnt" ];
       group = "k3s-core";
       source = "apt";
       description = "System utilities (mount, block devices)";
     }
     # K3s binary package (unified server + agent)
     {
-      nix = null;  # No direct Nix equivalent - custom package
+      nix = null; # No direct Nix equivalent - custom package
       debian = "k3s";
-      commands = ["k3s" "kubectl" "crictl" "ctr"];
+      commands = [ "k3s" "kubectl" "crictl" "ctr" ];
       group = "k3s-core";
-      source = "packages";  # Built from packages/ directory
+      source = "packages"; # Built from packages/ directory
       description = "K3s Kubernetes binary (server + agent modes)";
     }
     # K3s system configuration
     {
-      nix = null;  # No Nix equivalent - ISAR-only
+      nix = null; # No Nix equivalent - ISAR-only
       debian = "k3s-system-config";
-      commands = [];
+      commands = [ ];
       group = "k3s-core";
-      source = "packages";  # Built from packages/ directory
+      source = "packages"; # Built from packages/ directory
       description = "Kernel modules, sysctl, iptables-legacy, swap disable";
     }
   ];
@@ -138,7 +138,7 @@ let
     {
       nix = "openssh";
       debian = "openssh-server";
-      commands = ["sshd"];
+      commands = [ "sshd" ];
       group = "debug";
       source = "apt";
       description = "SSH access for testing";
@@ -146,7 +146,7 @@ let
     {
       nix = "vim";
       debian = "vim-tiny";
-      commands = ["vim" "vi"];
+      commands = [ "vim" "vi" ];
       group = "debug";
       source = "apt";
       description = "Minimal editor";
@@ -154,7 +154,7 @@ let
     {
       nix = "less";
       debian = "less";
-      commands = ["less"];
+      commands = [ "less" ];
       group = "debug";
       source = "apt";
       description = "Pager for log viewing";
@@ -162,7 +162,7 @@ let
     {
       nix = "iputils";
       debian = "iputils-ping";
-      commands = ["ping" "ping6"];
+      commands = [ "ping" "ping6" ];
       group = "debug";
       source = "apt";
       description = "Network diagnostics (ping command)";
@@ -171,7 +171,7 @@ let
     {
       nix = null;
       debian = "sshd-regen-keys";
-      commands = [];
+      commands = [ ];
       group = "debug";
       source = "isar";
       description = "Regenerate SSH host keys on first boot";
@@ -184,7 +184,7 @@ let
     {
       nix = null;
       debian = "nixos-test-backdoor";
-      commands = [];
+      commands = [ ];
       group = "test";
       source = "isar";
       description = "NixOS test driver communication channel";
@@ -200,19 +200,22 @@ let
   # Index by Nix package name (excludes ISAR-only packages)
   byNixName = lib.listToAttrs (
     map (pkg: { name = pkg.nix; value = pkg; })
-    (lib.filter (pkg: pkg.nix != null) allPackages)
+      (lib.filter (pkg: pkg.nix != null) allPackages)
   );
 
   # Index by Debian package name
   byDebianName = lib.listToAttrs (
     map (pkg: { name = pkg.debian; value = pkg; })
-    allPackages
+      allPackages
   );
 
   # Index by command (many-to-one: multiple commands can map to one package)
-  byCommand = lib.foldl' (acc: pkg:
-    lib.foldl' (acc': cmd: acc' // { ${cmd} = pkg; }) acc pkg.commands
-  ) {} allPackages;
+  byCommand = lib.foldl'
+    (acc: pkg:
+      lib.foldl' (acc': cmd: acc' // { ${cmd} = pkg; }) acc pkg.commands
+    )
+    { }
+    allPackages;
 
   # Group packages by their group field
   groups = {
@@ -223,29 +226,30 @@ let
 
   # Get Debian packages for a group
   debianPackagesForGroup = group:
-    map (pkg: pkg.debian) (groups.${group} or []);
+    map (pkg: pkg.debian) (groups.${group} or [ ]);
 
   # Get apt packages only (exclude ISAR custom recipes)
   aptPackagesForGroup = group:
     map (pkg: pkg.debian)
-    (lib.filter (pkg: pkg.source == "apt") (groups.${group} or []));
+      (lib.filter (pkg: pkg.source == "apt") (groups.${group} or [ ]));
 
   # Get ISAR custom packages only (legacy recipes in meta-n3x)
   isarPackagesForGroup = group:
     map (pkg: pkg.debian)
-    (lib.filter (pkg: pkg.source == "isar") (groups.${group} or []));
+      (lib.filter (pkg: pkg.source == "isar") (groups.${group} or [ ]));
 
   # Get packages built from packages/ directory
   packagesPackagesForGroup = group:
     map (pkg: pkg.debian)
-    (lib.filter (pkg: pkg.source == "packages") (groups.${group} or []));
+      (lib.filter (pkg: pkg.source == "packages") (groups.${group} or [ ]));
 
   # Get custom packages (both legacy ISAR recipes and new packages/)
   customPackagesForGroup = group:
     map (pkg: pkg.debian)
-    (lib.filter (pkg: pkg.source != "apt") (groups.${group} or []));
+      (lib.filter (pkg: pkg.source != "apt") (groups.${group} or [ ]));
 
-in {
+in
+{
   # Package lists by group (mirrors kas overlay structure)
   inherit groups;
 

@@ -41,7 +41,9 @@
   #   nodes: { primary, secondary, agent, dhcpServer? } - node variable names
   #   nodeNames: { primary, secondary, agent } - kubernetes node names
   #   dhcpReservations: (optional) { nodeName = { expectedIp, mac }; } for DHCP profiles
-  mkDefaultClusterTestScript = { profile, nodes, nodeNames, dhcpReservations ? null }:
+  #   sequentialJoin: (optional) start k3s on joining nodes one-at-a-time (Plan 032)
+  #   shutdownDhcpAfterLeases: (optional) shut down DHCP server after lease verification (Plan 032)
+  mkDefaultClusterTestScript = { profile, nodes, nodeNames, dhcpReservations ? null, sequentialJoin ? false, shutdownDhcpAfterLeases ? false }:
     let
       utils = import ./utils.nix;
       dhcpPhase = import ./phases/dhcp.nix { inherit lib; };
@@ -97,6 +99,9 @@
           ];
         }}
 
+        ${lib.optionalString shutdownDhcpAfterLeases (dhcpPhase.shutdownDhcpServer {
+          node = nodes.dhcpServer or "dhcp_server";
+        })}
       '';
 
     in
@@ -117,7 +122,7 @@
 
       # PHASES 3-8: K3s Cluster Formation
       ${k3sPhase.verifyCluster {
-        inherit profile;
+        inherit profile sequentialJoin;
         primary = nodes.primary;
         secondary = nodes.secondary;
         agent = nodes.agent;

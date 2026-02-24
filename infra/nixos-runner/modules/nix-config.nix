@@ -96,9 +96,9 @@ in
 
     # Install useful Nix-related tools
     environment.systemPackages = with pkgs; [
-      nix-output-monitor  # Better build output (nom)
-      nix-tree            # Visualize derivation dependencies
-      nixpkgs-fmt         # Nix code formatter
+      nix-output-monitor # Better build output (nom)
+      nix-tree # Visualize derivation dependencies
+      nixpkgs-fmt # Nix code formatter
     ];
   };
 }

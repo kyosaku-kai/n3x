@@ -82,26 +82,28 @@ in
     ];
 
     # GitLab Runner service (only if a config file is provided)
-    services.gitlab-runner = let
-      hasConfig = cfg.authenticationTokenConfigFile != null || cfg.registrationConfigFile != null;
-    in mkIf hasConfig {
-      enable = true;
-      settings.concurrent = cfg.concurrent;
+    services.gitlab-runner =
+      let
+        hasConfig = cfg.authenticationTokenConfigFile != null || cfg.registrationConfigFile != null;
+      in
+      mkIf hasConfig {
+        enable = true;
+        settings.concurrent = cfg.concurrent;
 
-      services.n3x-shell = {
-        authenticationTokenConfigFile = mkIf (cfg.authenticationTokenConfigFile != null) cfg.authenticationTokenConfigFile;
-        registrationConfigFile = mkIf (cfg.registrationConfigFile != null) cfg.registrationConfigFile;
-        executor = "shell";
-        tagList = cfg.tags;
-        runUntagged = false;
-        environmentVariables = {
-          # Ensure Nix is available in PATH
-          PATH = "/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin";
-          # Use system Nix daemon
-          NIX_REMOTE = "daemon";
+        services.n3x-shell = {
+          authenticationTokenConfigFile = mkIf (cfg.authenticationTokenConfigFile != null) cfg.authenticationTokenConfigFile;
+          registrationConfigFile = mkIf (cfg.registrationConfigFile != null) cfg.registrationConfigFile;
+          executor = "shell";
+          tagList = cfg.tags;
+          runUntagged = false;
+          environmentVariables = {
+            # Ensure Nix is available in PATH
+            PATH = "/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin";
+            # Use system Nix daemon
+            NIX_REMOTE = "daemon";
+          };
         };
       };
-    };
 
     # Ensure gitlab-runner user can access Nix
     users.users.gitlab-runner = {

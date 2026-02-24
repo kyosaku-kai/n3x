@@ -46,82 +46,84 @@ in
       };
 
       path = with pkgs; [
-        util-linux  # blkid, mkfs.ext4
+        util-linux # blkid, mkfs.ext4
       ] ++ lib.optionals zfsCfg.enable [
-        config.boot.zfs.package  # zpool, zfs
+        config.boot.zfs.package # zpool, zfs
       ];
 
-      script = let
-        poolName = zfsCfg.poolName;
-        device = zfsCfg.device;
-        reservedSpace = zfsCfg.reservedSpace;
-      in ''
-        set -euo pipefail
+      script =
+        let
+          poolName = zfsCfg.poolName;
+          device = zfsCfg.device;
+          reservedSpace = zfsCfg.reservedSpace;
+        in
+        ''
+          set -euo pipefail
 
-        echo "n3x-first-boot-format: starting volume initialization"
+          echo "n3x-first-boot-format: starting volume initialization"
 
-        ${lib.optionalString zfsCfg.enable ''
-          # --- ZFS pool + datasets ---
-          # Options match disko-zfs.nix:158-206 (pool options, rootFsOptions, datasets)
-          if ! zpool list ${poolName} &>/dev/null; then
-            echo "Creating ZFS pool '${poolName}' on ${device}"
+          ${lib.optionalString zfsCfg.enable ''
+            # --- ZFS pool + datasets ---
+            # Options match disko-zfs.nix:158-206 (pool options, rootFsOptions, datasets)
+            if ! zpool list ${poolName} &>/dev/null; then
+              echo "Creating ZFS pool '${poolName}' on ${device}"
 
-            # Pool-level options (-o): match disko-zfs.nix:162-166
-            # Root filesystem options (-O): match disko-zfs.nix:169-178
-            zpool create \
-              -f \
-              -o ashift=12 \
-              -o autotrim=on \
-              -o cachefile=none \
-              -O compression=zstd \
-              -O atime=off \
-              -O "com.sun:auto-snapshot=false" \
-              -O canmount=off \
-              -O mountpoint=none \
-              -O xattr=sa \
-              -O acltype=posixacl \
-              -O dnodesize=auto \
-              ${poolName} ${device}
+              # Pool-level options (-o): match disko-zfs.nix:162-166
+              # Root filesystem options (-O): match disko-zfs.nix:169-178
+              zpool create \
+                -f \
+                -o ashift=12 \
+                -o autotrim=on \
+                -o cachefile=none \
+                -O compression=zstd \
+                -O atime=off \
+                -O "com.sun:auto-snapshot=false" \
+                -O canmount=off \
+                -O mountpoint=none \
+                -O xattr=sa \
+                -O acltype=posixacl \
+                -O dnodesize=auto \
+                ${poolName} ${device}
 
-            # Dataset: nix — match disko-zfs.nix:182-189
-            zfs create \
-              -o mountpoint=legacy \
-              -o recordsize=128K \
-              ${poolName}/nix
+              # Dataset: nix — match disko-zfs.nix:182-189
+              zfs create \
+                -o mountpoint=legacy \
+                -o recordsize=128K \
+                ${poolName}/nix
 
-            # Dataset: reserved — match disko-zfs.nix:192-198
-            zfs create \
-              -o mountpoint=none \
-              -o canmount=off \
-              -o refreservation=${reservedSpace} \
-              ${poolName}/reserved
+              # Dataset: reserved — match disko-zfs.nix:192-198
+              zfs create \
+                -o mountpoint=none \
+                -o canmount=off \
+                -o refreservation=${reservedSpace} \
+                ${poolName}/reserved
 
-            # Mount /nix from ZFS
-            mkdir -p /nix
-            mount -t zfs ${poolName}/nix /nix
+              # Mount /nix from ZFS
+              mkdir -p /nix
+              mount -t zfs ${poolName}/nix /nix
 
-            echo "ZFS pool '${poolName}' created and /nix mounted"
-          else
-            echo "ZFS pool '${poolName}' already exists, skipping"
-          fi
-        ''}
+              echo "ZFS pool '${poolName}' created and /nix mounted"
+            else
+              echo "ZFS pool '${poolName}' already exists, skipping"
+            fi
+          ''}
 
-        ${lib.optionalString (yoctoCfg.enable && yoctoCfg.cacheDevice != null) ''
-          # --- Yocto ext4 volume ---
-          if ! blkid -o value -s TYPE ${yoctoCfg.cacheDevice} &>/dev/null; then
-            echo "Formatting ${yoctoCfg.cacheDevice} as ext4 (label: yocto)"
-            mkfs.ext4 -L yocto ${yoctoCfg.cacheDevice}
-            echo "Yocto volume formatted"
-          else
-            echo "${yoctoCfg.cacheDevice} already formatted, skipping"
-          fi
-        ''}
+          ${lib.optionalString (yoctoCfg.enable && yoctoCfg.cacheDevice != null) ''
+            # --- Yocto ext4 volume ---
+            if ! blkid -o value -s TYPE ${yoctoCfg.cacheDevice} &>/dev/null; then
+              echo "Formatting ${yoctoCfg.cacheDevice} as ext4 (label: yocto)"
+              mkfs.ext4 -L yocto ${yoctoCfg.cacheDevice}
+              echo "Yocto volume formatted"
+            else
+              echo "${yoctoCfg.cacheDevice} already formatted, skipping"
+            fi
+          ''}
 
-        # Write sentinel — this service won't run again
-        mkdir -p /var/lib
-        touch /var/lib/n3x-first-boot-done
-        echo "n3x-first-boot-format: complete"
-      '';
+          # Write sentinel — this service won't run again
+          mkdir -p /var/lib
+          touch /var/lib/n3x-first-boot-done
+          echo "n3x-first-boot-format: complete"
+        '';
     };
   };
 }

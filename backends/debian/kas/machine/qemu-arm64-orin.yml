@@ -48,8 +48,12 @@ local_conf_header:
     # compilation, avoiding ~10-20x QEMU TCG emulation overhead.
 
     # UEFI boot with GPT partitioning (same as real Orin)
-    IMAGE_FSTYPES = "wic"
-    WKS_FILE = "efi-plus-pcbios"
+    # .wic.bmap is generated automatically by ISAR's WIC builder (--bmap flag)
+    IMAGE_FSTYPES = "wic wic.zst"
+    # ARM64 WKS: Use systemd-boot (recipe default) instead of ISAR's
+    # built-in sdimage-efi which uses grub-efi (requires grub-mkimage,
+    # x86-only). No WKS_FILE override needed; n3x-image-base.bb defaults
+    # to sdimage-efi-systemd-boot-n3x.wks which works for both x86 and ARM64.
 
     # Serial console on ttyAMA0 (standard QEMU ARM serial)
     # Real Orin uses ttyTCU0 (Tegra Combined UART), but ttyAMA0 is simpler

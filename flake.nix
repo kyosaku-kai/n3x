@@ -6,7 +6,7 @@
     # TEMPORARY: Using fork with virtualisation.bootDiskAdditionalSpace fix
     # for bootloader-enabled VM tests (k3s-cluster-simple-systemd-boot).
     # Fork rebased onto nixos-25.11 (2026-02-16). Revert to nixos-25.11 once merged upstream.
-    # See: docs/nixpkgs-vm-bootloader-disk-limitation.md
+    # See: docs/nixos-vm-bootloader-disk-limitation.md
     nixpkgs.url = "github:timblaktu/nixpkgs/vm-bootloader-disk-size";
 
     # Hardware management
@@ -112,6 +112,12 @@
 
       # Standard library
       lib = pkgs.lib;
+
+      # Version from VERSION file + git rev
+      baseVersion = lib.trim (builtins.readFile ./VERSION);
+      version =
+        if self ? rev then "${baseVersion}+${self.shortRev}"
+        else "${baseVersion}-dirty";
 
       # Package set for aarch64
       pkgsAarch64 = import nixpkgs {
@@ -513,7 +519,7 @@
           echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
           echo ""
         '';
-      };  # end mkDebianShell
+      }; # end mkDebianShell
     in
     {
       # NixOS configurations for all nodes
@@ -718,7 +724,7 @@
         # Documentation
         docs = pkgs.stdenv.mkDerivation {
           pname = "n3x-docs";
-          version = "0.1.0";
+          version = baseVersion;
           src = ./.;
           buildPhase = ''
             mkdir -p $out/share/doc/n3x
@@ -834,6 +840,9 @@
 
       # Utility functions exported for use in modules
       lib = {
+        # Project version (e.g., "0.0.1+1a2b3c4" or "0.0.1-dirty")
+        inherit version baseVersion;
+
         # Generate disko configuration for standard disk layout
         mkDiskConfig = import ./lib/mk-disk-config.nix;
 
@@ -1130,8 +1139,20 @@
           echo "All configurations build successfully" > $out
         '';
 
+        # Validate VERSION file contains valid semver
+        lint-version =
+          let
+            valid = builtins.match "([0-9]+)\\.([0-9]+)\\.([0-9]+)(-.+)?" baseVersion;
+          in
+          lib.seq
+            (if valid == null then
+              throw "VERSION '${baseVersion}' is not valid semver (expected N.N.N or N.N.N-suffix)"
+            else
+              true)
+            (pkgs.runCommand "lint-version" { } "touch $out");
+
         # Lint Nix files
-        nixpkgs-fmt = pkgs.runCommand "nixpkgs-fmt-check"
+        lint-nixpkgs-fmt = pkgs.runCommand "nixpkgs-fmt-check"
           {
             buildInputs = [ pkgs.nixpkgs-fmt ];
           } ''
@@ -1146,7 +1167,7 @@
 
         # Debian package builds
         # Verifies packages/ directory .deb packages build correctly
-        debian-packages = pkgs.runCommand "debian-packages-check" { } ''
+        pkg-debian-x86_64 = pkgs.runCommand "debian-packages-check" { } ''
           mkdir -p $out
           # Verify k3s package built
           if [ ! -f "${self.packages.${systems.n100}.k3s}/k3s_"*".deb" ]; then
@@ -1172,13 +1193,13 @@
         # If a lower-level test fails, don't waste time on higher-level tests.
 
         # Layer 1: Single VM boot (15-30s) - verifies QEMU/KVM infrastructure
-        smoke-vm-boot = pkgs.callPackage ./tests/nixos/smoke/vm-boot.nix { };
+        nixos-smoke-vm-boot = pkgs.callPackage ./tests/nixos/smoke/vm-boot.nix { };
 
         # Layer 2: Two-VM networking (30-60s) - verifies VDE network works
-        smoke-two-vm-network = pkgs.callPackage ./tests/nixos/smoke/two-vm-network.nix { };
+        nixos-smoke-two-vm-network = pkgs.callPackage ./tests/nixos/smoke/two-vm-network.nix { };
 
         # Layer 3: K3s service starts (60-90s) - verifies K3s binary and service
-        smoke-k3s-service-starts = pkgs.callPackage ./tests/nixos/smoke/k3s-service-starts.nix { };
+        nixos-smoke-k3s-service-starts = pkgs.callPackage ./tests/nixos/smoke/k3s-service-starts.nix { };
 
         # NixOS integration tests - TODO: Fix inputs passing for all tests
         # Core K3s functionality
@@ -1274,6 +1295,7 @@
         k3s-cluster-vlans = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
           inherit pkgs lib;
           networkProfile = "vlans";
+          networkReadyTimeout = 60;
         };
 
         # Bonding + VLANs profile - full production parity
@@ -1281,6 +1303,7 @@
         k3s-cluster-bonding-vlans = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
           inherit pkgs lib;
           networkProfile = "bonding-vlans";
+          networkReadyTimeout = 120;
         };
 
         # DHCP simple profile - flat network with DHCP-assigned IPs (Plan 019 Phase C)
@@ -1290,6 +1313,14 @@
         k3s-cluster-dhcp-simple = pkgs.callPackage ./tests/lib/mk-k3s-cluster-test.nix {
           inherit pkgs lib;
           networkProfile = "dhcp-simple";
+          networkReadyTimeout = 60;
+          # Experimental CI tolerance (Plan 032): 4 QEMU VMs cause etcd I/O starvation
+          # on shared CI runners. These controls are harmless on fast machines.
+          etcdHeartbeatInterval = 500; # 5x default (100ms), per etcd tuning guide
+          etcdElectionTimeout = 5000; # 10x heartbeat, 5x default (1000ms)
+          sequentialJoin = true; # start k3s on joining nodes one-at-a-time
+          shutdownDhcpAfterLeases = true; # free I/O after leases verified (12h lease time)
+          etcdTmpfs = true; # eliminate etcd WAL I/O contention (test cluster formation, not durability)
         };
 
         # =================================================================
@@ -1304,6 +1335,7 @@
           networkProfile = "vlans";
           useSystemdBoot = true;
           testName = "k3s-cluster-vlans-systemd-boot";
+          networkReadyTimeout = 60;
         };
 
         # Bonding + VLANs with systemd-boot bootloader
@@ -1312,6 +1344,7 @@
           networkProfile = "bonding-vlans";
           useSystemdBoot = true;
           testName = "k3s-cluster-bonding-vlans-systemd-boot";
+          networkReadyTimeout = 120;
         };
 
         # DHCP with systemd-boot bootloader
@@ -1320,6 +1353,7 @@
           networkProfile = "dhcp-simple";
           useSystemdBoot = true;
           testName = "k3s-cluster-dhcp-simple-systemd-boot";
+          networkReadyTimeout = 60;
         };
 
         # Bond failover test - validates active-backup failover behavior
@@ -1343,7 +1377,7 @@
         # Debian Backend Package Parity Verification (Plan 016)
         # Verifies kas overlay files contain all packages defined in package-mapping.nix
         # Fails at eval time if packages are missing
-        debian-package-parity = debianPackageParity;
+        lint-debian-package-parity = debianPackageParity;
 
         # Validate Debian backend artifact hashes (generated from build matrix)
         debian-artifact-validation = debianArtifactValidation;
@@ -1400,6 +1434,20 @@
       # or binfmt-misc emulation). On x86_64-only systems, use `--system aarch64-linux`
       # with appropriate builder configuration.
       checks.${systems.jetson} = {
+        # Debian package builds (aarch64)
+        # Verifies arm64 .deb packages build correctly on native aarch64
+        pkg-debian-aarch64 = pkgsAarch64.runCommand "debian-packages-aarch64-check" { } ''
+          mkdir -p $out
+          # Verify k3s arm64 package built
+          if [ ! -f "${self.packages.${systems.jetson}.k3s}/k3s_"*".deb" ]; then
+            echo "ERROR: k3s arm64 .deb not found"
+            exit 1
+          fi
+          echo "All aarch64 Debian packages build successfully" > $out/result
+          # Copy packages for inspection
+          cp ${self.packages.${systems.jetson}.k3s}/*.deb $out/
+        '';
+
         # Jetson-1 configuration build validation
         # Builds the complete NixOS system derivation to verify config correctness
         jetson-1-build = self.nixosConfigurations.jetson-1.config.system.build.toplevel;

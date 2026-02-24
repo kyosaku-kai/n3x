@@ -87,16 +87,16 @@
   "isar-server-dhcp-simple-server-2-qemuamd64-initrd.img" = "0ca2sifbymwjq9an4nvfynqn36jymnd2izbgw1is89hxb5j3dcvi";
 
   # =========================================================================
-  # qemuarm64 - base
+  # qemuarm64 - base (Orin emulation profile — WIC images)
   # =========================================================================
-  "isar-base-qemuarm64.ext4" = "07wf98kmj73lmxlzbn18rab7bzzfn984dcfrslksxhnrrhcm7dxa";
+  "isar-base-qemuarm64.wic" = "07wf98kmj73lmxlzbn18rab7bzzfn984dcfrslksxhnrrhcm7dxa";
   "isar-base-qemuarm64-vmlinux" = "1bkb7ndk2ylhc4xwcwi9s6cj66z15yllccsy8kayg3xw6pgk1y0j";
   "isar-base-qemuarm64-initrd.img" = "0xab92fayps5ckhpadjrd81kr8j3fah1dl8svcjgvcrcr3a6szmn";
 
   # =========================================================================
-  # qemuarm64 - server
+  # qemuarm64 - server (Orin emulation profile — WIC images)
   # =========================================================================
-  "isar-server-qemuarm64.ext4" = "08p32lyk942gkwrwd7fzpcfq0sagdrglg81bfbx0c6sjlqzaa6pz";
+  "isar-server-qemuarm64.wic" = "08p32lyk942gkwrwd7fzpcfq0sagdrglg81bfbx0c6sjlqzaa6pz";
   "isar-server-qemuarm64-vmlinux" = "1bkb7ndk2ylhc4xwcwi9s6cj66z15yllccsy8kayg3xw6pgk1y0j";
   "isar-server-qemuarm64-initrd.img" = "0xab92fayps5ckhpadjrd81kr8j3fah1dl8svcjgvcrcr3a6szmn";
 

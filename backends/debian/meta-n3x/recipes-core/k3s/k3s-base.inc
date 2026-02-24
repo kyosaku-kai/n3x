@@ -27,8 +27,8 @@
 #   - ${PN} is the package name (e.g., "k3s-server" or "k3s-agent")
 #
 # RELATED FILES:
-#   - k3s-server_1.32.0.bb: Server (control plane) recipe
-#   - k3s-agent_1.32.0.bb: Agent (worker node) recipe
+#   - k3s-server_1.35.0.bb: Server (control plane) recipe
+#   - k3s-agent_1.35.0.bb: Agent (worker node) recipe
 #   - files/k3s-server.service: Systemd unit for server mode
 #   - files/k3s-agent.service: Systemd unit for agent mode
 #   - files/k3s-*.env: Environment configuration files
@@ -52,8 +52,8 @@ LICENSE = "Apache-2.0"
 # K3S_VERSION_URL: URL-encoded version for GitHub download URLs
 #   Note: The '+' in version strings must be encoded as %2B for URLs
 
-K3S_VERSION = "1.32.0+k3s1"
-K3S_VERSION_URL = "v1.32.0%2Bk3s1"
+K3S_VERSION = "1.35.0+k3s3"
+K3S_VERSION_URL = "v1.35.0%2Bk3s3"
 
 # -----------------------------------------------------------------------------
 # Binary Selection for Multi-Architecture Support
@@ -72,13 +72,15 @@ K3S_BINARY_NAME = "${@'k3s-arm64' if d.getVar('DISTRO_ARCH') == 'arm64' else 'k3
 # -----------------------------------------------------------------------------
 # SRC_URI defines where to download the K3s binary from.
 # Parameters:
-#   - downloadfilename=k3s: Rename the downloaded file to 'k3s'
+#   - downloadfilename: Uses K3S_BINARY_NAME so each architecture gets a unique
+#     cache key ("k3s" for amd64, "k3s-arm64" for arm64). Without this, builds
+#     sharing a download cache (DL_DIR) can pick up the wrong-arch binary.
 #   - name=k3s: Reference name for the checksum variable below
 #
 # TODO: Add proper SHA256 checksums before production use.
 # To get the checksum: sha256sum /path/to/downloaded/k3s
 
-SRC_URI = "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION_URL}/${K3S_BINARY_NAME};downloadfilename=k3s;name=k3s"
+SRC_URI = "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION_URL}/${K3S_BINARY_NAME};downloadfilename=${K3S_BINARY_NAME};name=k3s"
 SRC_URI[k3s.sha256sum] = ""
 
 # BB_STRICT_CHECKSUM = "0" disables checksum validation during development.
@@ -134,7 +136,7 @@ do_install() {
     # Install the K3s binary to /usr/bin
     # Permission 0755: rwxr-xr-x (executable by all, writable by owner)
     install -d ${D}/usr/bin
-    install -m 0755 ${WORKDIR}/k3s ${D}/usr/bin/k3s
+    install -m 0755 ${WORKDIR}/${K3S_BINARY_NAME} ${D}/usr/bin/k3s
 
     # Create symlinks for bundled CLI tools
     # K3s binary implements kubectl/crictl/ctr when invoked via these names

@@ -80,10 +80,12 @@ let
 
   # MAC reservations for DHCP server configuration
   # Format expected by dnsmasq dhcp-host directive
-  reservations = lib.mapAttrs (name: cfg: {
-    mac = cfg.mac;
-    ip = cfg.ip;
-  }) nodes;
+  reservations = lib.mapAttrs
+    (name: cfg: {
+      mac = cfg.mac;
+      ip = cfg.ip;
+    })
+    nodes;
 
 in
 {

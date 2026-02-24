@@ -98,6 +98,9 @@ build/
 backends/debian/build/
 backends/debian/isar/
 
+# CI build cache (GitHub Actions)
+.ci-cache/
+
 # Test artifacts
 test-results/
 coverage/

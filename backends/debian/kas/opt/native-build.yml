@@ -1,0 +1,19 @@
+# Disable ISAR cross-compilation for native architecture builds.
+#
+# Use when the host architecture matches the target architecture
+# (e.g., building arm64 targets on arm64 hardware).
+#
+# ISAR defaults to ISAR_CROSS_COMPILE="1" (crossvars.bbclass ??= weak
+# assignment). This overlay provides a strong override to disable
+# cross-compilation and use the native toolchain directly.
+#
+# In CI: appended automatically when runner arch == target arch.
+# Locally: append to kas-build command when building on native hardware:
+#   kas-build kas/base.yml:...:kas/opt/native-build.yml
+
+header:
+  version: 14
+
+local_conf_header:
+  native-build: |
+    ISAR_CROSS_COMPILE = "0"

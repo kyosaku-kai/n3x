@@ -31,7 +31,7 @@
   # ISAR/Yocto build dependencies
   virtualisation.podman = {
     enable = true;
-    dockerCompat = true;  # Alias docker -> podman
+    dockerCompat = true; # Alias docker -> podman
   };
 
   # Common development tools

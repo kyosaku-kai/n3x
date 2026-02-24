@@ -118,15 +118,16 @@ let
   vmScripts = lib.mapAttrs
     (machineName: machineConfig:
       if machineConfig ? nixosConfig then
-        # NixOS VM
-        mkNixOSVMScript {
-          name = machineName;
-          inherit (machineConfig) nixosConfig;
-          memory = machineConfig.memory or 512;
-          cpus = machineConfig.cpus or 1;
-        }
+      # NixOS VM
+        mkNixOSVMScript
+          {
+            name = machineName;
+            inherit (machineConfig) nixosConfig;
+            memory = machineConfig.memory or 512;
+            cpus = machineConfig.cpus or 1;
+          }
       else
-        # ISAR VM - supports bootMode for direct kernel boot (Plan 020 F2)
+      # ISAR VM - supports bootMode for direct kernel boot (Plan 020 F2)
         mkISARVMScript ({
           name = machineName;
           image = machineConfig.image;

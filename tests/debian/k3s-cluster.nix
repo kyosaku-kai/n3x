@@ -48,7 +48,7 @@ let
 
 in
 # Use the builder with the specified profile and boot mode
-# This creates a 2-server HA cluster test
+  # This creates a 2-server HA cluster test
 mkISARClusterTest {
   inherit networkProfile bootMode;
   # Uses default machines (2 servers)

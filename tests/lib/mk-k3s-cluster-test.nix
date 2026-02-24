@@ -53,6 +53,53 @@
 #                     This increases boot time but provides bootloader parity with ISAR tests.
 #                     See Plan 019 Phase B for rationale.
 #
+# Experimental CI Tolerance Controls (Plan 032):
+#   These controls improve test reliability under I/O-constrained CI runners where
+#   4 concurrent QEMU VMs cause etcd WAL write starvation and leader election storms.
+#   Both are disabled by default and harmless when enabled on fast machines.
+#
+#   - etcdHeartbeatInterval: etcd heartbeat interval in ms (default: null = etcd default 100ms)
+#                            Recommended CI value: 500 (5x default, per etcd tuning guide)
+#   - etcdElectionTimeout: etcd election timeout in ms (default: null = etcd default 1000ms)
+#                          Must be 5-10x heartbeat. Recommended CI value: 5000
+#   - sequentialJoin: When true, joining nodes (server-2, agent-1) do NOT auto-start k3s.
+#                     The test script starts k3s on each joining node one at a time, waiting
+#                     for etcd health between joins. This eliminates the concurrent member-add
+#                     I/O storm that causes etcd starvation under CI resource pressure.
+#                     (default: false)
+#   - shutdownDhcpAfterLeases: When true, shut down the DHCP server VM after lease verification.
+#                              Frees 512MB RAM and removes one QEMU VM from I/O contention.
+#                              Safe because DHCP leases are 12h, test completes in <30 min.
+#                              Only applies to DHCP profiles. (default: false)
+#   - etcdTmpfs: When true, mount tmpfs at etcd data dir on server nodes. Eliminates
+#                etcd WAL I/O contention entirely by keeping WAL in RAM. Changes test
+#                semantics (production etcd writes to disk) but reasonable since we test
+#                cluster formation, not etcd durability. (default: false)
+#
+# QEMU-Level Tuning — Evaluated and Rejected (Plan 032 T5.7.4):
+#   The following QEMU tuning parameters were investigated and found unnecessary:
+#
+#   - qemuDiskTmpfs (redirect qcow2 overlays to tmpfs): REJECTED. The NixOS test
+#     driver places overlays in tmp_dir/vm-state-{name}/ (controlled by XDG_RUNTIME_DIR
+#     or /tmp). etcdTmpfs already removes the hottest write path (etcd WAL fsyncs) from
+#     the overlay entirely — etcd writes go to guest RAM, never reaching the host qcow2.
+#     Remaining overlay writes (journals, boot ops) are sequential and not contention-sensitive.
+#
+#   - qemuMemory (override per-VM RAM): REJECTED. Standard GitHub runners provide 16 GB
+#     RAM. With 3 VMs × 3072 MB = 9 GB + host overhead, ~3-4 GB headroom remains.
+#     No evidence of memory pressure. Reducing VM RAM risks k3s OOM.
+#
+#   - qemuVirtioNetQueues (virtio-net multi-queue): REJECTED. Inter-VM networking uses
+#     VDE switches (userspace, single-threaded Unix domain sockets). The VDE switch is the
+#     throughput bottleneck, not the virtio ring buffer. Multi-queue adds at most 1 extra
+#     queue with 2 vCPUs per VM — negligible. Would require fragile override of
+#     virtualisation.qemu.networkingOptions.
+#
+#   - qemuCpuCores (override vCPU count): REJECTED. 3 VMs × 2 cores = 6 vCPU on a
+#     4 vCPU runner is well-handled by the Linux CFS scheduler. Reducing to 1 core
+#     would halve k3s startup CPU budget, likely increasing total test time. Sequential
+#     VM boot (if needed) is a better lever for peak CPU contention.
+#
 { pkgs
 , lib
 , networkProfile ? "simple"
@@ -60,6 +107,16 @@
 , testScript ? null
 , extraNodeConfig ? { }
 , useSystemdBoot ? false
+, etcdHeartbeatInterval ? null
+, etcdElectionTimeout ? null
+, sequentialJoin ? false
+, shutdownDhcpAfterLeases ? false
+, etcdTmpfs ? false
+  # Network readiness gate (T5.7.1): seconds to wait for cluster interface IP
+  # before k3s starts. null = disabled (default). When set, adds an ExecStartPre
+  # script to k3s.service that polls the cluster interface for an IPv4 address.
+  # Recommended: 120 for bonding-vlans, 60 for vlans/dhcp-simple, null for simple.
+, networkReadyTimeout ? null
 , ...
 }:
 
@@ -94,6 +151,66 @@ let
   # See docs/DHCP-TEST-INFRASTRUCTURE.md for architecture details
   isDhcpProfile = (profilePreset.mode or "static") == "dhcp";
   dhcpServerConfig = profilePreset.dhcpServer or null;
+
+  # Network readiness gate (T5.7.1)
+  # Determines which interface to check based on network profile:
+  #   simple/dhcp-simple: eth1 (flat cluster network)
+  #   vlans:              eth1.200 (cluster VLAN)
+  #   bonding-vlans:      bond0.200 (cluster VLAN on bond)
+  clusterIface =
+    if networkProfile == "bonding-vlans" then "bond0.200"
+    else if networkProfile == "vlans" then "eth1.200"
+    else "eth1";
+
+  # Shell script that polls for IPv4 address on the cluster interface.
+  # For bonding profiles, also checks bond0 carrier first.
+  # Runs as ExecStartPre on k3s.service — blocks k3s startup until ready.
+  ip = "${pkgs.iproute2}/bin/ip";
+  grep = "${pkgs.gnugrep}/bin/grep";
+
+  waitForNetworkScript = pkgs.writeShellScript "wait-for-network" ''
+    IFACE="${clusterIface}"
+    TIMEOUT="${toString networkReadyTimeout}"
+    INTERVAL=2
+    ELAPSED=0
+
+    ${lib.optionalString hasBonding ''
+    # Wait for bond0 carrier (underlying bond must be active before VLAN works)
+    echo "wait-for-network: waiting for bond0 carrier..."
+    while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+      CARRIER=$(cat /sys/class/net/bond0/carrier 2>/dev/null || echo 0)
+      if [ "$CARRIER" = "1" ]; then
+        echo "wait-for-network: bond0 carrier UP after ''${ELAPSED}s"
+        break
+      fi
+      sleep "$INTERVAL"
+      ELAPSED=$((ELAPSED + INTERVAL))
+    done
+    if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+      echo "wait-for-network: TIMEOUT waiting for bond0 carrier after ''${TIMEOUT}s"
+      exit 1
+    fi
+    ''}
+
+    echo "wait-for-network: waiting for IPv4 address on $IFACE..."
+    while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+      if ${ip} -4 addr show "$IFACE" 2>/dev/null | ${grep} -q 'inet '; then
+        echo "wait-for-network: $IFACE has IPv4 address after ''${ELAPSED}s"
+        exit 0
+      fi
+      sleep "$INTERVAL"
+      ELAPSED=$((ELAPSED + INTERVAL))
+    done
+    echo "wait-for-network: TIMEOUT waiting for $IFACE IPv4 after ''${TIMEOUT}s"
+    exit 1
+  '';
+
+  # Config overlay that adds the network readiness ExecStartPre to k3s.service
+  networkReadyConfig = lib.optionalAttrs (networkReadyTimeout != null) {
+    systemd.services.k3s.serviceConfig.ExecStartPre = lib.mkBefore [
+      "+${waitForNetworkScript}"
+    ];
+  };
 
   # DHCP MAC Address Computation (Plan 019 Phase C)
   # ==============================================
@@ -134,10 +251,12 @@ let
   # Only include reservations for nodes that actually exist in this test
   dhcpReservations = lib.optionalAttrs isDhcpProfile (
     lib.filterAttrs (name: _: builtins.elem name allNodeNames) (
-      lib.mapAttrs (name: res: {
-        mac = computedMacs.${name} or null;  # null for nodes not in test
-        ip = res.ip;
-      }) (profilePreset.reservations or { })
+      lib.mapAttrs
+        (name: res: {
+          mac = computedMacs.${name} or null; # null for nodes not in test
+          ip = res.ip;
+        })
+        (profilePreset.reservations or { })
     )
   );
 
@@ -184,7 +303,7 @@ let
   # defense-in-depth but no longer strictly required with the nixpkgs fix.
   #
   # TODO: Revert flake.nix nixpkgs input to nixos-25.05 once upstream PR merges.
-  # See: docs/nixpkgs-vm-bootloader-disk-limitation.md, Plan 019 B2 investigation
+  # See: docs/nixos-vm-bootloader-disk-limitation.md, Plan 019 B2 investigation
   systemdBootConfig = lib.optionalAttrs useSystemdBoot {
     boot.loader.systemd-boot.enable = true;
     boot.loader.efi.canTouchEfiVariables = true;
@@ -297,7 +416,7 @@ let
       }];
       firewall = {
         allowedUDPPorts = [ 53 67 68 ]; # DNS + DHCP
-        allowedTCPPorts = [ 53 ];       # DNS over TCP (for large responses)
+        allowedTCPPorts = [ 53 ]; # DNS over TCP (for large responses)
       };
     };
 
@@ -331,8 +450,8 @@ let
 
     # Ensure systemd-networkd-wait-online waits for eth1 specifically
     systemd.network.wait-online = {
-      anyInterface = false;  # Wait for ALL required interfaces, not just any one
-      timeout = 60;          # Fail fast if DHCP doesn't work
+      anyInterface = false; # Wait for ALL required interfaces, not just any one
+      timeout = 60; # Fail fast if DHCP doesn't work
     };
 
     systemd.network = {
@@ -408,7 +527,15 @@ let
           (if role == "server" then "--cluster-cidr=${profilePreset.clusterCidr}" else null)
           (if role == "server" then "--service-cidr=${profilePreset.serviceCidr}" else null)
           "--node-name=${nodeName}"
-        ] ++ (mkK3sFlags.mkExtraFlags { profile = profilePreset; inherit nodeName role; }));
+        ]
+        ++ (mkK3sFlags.mkExtraFlags { profile = profilePreset; inherit nodeName role; })
+        # Experimental: etcd timeout tuning for CI I/O tolerance (Plan 032)
+        ++ lib.optionals (role == "server" && etcdHeartbeatInterval != null) [
+          "--etcd-arg=heartbeat-interval=${toString etcdHeartbeatInterval}"
+        ]
+        ++ lib.optionals (role == "server" && etcdElectionTimeout != null) [
+          "--etcd-arg=election-timeout=${toString etcdElectionTimeout}"
+        ]);
       };
 
       networking.firewall = if role == "server" then serverFirewall else agentFirewall;
@@ -432,19 +559,48 @@ let
     };
     # Pass DHCP reservations for DHCP profiles
     dhcpReservations = if isDhcpProfile then dhcpReservations else null;
+    # Forward experimental controls to test script (Plan 032)
+    inherit sequentialJoin shutdownDhcpAfterLeases;
   };
 
-  # For DHCP profiles, joining nodes (server-2, agent-1) need unlimited restarts
-  # because they may start before server-1's API is ready (Plan 020 B4 timing fix)
-  # The k3s module already sets Restart="always", we just need to disable rate limiting
-  joiningNodeK3sRestartConfig = lib.optionalAttrs isDhcpProfile {
+  # Restart resilience for ALL k3s nodes (T5.7.2, extends Plan 020 B4).
+  # All VMs boot simultaneously but k3s services start in parallel — any node
+  # may fail transiently under CI I/O pressure (etcd WAL write timeout, API
+  # server not ready, port binding race). Applied to ALL nodes including
+  # server-1 (init node), which previously used systemd defaults that would
+  # enter permanent "failed" state after 5 rapid failures.
+  #
+  # Uses systemd v254+ native backoff (RestartSteps + RestartMaxDelaySec)
+  # to ramp restart delays from 5s → 30s over 5 attempts, then cap at 30s.
+  # Restart sequence: 5s, 10s, 15s, 20s, 25s, 30s, 30s, ...
+  k3sRestartConfig = {
     systemd.services.k3s = {
-      # Disable start rate limiting so service keeps retrying until server-1 is ready
-      startLimitIntervalSec = 0;
+      startLimitIntervalSec = 0; # Unlimited restarts (no rate limiting)
       serviceConfig = {
-        # Add delay between retries to avoid hammering server-1
-        RestartSec = lib.mkForce "10s";
+        RestartSec = lib.mkForce "5s"; # Initial delay (matches upstream default)
+        RestartMaxDelaySec = "30s"; # Cap delay at 30s
+        RestartSteps = 5; # Ramp from 5s → 30s over 5 restarts
       };
+    };
+  };
+
+  # Experimental: Sequential join - disable k3s auto-start on joining nodes (Plan 032)
+  # The test script will start k3s manually, one node at a time, with etcd health
+  # gates between joins. This eliminates the concurrent member-add I/O storm.
+  joiningNodeSequentialConfig = lib.optionalAttrs sequentialJoin {
+    systemd.services.k3s.wantedBy = lib.mkForce [ ];
+  };
+
+  # Experimental: tmpfs for etcd data dir on server nodes (Plan 032)
+  # Eliminates etcd WAL I/O contention by keeping all etcd data in RAM.
+  # k3s stores etcd data at /var/lib/rancher/k3s/server/db/etcd/.
+  # We mount tmpfs at the parent /var/lib/rancher/k3s/server/db/ to cover
+  # both WAL and snap directories. 512M is ample for a 3-node test cluster.
+  etcdTmpfsConfig = lib.optionalAttrs etcdTmpfs {
+    fileSystems."/var/lib/rancher/k3s/server/db" = {
+      device = "tmpfs";
+      fsType = "tmpfs";
+      options = [ "size=512M" "mode=0700" ];
     };
   };
 
@@ -454,23 +610,39 @@ pkgs.testers.runNixOSTest {
 
   nodes = {
     # Primary k3s server (cluster init)
-    server-1 = lib.recursiveUpdate (mkNodeConfig "server-1" "server") {
-      services.k3s.clusterInit = true;
-    };
+    server-1 = lib.recursiveUpdate
+      (lib.recursiveUpdate
+        (lib.recursiveUpdate
+          (lib.recursiveUpdate (mkNodeConfig "server-1" "server") {
+            services.k3s.clusterInit = true;
+          })
+          k3sRestartConfig)
+        etcdTmpfsConfig)
+      networkReadyConfig;
 
     # Secondary k3s server (joins cluster)
     server-2 = lib.recursiveUpdate
-      (lib.recursiveUpdate (mkNodeConfig "server-2" "server") {
-        services.k3s.serverAddr = profilePreset.serverApi;
-      })
-      joiningNodeK3sRestartConfig;
+      (lib.recursiveUpdate
+        (lib.recursiveUpdate
+          (lib.recursiveUpdate
+            (lib.recursiveUpdate (mkNodeConfig "server-2" "server") {
+              services.k3s.serverAddr = profilePreset.serverApi;
+            })
+            k3sRestartConfig)
+          joiningNodeSequentialConfig)
+        etcdTmpfsConfig)
+      networkReadyConfig;
 
     # k3s agent (worker node)
     agent-1 = lib.recursiveUpdate
-      (lib.recursiveUpdate (mkNodeConfig "agent-1" "agent") {
-        services.k3s.serverAddr = profilePreset.serverApi;
-      })
-      joiningNodeK3sRestartConfig;
+      (lib.recursiveUpdate
+        (lib.recursiveUpdate
+          (lib.recursiveUpdate (mkNodeConfig "agent-1" "agent") {
+            services.k3s.serverAddr = profilePreset.serverApi;
+          })
+          k3sRestartConfig)
+        joiningNodeSequentialConfig)
+      networkReadyConfig;
   } // lib.optionalAttrs isDhcpProfile {
     # DHCP server (only for DHCP profiles)
     # Must start before cluster nodes - see test script boot sequence

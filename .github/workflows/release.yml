@@ -1,0 +1,318 @@
+# n3x Release Pipeline — build and publish ISAR images for all supported machines
+#
+# Trigger: Push of a version tag (e.g., "0.0.1", "1.2.3-rc1").
+# Tags are created automatically by auto-tag.yml when the VERSION file
+# changes on main. To release: update VERSION in a PR, merge to main.
+# No manual tag creation required.
+#
+# The tag MUST match the content of the VERSION file at the tagged commit
+# (enforced by the validate job below).
+#
+# Release scope: base/production images for all 4 machines (5 variants, 9 assets).
+# Profile-specific server/agent images are excluded — users build those locally.
+#
+# Workflow:
+#   1. Validate: tag == VERSION file
+#   2. Build: kas-build per-machine (parallel across runners)
+#   3. Collect: rename artifacts to release naming, upload
+#   4. Release: create GitHub Release, attach all assets
+#
+# Release asset naming: n3x-{variant}-{machine}-{version}{ext}
+#   e.g., n3x-base-qemuamd64-0.0.1.wic.zst
+#
+# See also: auto-tag.yml (creates tags from VERSION file changes)
+
+name: Release
+
+on:
+  push:
+    tags: ['[0-9]*']
+
+# Only one release at a time
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ===========================================================================
+  # Step 1 — Validate tag matches VERSION file
+  # ===========================================================================
+
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag matches VERSION
+        id: check
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=$(cat VERSION)
+          echo "Tag: $TAG"
+          echo "VERSION file: $VERSION"
+
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Tag '$TAG' does not match VERSION file '$VERSION'"
+            echo "::error::Update VERSION to '$TAG' and re-tag, or delete the tag and fix."
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag and VERSION match: $VERSION"
+
+  # ===========================================================================
+  # Step 2 — Build release images per machine
+  #
+  # Each machine builds its release-scope variants, renames outputs to
+  # release naming, and uploads as GitHub Actions artifacts.
+  # ===========================================================================
+
+  build:
+    name: "Build: ${{ matrix.machine }}"
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - machine: qemuamd64
+            runner: ubuntu-latest
+          - machine: qemuarm64
+            runner: ubuntu-24.04-arm
+          - machine: amd-v3c18i
+            runner: ubuntu-latest
+          - machine: jetson-orin-nano
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Free disk space (x86_64)
+        if: runner.arch == 'X64'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
+          tool-cache: false
+
+      - name: Free disk space (ARM64)
+        if: runner.arch == 'ARM64'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell 2>/dev/null || true
+          sudo apt-get autoremove -y 2>/dev/null || true
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Install kas
+        run: pip install kas==5.1
+
+      - name: Restore download cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/downloads
+          key: isar-dl-${{ runner.arch }}-${{ hashFiles('backends/debian/kas/**') }}
+          restore-keys: isar-dl-${{ runner.arch }}-
+
+      - name: Restore sstate cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/sstate
+          key: isar-sstate-${{ matrix.machine }}-${{ hashFiles('backends/debian/kas/**', 'backends/debian/meta-n3x/**') }}
+          restore-keys: isar-sstate-${{ matrix.machine }}-
+
+      - name: Prepare cache directories
+        run: mkdir -p .ci-cache/downloads .ci-cache/sstate
+
+      - name: Build and collect release artifacts
+        env:
+          KAS_CONTAINER_ENGINE: docker
+          KAS_CONTAINER_IMAGE: ghcr.io/siemens/kas/kas-isar:5.1
+          DL_DIR: ${{ github.workspace }}/.ci-cache/downloads
+          SSTATE_DIR: ${{ github.workspace }}/.ci-cache/sstate
+          MACHINE: ${{ matrix.machine }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        working-directory: backends/debian
+        run: |
+          set -euo pipefail
+
+          DEPLOY_DIR="build/tmp/deploy/images/$MACHINE"
+          RELEASE_DIR="$GITHUB_WORKSPACE/release-assets"
+          mkdir -p "$RELEASE_DIR"
+
+          # Detect native build: append native-build.yml when host == target arch
+          HOST_ARCH=$(uname -m)
+          case "$MACHINE" in
+            qemuarm64|jetson-orin-nano) TARGET_ARCH=aarch64 ;;
+            *)                          TARGET_ARCH=x86_64 ;;
+          esac
+
+          NATIVE_OVERLAY=""
+          if [ "$HOST_ARCH" = "$TARGET_ARCH" ]; then
+            NATIVE_OVERLAY=":kas/opt/native-build.yml"
+            echo "Native build detected ($HOST_ARCH == $TARGET_ARCH)"
+          else
+            echo "Cross-compilation ($HOST_ARCH → $TARGET_ARCH)"
+          fi
+
+          # ---------------------------------------------------------------
+          # Release variant definitions per machine.
+          # Format: VARIANT_ID|KAS_COMMAND|RECIPE_NAME|EXTENSIONS
+          #
+          # RECIPE_NAME = BitBake image recipe name (locates ISAR output).
+          # EXTENSIONS = file extensions to collect as release assets.
+          #   .wic.zst = zstd-compressed disk image (primary release artifact)
+          #   .wic.bmap = block map for fast flashing via bmaptool (auto-generated
+          #               by ISAR's WIC builder --bmap flag, not an IMAGE_FSTYPES entry)
+          #   .tar.gz = rootfs tarball (Jetson: flashed via L4T tools, not WIC)
+          #
+          # NOTE: No test overlays. Release images are clean production builds.
+          #
+          # Source of truth for kas overlay chains: lib/debian/build-matrix.nix
+          # Release variants omit test overlays and network/node overlays that
+          # the build matrix includes for CI testing. Keep in sync manually.
+          # ---------------------------------------------------------------
+          VARIANTS=()
+          case "$MACHINE" in
+            qemuamd64)
+              VARIANTS+=(
+                "base|kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/base.yml|base|.wic.zst .wic.bmap"
+                "base-swupdate|kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/base.yml:kas/feature/swupdate.yml|base|.wic.zst .wic.bmap"
+              )
+              ;;
+            qemuarm64)
+              VARIANTS+=(
+                "base|kas/base.yml:kas/machine/qemu-arm64-orin.yml:kas/image/base.yml|base|.wic.zst .wic.bmap"
+              )
+              ;;
+            amd-v3c18i)
+              VARIANTS+=(
+                "agent|kas/base.yml:kas/machine/amd-v3c18i.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-agent.yml:kas/boot/systemd-boot.yml|agent|.wic.zst .wic.bmap"
+              )
+              ;;
+            jetson-orin-nano)
+              VARIANTS+=(
+                "base|kas/base.yml:kas/machine/jetson-orin-nano.yml:kas/image/base.yml|base|.tar.gz"
+              )
+              ;;
+          esac
+
+          TOTAL=${#VARIANTS[@]}
+          VARIANT_NUM=0
+
+          for LINE in "${VARIANTS[@]}"; do
+            VARIANT_NUM=$((VARIANT_NUM + 1))
+
+            VARIANT_ID=$(echo "$LINE" | cut -d'|' -f1)
+            KAS_CMD=$(echo "$LINE" | cut -d'|' -f2)
+            RECIPE_NAME=$(echo "$LINE" | cut -d'|' -f3)
+            EXTENSIONS=$(echo "$LINE" | cut -d'|' -f4)
+
+            FULL_CMD="${KAS_CMD}:kas/opt/ci-cache.yml${NATIVE_OVERLAY}"
+
+            echo "::group::[$VARIANT_NUM/$TOTAL] Build: $VARIANT_ID"
+            echo "kas command: $FULL_CMD"
+
+            # Clean stale .git-downloads symlink
+            rm -f build/tmp/work/debian-trixie-*/.git-downloads 2>/dev/null || true
+
+            kas-container --isar build "$FULL_CMD"
+
+            # Collect release artifacts immediately (before next build overwrites
+            # shared output filename — base and base-swupdate produce same filename)
+            ISAR_PREFIX="n3x-image-${RECIPE_NAME}-debian-trixie-${MACHINE}"
+            for EXT in $EXTENSIONS; do
+              ISAR_FILE="${DEPLOY_DIR}/${ISAR_PREFIX}${EXT}"
+              RELEASE_NAME="n3x-${VARIANT_ID}-${MACHINE}-${VERSION}${EXT}"
+
+              if [ ! -f "$ISAR_FILE" ]; then
+                # .wic.bmap is auto-generated by ISAR's WIC builder (--bmap flag).
+                # If it's missing, warn but don't fail — the .wic.zst is the
+                # primary artifact and bmap is a flashing optimization.
+                if [[ "$EXT" == ".wic.bmap" ]]; then
+                  echo "::warning::Optional artifact not found: $ISAR_FILE (bmap is auto-generated by WIC builder)"
+                  ls -la "$DEPLOY_DIR/"*bmap* 2>/dev/null || echo "  No bmap files in deploy dir"
+                  continue
+                fi
+                echo "::error::Expected artifact not found: $ISAR_FILE"
+                ls -la "$DEPLOY_DIR/" 2>/dev/null || true
+                exit 1
+              fi
+
+              cp "$ISAR_FILE" "$RELEASE_DIR/$RELEASE_NAME"
+              echo "  $RELEASE_NAME ($(du -h "$RELEASE_DIR/$RELEASE_NAME" | cut -f1))"
+            done
+
+            echo "::endgroup::"
+          done
+
+          echo ""
+          echo "=== Release artifacts for $MACHINE ==="
+          ls -lh "$RELEASE_DIR/"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.machine }}
+          path: release-assets/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Show disk usage
+        if: always()
+        run: |
+          echo "=== Disk usage ==="
+          df -h /
+          echo ""
+          echo "=== Cache sizes ==="
+          du -sh .ci-cache/downloads/ .ci-cache/sstate/ 2>/dev/null || echo "No cache data"
+
+  # ===========================================================================
+  # Step 3 — Create GitHub Release and upload assets
+  # ===========================================================================
+
+  release:
+    name: Create release
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets/
+          merge-multiple: true
+
+      - name: List release assets
+        run: |
+          echo "=== Release assets ==="
+          ls -lh release-assets/
+          echo ""
+          echo "Total: $(ls release-assets/ | wc -l) files"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          # Create the release with auto-generated notes
+          gh release create "$TAG" \
+            --title "n3x $VERSION" \
+            --generate-notes \
+            release-assets/*
+
+          echo ""
+          echo "Release created: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

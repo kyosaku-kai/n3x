@@ -52,8 +52,9 @@ let
       content = kasFiles.${groupName};
       packages = mapping.debianPackagesForGroup groupName;
       missing = lib.filter (pkg: !(hasPackage content pkg)) packages;
-    in {
-      valid = missing == [];
+    in
+    {
+      valid = missing == [ ];
       inherit missing;
       file = groupFileNames.${groupName};
     };
@@ -71,7 +72,8 @@ let
         - ${result.file}: missing ${lib.concatStringsSep ", " result.missing}
       '';
       failureLines = lib.mapAttrsToList formatFailure failures;
-    in ''
+    in
+    ''
 
       Debian Package Parity Verification Failed (Plan 016)
       ===================================================
@@ -88,17 +90,17 @@ let
 
   # The actual check: throw at eval time if verification fails
   verified =
-    if failures == {} then
+    if failures == { } then
       true
     else
       throw errorMessage;
 
 in
 # Return a derivation that can be used as a flake check
-# The verification happens at eval time - lib.seq forces evaluation of 'verified'
-# before the derivation is instantiated. If verification fails, throw fires immediately.
+  # The verification happens at eval time - lib.seq forces evaluation of 'verified'
+  # before the derivation is instantiated. If verification fails, throw fires immediately.
 lib.seq verified (
-  pkgs.runCommand "debian-package-parity" {} ''
+  pkgs.runCommand "debian-package-parity" { } ''
     # This only runs if verified == true (otherwise throw already fired during eval)
     echo "Debian Package Parity Verification Passed"
     echo ""

@@ -57,7 +57,7 @@ in
         device = cfg.cacheDevice;
         fsType = "ext4";
         options = [ "defaults" "noatime" ];
-        autoFormat = false;  # Assume pre-formatted
+        autoFormat = false; # Assume pre-formatted
       };
     };
 

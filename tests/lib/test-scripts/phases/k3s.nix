@@ -181,7 +181,8 @@
   #   secondaryNodeName: k8s node name for secondary (e.g., "server-2")
   #   agentNodeName: k8s node name for agent (e.g., "agent-1")
   #   profile: network profile name (default: "simple")
-  verifyCluster = { primary, secondary, agent, primaryNodeName, secondaryNodeName, agentNodeName, profile ? "simple" }:
+  #   sequentialJoin: when true, start k3s on joining nodes explicitly (Plan 032)
+  verifyCluster = { primary, secondary, agent, primaryNodeName, secondaryNodeName, agentNodeName, profile ? "simple", sequentialJoin ? false }:
     let
       # Determine the interface to query for the server's cluster IP
       # - simple: eth1 (flat network)
@@ -219,30 +220,39 @@
       )
       tlog("  ${primaryNodeName} is Ready")
 
-      nodes_output = ${primary}.succeed("k3s kubectl get nodes -o wide")
-      tlog(f"  Current nodes:\n{nodes_output}")
+      # Log current node state (use execute() — cluster may be unstable during
+      # etcd member additions when secondary server joins; see Plan 032 CI analysis)
+      code, nodes_output = ${primary}.execute("k3s kubectl get nodes -o wide")
+      if code == 0:
+          tlog(f"  Current nodes:\n{nodes_output}")
+      else:
+          tlog("  (kubectl not available yet — cluster forming)")
 
       # FIREWALL DEBUG: Dump iptables state on all nodes for L4 debugging (Plan 014)
+      # Use execute() for all debug commands — these are diagnostic, not assertions
       log_section("DEBUG", "Firewall state on all nodes (F1 debugging)")
       tlog("  === server-1 firewall ===")
-      fw_rules = ${primary}.succeed("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
+      _, fw_rules = ${primary}.execute("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
       tlog(f"{fw_rules}")
-      fw_save = ${primary}.succeed("iptables-save 2>&1 | head -100 || echo 'iptables-save failed'")
+      _, fw_save = ${primary}.execute("iptables-save 2>&1 | head -100 || echo 'iptables-save failed'")
       tlog(f"  iptables-save (first 100 lines):\n{fw_save}")
 
       tlog("  === server-2 firewall ===")
-      fw_rules_s2 = ${secondary}.succeed("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
+      _, fw_rules_s2 = ${secondary}.execute("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
       tlog(f"{fw_rules_s2}")
 
       tlog("  === agent-1 firewall ===")
-      fw_rules_a1 = ${agent}.succeed("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
+      _, fw_rules_a1 = ${agent}.execute("iptables -L INPUT -n -v --line-numbers 2>&1 || echo 'iptables failed'")
       tlog(f"{fw_rules_a1}")
 
       # Test 6443 connectivity explicitly
       tlog("  === API server connectivity test ===")
       tlog("  Testing localhost:6443 on server-1:")
-      ${primary}.succeed("nc -zv localhost 6443 2>&1 || echo 'localhost:6443 failed'")
-      tlog("  localhost:6443 succeeded")
+      code, _ = ${primary}.execute("nc -zv localhost 6443 2>&1")
+      if code == 0:
+          tlog("  localhost:6443 succeeded")
+      else:
+          tlog("  localhost:6443 not available (cluster may be restarting)")
 
       # Get server-1's cluster IP for cross-node testing
       # Interface varies by profile: eth1 (simple), eth1.200 (vlans), bond0.200 (bonding-vlans)
@@ -256,14 +266,23 @@
       else:
           tlog(f"    FAILED: {result}")
           tlog("  Kernel log (last 20 firewall-related lines):")
-          dmesg_fw = ${primary}.succeed("dmesg | grep -i 'refused\\|DROP\\|REJECT\\|6443' | tail -20 || echo 'no firewall dmesg'")
+          _, dmesg_fw = ${primary}.execute("dmesg | grep -i 'refused\\|DROP\\|REJECT\\|6443' | tail -20 || echo 'no firewall dmesg'")
           tlog(f"{dmesg_fw}")
 
       # PHASE 5: Secondary Server
+      # When server-2 joins, etcd transitions from 1→2 members. A 2-member etcd
+      # cluster requires BOTH members for quorum (2/2), making it fragile. Under
+      # CI resource pressure, the primary's k3s may restart during this transition.
+      # We re-verify k3s.service and etcd health after secondary joins.
       log_section("PHASE 5", "Waiting for secondary server (${secondaryNodeName})")
 
+      ${lib.optionalString sequentialJoin ''
+      # Sequential join (Plan 032): start k3s explicitly — auto-start disabled
+      tlog("  Starting k3s.service on ${secondaryNodeName} (sequential join)")
+      ${secondary}.succeed("systemctl start k3s")
+      ''}
       ${secondary}.wait_for_unit("k3s.service")
-      tlog("  k3s.service started")
+      tlog("  k3s.service started on ${secondaryNodeName}")
 
       ${primary}.wait_until_succeeds(
           "k3s kubectl get nodes --no-headers | grep '${secondaryNodeName}' | grep -w Ready",
@@ -271,9 +290,20 @@
       )
       tlog("  ${secondaryNodeName} is Ready")
 
+      # Re-verify primary's k3s and etcd after secondary join — the 1→2 member
+      # etcd transition can cause brief quorum loss and primary k3s restart
+      ${primary}.wait_for_unit("k3s.service")
+      ${primary}.wait_until_succeeds("k3s kubectl get --raw /healthz/etcd 2>&1 | grep -q ok", timeout=60)
+      tlog("  etcd cluster healthy after ${secondaryNodeName} joined (2-member etcd)")
+
       # PHASE 6: Agent
       log_section("PHASE 6", "Waiting for agent (${agentNodeName})")
 
+      ${lib.optionalString sequentialJoin ''
+      # Sequential join (Plan 032): start k3s on agent after etcd is stable
+      tlog("  Starting k3s.service on ${agentNodeName} (sequential join)")
+      ${agent}.succeed("systemctl start k3s")
+      ''}
       ${agent}.wait_for_unit("k3s.service")
       tlog("  k3s.service started")
 
@@ -292,10 +322,12 @@
       )
       tlog("  All 3 nodes are Ready")
 
-      nodes_output = ${primary}.succeed("k3s kubectl get nodes -o wide")
+      # Use wait_until_succeeds for cluster state logging — the API server may
+      # briefly restart after etcd membership changes settle
+      nodes_output = ${primary}.wait_until_succeeds("k3s kubectl get nodes -o wide", timeout=60)
       tlog(f"\n  Cluster nodes:\n{nodes_output}")
 
-      pods_output = ${primary}.succeed("k3s kubectl get pods -A -o wide")
+      pods_output = ${primary}.wait_until_succeeds("k3s kubectl get pods -A -o wide", timeout=60)
       tlog(f"\n  System pods:\n{pods_output}")
 
       # PHASE 8: System Components

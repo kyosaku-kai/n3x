@@ -11,3 +11,10 @@ distro: debian-trixie
 
 # Isar multiconfig target format: mc:{machine}-{distro_short}:{image}
 target: mc:qemuamd64-trixie:isar-image-base
+
+local_conf_header:
+  qemu-amd64-compressed: |
+    # Produce zstd-compressed image alongside raw .wic for release distribution.
+    # .wic.bmap is generated automatically by ISAR's WIC builder (--bmap flag).
+    # ZSTD_DEFAULTS set in base.yml (-T0 -19)
+    IMAGE_FSTYPES:append = " wic.zst"
