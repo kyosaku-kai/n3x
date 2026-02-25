@@ -51,8 +51,8 @@ This file provides project-specific rules and essential context for Claude Code 
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
-- **Plan 034**: **ACTIVE** (0/1) - Dev Environment Validation and Team Adoption
-  - T1: Cross-platform dev shell validation CI — PENDING
+- **Plan 034**: **ACTIVE** (1/1) - Dev Environment Validation and Team Adoption
+  - T1: Cross-platform dev shell validation CI — COMPLETE
   - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
 - **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring
   - Plan file: `docs/plans/033-ci-pipeline-refactoring.md`

@@ -14,7 +14,7 @@ The flake defines 5 dev shells but none have been tested in CI. The `debian` she
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1 | Cross-platform dev shell validation CI | TASK:PENDING |
+| 1 | Cross-platform dev shell validation CI | TASK:COMPLETE |
 
 ## Task Dependencies
 
@@ -27,7 +27,7 @@ The flake defines 5 dev shells but none have been tested in CI. The `debian` she
 
 ### Task 1: Cross-platform dev shell validation CI
 
-**Status**: `TASK:PENDING`
+**Status**: `TASK:COMPLETE`
 
 **Goal**: Add a GitHub Actions workflow that validates `nix develop` shells work on all claimed platforms: Ubuntu 24.04, macOS (Apple Silicon), and NixOS.
 
