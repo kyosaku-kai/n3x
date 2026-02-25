@@ -159,6 +159,7 @@
             NC='\033[0m'
 
             log_info() { echo -e "''${BLUE}[INFO]''${NC} $*"; }
+            log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $*"; }
             log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
             log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $*"; }
 
@@ -166,7 +167,7 @@
               echo "Usage: kas-build <kas-config-files> [additional-args...]"
               echo ""
               echo "Wrapper around 'kas-container --isar build' for macOS."
-              echo "Requires Docker Desktop to be running."
+              echo "Requires Docker Desktop or Rancher Desktop (dockerd/moby mode)."
               echo ""
               echo "Examples:"
               echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
@@ -174,11 +175,21 @@
               exit 1
             fi
 
-            # Validate Docker Desktop is available
+            # Validate Docker is available
             if ! command -v docker &>/dev/null; then
               log_error "Docker not found in PATH"
               echo ""
               echo "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+              echo "Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
+              exit 1
+            fi
+
+            # Detect Rancher Desktop in containerd mode (nerdctl masquerading as docker)
+            if docker -v 2>/dev/null | grep -qi nerdctl; then
+              log_error "Rancher Desktop detected in containerd mode."
+              echo ""
+              echo "kas-container requires Docker-compatible API. Switch to dockerd (moby) mode:"
+              echo "  Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
               exit 1
             fi
 
@@ -191,6 +202,36 @@
 
             kas_config="$1"
             shift
+
+            # --- Host/target architecture detection ---
+            HOST_ARCH=$(uname -m)
+            # macOS returns "arm64" not "aarch64" — normalize
+            [[ "$HOST_ARCH" == "arm64" ]] && HOST_ARCH="aarch64"
+
+            # Extract machine name from kas config path (colon-separated overlay list)
+            # { grep || true; } prevents set -euo pipefail from aborting on no match
+            MACHINE=$(echo "$kas_config" | tr ':' '\n' | { grep 'kas/machine/' || true; } | sed 's|.*/machine/||;s|\.yml$||' | head -1)
+
+            if [[ -n "$MACHINE" ]]; then
+              case "$MACHINE" in
+                qemu-arm64|qemu-arm64-orin|jetson-orin-nano)
+                  TARGET_ARCH=aarch64 ;;
+                *)
+                  TARGET_ARCH=x86_64 ;;
+              esac
+
+              if [[ "$HOST_ARCH" == "$TARGET_ARCH" ]]; then
+                log_info "Native build detected ($HOST_ARCH == $TARGET_ARCH)"
+                kas_config="''${kas_config}:kas/opt/native-build.yml"
+              else
+                log_info "Cross-compilation: $HOST_ARCH -> $TARGET_ARCH (ISAR default)"
+                log_info "Docker Desktop handles binfmt_misc automatically."
+                log_info "If you see 'Exec format error', try:"
+                log_info "  docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
+              fi
+            else
+              log_warn "Could not detect machine from kas config — skipping arch detection"
+            fi
 
             export KAS_CONTAINER_ENGINE=docker
             export KAS_CONTAINER_IMAGE="ghcr.io/siemens/kas/kas-isar:5.1"
@@ -219,7 +260,7 @@
             log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
             log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $*"; }
 
-            is_wsl() { [[ -n "''${WSL_DISTRO_NAME:-}" ]]; }
+            is_wsl() { [[ -n "''${WSL_DISTRO_NAME:-}" || -n "''${WSL_DISTRO:-}" ]]; }
 
             # Only get drvfs mounts under /mnt/[a-z] (Windows drive letters)
             # EXCLUDE /usr/lib/wsl/drivers - it's read-only and shouldn't cause sync() hangs
@@ -312,16 +353,71 @@
             shift
 
             if is_wsl; then
-              log_info "WSL detected: $WSL_DISTRO_NAME"
+              log_info "WSL detected: ''${WSL_DISTRO_NAME:-''${WSL_DISTRO:-unknown}}"
               log_info "Will handle 9p filesystem workaround for WIC generation"
               unmount_9p_filesystems
             fi
 
-            log_info "Starting kas-container build..."
+            # --- Container engine detection ---
+            # Use engine detected by shellHook, or auto-detect
+            if [[ -z "''${KAS_CONTAINER_ENGINE:-}" ]]; then
+              if command -v docker &>/dev/null; then
+                export KAS_CONTAINER_ENGINE=docker
+              elif command -v podman &>/dev/null; then
+                export KAS_CONTAINER_ENGINE=podman
+              else
+                log_error "No container engine found. Install docker-ce or podman."
+                exit 1
+              fi
+            fi
+
+            # --- Host/target architecture detection ---
+            HOST_ARCH=$(uname -m)
+
+            # Extract machine name from kas config path (colon-separated overlay list)
+            # { grep || true; } prevents set -euo pipefail from aborting on no match
+            MACHINE=$(echo "$kas_config" | tr ':' '\n' | { grep 'kas/machine/' || true; } | sed 's|.*/machine/||;s|\.yml$||' | head -1)
+
+            if [[ -n "$MACHINE" ]]; then
+              case "$MACHINE" in
+                qemu-arm64|qemu-arm64-orin|jetson-orin-nano)
+                  TARGET_ARCH=aarch64 ;;
+                *)
+                  TARGET_ARCH=x86_64 ;;
+              esac
+
+              if [[ "$HOST_ARCH" == "$TARGET_ARCH" ]]; then
+                log_info "Native build detected ($HOST_ARCH == $TARGET_ARCH)"
+                kas_config="''${kas_config}:kas/opt/native-build.yml"
+              else
+                log_info "Cross-compilation: $HOST_ARCH -> $TARGET_ARCH (ISAR default)"
+                # Validate binfmt_misc registration for cross-arch builds
+                # Check both naming conventions:
+                #   qemu-aarch64  — Debian/Ubuntu qemu-user-static package
+                #   aarch64-linux — NixOS boot.binfmt.emulatedSystems module
+                BINFMT_FOUND=false
+                case "$TARGET_ARCH" in
+                  aarch64) for e in qemu-aarch64 aarch64-linux; do [[ -f "/proc/sys/fs/binfmt_misc/$e" ]] && BINFMT_FOUND=true; done ;;
+                  x86_64)  for e in qemu-x86_64 x86_64-linux;   do [[ -f "/proc/sys/fs/binfmt_misc/$e" ]] && BINFMT_FOUND=true; done ;;
+                esac
+                if ! $BINFMT_FOUND; then
+                  log_warn "binfmt_misc registration for $TARGET_ARCH not found"
+                  log_warn "Cross-compilation compiles natively, but chroot operations"
+                  log_warn "(dpkg, postinst scripts) need QEMU user-mode emulation."
+                  log_warn "See: docs/binfmt-requirements.md"
+                  log_warn ""
+                  log_warn "Quick fix (Debian/Ubuntu): sudo apt-get install qemu-user-static binfmt-support"
+                  log_warn "Quick fix (NixOS): boot.binfmt.emulatedSystems = [ \"aarch64-linux\" ];"
+                fi
+              fi
+            else
+              log_warn "Could not detect machine from kas config — skipping arch detection"
+            fi
+
+            log_info "Starting kas-container build (engine: $KAS_CONTAINER_ENGINE)..."
             log_info "Config: $kas_config"
             echo
 
-            export KAS_CONTAINER_ENGINE=podman
             # ISAR commit 27651d51 (Sept 2024) requires bubblewrap for rootfs sandboxing
             # kas-isar:4.7 does NOT have bwrap; kas-isar:5.1+ does
             # Use KAS_CONTAINER_IMAGE to override the full image path (not KAS_CONTAINER_IMAGE_NAME)
@@ -454,8 +550,11 @@
       );
 
       # Platform-aware development shell
-      # Linux: includes podman, WSL guidance
-      # Darwin: includes Docker Desktop validation, no podman
+      # Linux: system container runtime detection, WSL guidance
+      # Darwin: Docker Desktop / Rancher Desktop validation
+      # Container runtimes (docker/podman) are NOT provided by Nix — they must
+      # be system-installed because kas-container runs them via sudo, which
+      # resets PATH and cannot reach Nix store paths on non-NixOS systems.
       mkDevShell = shellPkgs: shellPkgs.mkShell {
         name = "n3x";
 
@@ -480,40 +579,108 @@
 
           # Platform-aware build wrapper
           (mkKasBuildWrapper shellPkgs)
-        ] ++ lib.optionals shellPkgs.stdenv.isLinux [
-          # Container runtime (kas-container uses podman on Linux)
-          podman
         ];
 
         shellHook = gitHooksSetup + ''
-          echo "n3x Debian Backend Development Environment"
-          echo "==========================================="
+          echo "n3x Development Environment"
+          echo "==========================="
           echo ""
           echo "  kas version: $(kas --version 2>&1 | head -1)"
           echo "  kas-container: $(which kas-container)"
         '' + (if shellPkgs.stdenv.isDarwin then ''
-          export KAS_CONTAINER_ENGINE=docker
           if ! command -v docker &>/dev/null; then
             echo ""
             echo "  ERROR: Docker not found in PATH"
             echo "  Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+            echo "  Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
+            echo ""
+          elif docker -v 2>/dev/null | grep -qi nerdctl; then
+            echo ""
+            echo "  WARNING: Rancher Desktop detected in containerd mode."
+            echo "  kas-container requires Docker-compatible API."
+            echo "  Switch to dockerd (moby) mode:"
+            echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
             echo ""
           elif ! docker info &>/dev/null 2>&1; then
             echo "  docker: installed but daemon not running"
             echo ""
             echo "  Start Docker Desktop and try again."
           else
+            export KAS_CONTAINER_ENGINE=docker
             echo "  docker version: $(docker --version)"
             echo "  engine: docker (Docker Desktop)"
           fi
         '' else ''
-          export KAS_CONTAINER_ENGINE=podman
-          echo "  podman version: $(podman --version)"
-          if [ -n "''${WSL_DISTRO_NAME:-}" ]; then
+          # Container runtime detection
+          # ISAR builds need privileged containers. kas-container wraps podman
+          # with sudo, which breaks Nix-store podman (sudo resets PATH).
+          # System-installed runtimes (/usr/bin/docker, /usr/bin/podman) work.
+          if [ -n "''${WSL_DISTRO_NAME:-}" ] || [ -n "''${WSL_DISTRO:-}" ]; then
             echo ""
-            echo "WSL2 Environment Detected: $WSL_DISTRO_NAME"
+            echo "WSL2 Environment Detected: ''${WSL_DISTRO_NAME:-''${WSL_DISTRO:-unknown}}"
             echo "  Use 'kas-build' instead of 'kas-container' for WIC image builds"
             echo "  This handles the sgdisk sync() hang automatically."
+            # WSL image has system podman pre-installed
+            if command -v podman &>/dev/null; then
+              export KAS_CONTAINER_ENGINE=podman
+              echo "  podman version: $(podman --version)"
+            elif command -v docker &>/dev/null; then
+              export KAS_CONTAINER_ENGINE=docker
+              echo "  docker version: $(docker --version)"
+            else
+              echo ""
+              echo "  WARNING: No container runtime found."
+              echo "  The WSL image should have podman pre-installed."
+              echo "  If missing, install: sudo apt-get install podman"
+            fi
+          else
+            # Non-WSL Linux: prefer docker (no sudo PATH issues with kas-container)
+            if command -v docker &>/dev/null; then
+              # Detect nerdctl masquerading as docker (Rancher Desktop containerd mode)
+              if docker -v 2>/dev/null | grep -qi nerdctl; then
+                echo ""
+                echo "  WARNING: Rancher Desktop detected in containerd mode."
+                echo "  kas-container requires Docker-compatible API."
+                echo "  Switch to dockerd (moby) mode:"
+                echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
+              elif docker info &>/dev/null 2>&1; then
+                export KAS_CONTAINER_ENGINE=docker
+                echo "  docker version: $(docker --version)"
+                echo "  engine: docker"
+              else
+                echo "  docker: installed but daemon not running"
+                echo "  Start with: sudo systemctl start docker"
+              fi
+            elif command -v podman &>/dev/null; then
+              podman_path=$(command -v podman)
+              # Nix-store podman is unreachable via sudo on non-NixOS (secure_path resets PATH).
+              # NixOS (/etc/NIXOS) configures sudo to preserve Nix paths, so it's fine there.
+              if [[ "$podman_path" == /nix/store/* ]] && [[ ! -f /etc/NIXOS ]]; then
+                echo ""
+                echo "  WARNING: podman found in Nix store ($podman_path)"
+                echo "  kas-container runs podman via sudo, which cannot access Nix store paths"
+                echo "  on non-NixOS systems (sudo resets PATH via secure_path)."
+                echo ""
+                echo "  Install system podman: sudo apt-get install podman"
+                echo "  Or install docker instead (recommended)."
+              else
+                export KAS_CONTAINER_ENGINE=podman
+                echo "  podman version: $(podman --version)"
+                echo "  engine: podman (system-installed)"
+                echo "  NOTE: kas-container runs podman via sudo for ISAR privileged builds"
+              fi
+            else
+              echo ""
+              echo "  WARNING: No container runtime found."
+              echo "  ISAR builds require docker or podman (system-installed, not from Nix)."
+              echo ""
+              echo "  Docker (recommended - avoids sudo PATH issues):"
+              echo "    https://docs.docker.com/engine/install/"
+              echo "    sudo usermod -aG docker \$USER  # then log out/in"
+              echo ""
+              echo "  Podman (note: kas-container runs podman via sudo):"
+              echo "    sudo apt-get install podman"
+            fi
           fi
         '') + ''
           echo ""
