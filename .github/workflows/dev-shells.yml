@@ -1,66 +1,56 @@
-# Validate nix develop shells across all claimed platforms.
+# Validate the default dev shell on all claimed platforms.
 #
-# Tests that each dev shell enters, key tools are on PATH, and shellHooks
-# run without error. Lightweight (eval + fetch, no builds).
+# Tests that `nix develop` enters, key tools are on PATH, shellHook
+# runs without error, and tools are functional. Lightweight (eval + fetch,
+# no builds).
 #
 # Platform coverage:
-#   - Ubuntu 24.04 (x86_64-linux): all 4 shells (default, k3s, test, debian)
-#   - macOS (aarch64-darwin): debian shell only
-#   - NixOS host: requires on-prem runner with NixOS — not available on
-#     GitHub Actions. The Ubuntu tests validate Nix-on-Linux behavior;
-#     NixOS-specific validation (e.g., systemd integration) is out of scope
-#     for hosted CI.
+#   - Ubuntu 24.04 (x86_64-linux): full validation including shellHook
+#   - macOS latest (aarch64-darwin): shell entry + tools. No Docker on
+#     GH runners, so shellHook warns about missing Docker — expected.
 
-name: Dev Shells
+name: Dev Shell
 
 on:
   push:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'backends/debian/kas/**'
   pull_request:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'backends/debian/kas/**'
   workflow_dispatch:
 
 concurrency:
-  group: dev-shells-${{ github.ref }}
+  group: dev-shell-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate-shell:
-    name: "${{ matrix.shell }} (${{ matrix.os }})"
+  validate:
+    name: "dev shell (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            shell: default
-            tools: "kubectl nixpkgs-fmt sops"
-          - os: ubuntu-24.04
-            shell: k3s
-            tools: "k3s kubectl helm"
-          - os: ubuntu-24.04
-            shell: test
-            tools: "qemu-system-x86_64"
-          - os: ubuntu-24.04
-            shell: debian
-            tools: "kas jq podman"
-          - os: macos-latest
-            shell: debian
-            tools: "kas jq yq"
+        os: [ubuntu-24.04, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      - name: Enter shell and run shellHook
+      - name: Enter shell
         run: |
-          echo "--- Entering .#${{ matrix.shell }} shell ---"
-          nix develop '.#${{ matrix.shell }}' --command bash -c 'echo "shell-entry: OK"'
+          nix develop --command bash -c 'echo "shell-entry: OK"'
 
       - name: Validate tools on PATH
         run: |
-          nix develop '.#${{ matrix.shell }}' --command bash -c '
+          nix develop --command bash -c '
             FAIL=0
-            for tool in ${{ matrix.tools }}; do
+            for tool in kas jq yq kas-build kas-container; do
               if command -v "$tool" &>/dev/null; then
                 printf "  %-25s %s\n" "$tool" "$(command -v "$tool")"
               else
@@ -69,4 +59,15 @@ jobs:
               fi
             done
             exit $FAIL
+          '
+
+      - name: Validate tool functionality
+        run: |
+          nix develop --command bash -c '
+            echo "--- kas ---"
+            kas --version
+
+            echo ""
+            echo "--- kas-build ---"
+            kas-build --help | head -5
           '

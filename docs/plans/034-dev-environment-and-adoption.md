@@ -16,7 +16,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 |------|-------------|--------|
 | 1a | Consolidate dev shells — promote debian to default | TASK:COMPLETE |
 | 1b | Port upstream platform-aware shell logic | TASK:COMPLETE |
-| 1c | Dev shell validation CI workflow | TASK:PENDING |
+| 1c | Dev shell validation CI workflow | TASK:COMPLETE |
 
 ## Task Dependencies
 
@@ -54,7 +54,7 @@ Ported from upstream:
 
 ### Task 1c: Dev shell validation CI workflow
 
-**Status**: `TASK:PENDING`
+**Status**: `TASK:COMPLETE`
 
 **Goal**: Replace the current `dev-shells.yml` (which tests the wrong thing) with a CI workflow that validates the actual developer onboarding experience on Linux and macOS.
 
