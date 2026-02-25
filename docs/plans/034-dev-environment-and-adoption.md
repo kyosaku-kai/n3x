@@ -18,7 +18,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1b | Port upstream platform-aware shell logic | TASK:COMPLETE |
 | 1c | Dev shell validation CI workflow (basic) | TASK:COMPLETE |
 | 1d | Harden shellHook — validate all host-environment prerequisites | TASK:COMPLETE |
-| 1e-1 | Tier 1 fixtures: real test environments (F1-F7) | TASK:PENDING |
+| 1e-1 | Tier 1 fixtures: real test environments (F1-F7) | TASK:COMPLETE |
 | 1e-2 | Tier 2 research + implementation: macOS+Docker, macOS+nerdctl via Colima | TASK:PENDING |
 | 1e-3 | Tier 3 rationale + remaining Tier 2 (NixOS, WSL) | TASK:PENDING |
 | 1f-1 | DRY refactor: extract shared container engine detection into Nix functions | TASK:PENDING |
