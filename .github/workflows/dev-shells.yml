@@ -1,0 +1,72 @@
+# Validate nix develop shells across all claimed platforms.
+#
+# Tests that each dev shell enters, key tools are on PATH, and shellHooks
+# run without error. Lightweight (eval + fetch, no builds).
+#
+# Platform coverage:
+#   - Ubuntu 24.04 (x86_64-linux): all 4 shells (default, k3s, test, debian)
+#   - macOS (aarch64-darwin): debian shell only
+#   - NixOS host: requires on-prem runner with NixOS — not available on
+#     GitHub Actions. The Ubuntu tests validate Nix-on-Linux behavior;
+#     NixOS-specific validation (e.g., systemd integration) is out of scope
+#     for hosted CI.
+
+name: Dev Shells
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: dev-shells-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-shell:
+    name: "${{ matrix.shell }} (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            shell: default
+            tools: "kubectl nixpkgs-fmt sops"
+          - os: ubuntu-24.04
+            shell: k3s
+            tools: "k3s kubectl helm"
+          - os: ubuntu-24.04
+            shell: test
+            tools: "qemu-system-x86_64"
+          - os: ubuntu-24.04
+            shell: debian
+            tools: "kas jq podman"
+          - os: macos-latest
+            shell: debian
+            tools: "kas jq yq"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Enter shell and run shellHook
+        run: |
+          echo "--- Entering .#${{ matrix.shell }} shell ---"
+          nix develop '.#${{ matrix.shell }}' --command bash -c 'echo "shell-entry: OK"'
+
+      - name: Validate tools on PATH
+        run: |
+          nix develop '.#${{ matrix.shell }}' --command bash -c '
+            FAIL=0
+            for tool in ${{ matrix.tools }}; do
+              if command -v "$tool" &>/dev/null; then
+                printf "  %-25s %s\n" "$tool" "$(command -v "$tool")"
+              else
+                printf "  %-25s %s\n" "$tool" "MISSING"
+                FAIL=1
+              fi
+            done
+            exit $FAIL
+          '
