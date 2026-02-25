@@ -35,7 +35,7 @@ The SWUpdate VM tests validate the complete OTA workflow in QEMU virtual machine
 
 1. **Build SWUpdate-enabled ISAR image**:
    ```bash
-   nix develop '.#debian' --command kas-build \
+   nix develop --command kas-build \
      kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/base.yml:kas/feature/swupdate.yml
    ```
 

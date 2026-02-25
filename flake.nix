@@ -453,11 +453,11 @@
           (lib.filterAttrs (name: _: name != "boot-switch") swupdateTests)
       );
 
-      # Platform-aware Debian backend development shell
+      # Platform-aware development shell
       # Linux: includes podman, WSL guidance
       # Darwin: includes Docker Desktop validation, no podman
-      mkDebianShell = shellPkgs: shellPkgs.mkShell {
-        name = "n3x-debian";
+      mkDevShell = shellPkgs: shellPkgs.mkShell {
+        name = "n3x";
 
         buildInputs = with shellPkgs; [
           # ISAR/kas tooling
@@ -527,7 +527,7 @@
           echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
           echo ""
         '';
-      }; # end mkDebianShell
+      }; # end mkDevShell
     in
     {
       # NixOS configurations for all nodes
@@ -639,91 +639,13 @@
         };
       };
 
-      # Development shells for x86_64
+      # Development shells
       devShells.${systems.n100} = {
-        default = pkgs.mkShell {
-          buildInputs = (with pkgs; [
-            # NixOS tools
-            nixos-rebuild
-            nixos-generators
-
-            # Secrets management
-            sops
-            age
-            ssh-to-age
-
-            # Kubernetes tools
-            kubectl
-            k9s
-            helm
-            kustomize
-
-            # Development tools
-            git
-            vim
-            tmux
-            jq
-            yq
-
-            # Code quality (used by .githooks/pre-commit)
-            nixpkgs-fmt
-
-            # Network debugging
-            tcpdump
-            dig
-            netcat
-            iperf3
-          ]) ++ [
-            # From flake inputs
-            inputs.nixos-anywhere.packages.${systems.n100}.default
-          ];
-
-          shellHook = gitHooksSetup + ''
-            echo "n3x Development Environment"
-            echo "=========================="
-            echo ""
-            echo "Available commands:"
-            echo "  nixos-rebuild   - Build and switch NixOS configurations"
-            echo "  nixos-anywhere  - Provision bare-metal systems"
-            echo "  kubectl         - Interact with k3s cluster"
-            echo ""
-            echo "Example usage:"
-            echo "  nixos-rebuild switch --flake .#n100-1 --target-host root@n100-1.local"
-            echo "  nixos-anywhere --flake .#n100-1 root@n100-1.local"
-            echo ""
-          '';
-        };
-
-        # Specialized shell for k3s management
-        k3s = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            k3s
-            kubectl
-            k9s
-            helm
-            kustomize
-          ];
-        };
-
-        # Shell for testing and validation
-        test = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            qemu
-            libvirt
-            virt-manager
-            cloud-utils
-            nixos-generators
-          ];
-        };
-
-        # Debian backend development shell (generated via mkDebianShell helper)
-        debian = mkDebianShell pkgs;
+        default = mkDevShell pkgs;
       };
 
-      # Debian backend development shell for Apple Silicon Macs
-      # Uses Docker Desktop instead of podman (podman broken on nix-darwin)
       devShells.aarch64-darwin = {
-        debian = mkDebianShell pkgsDarwin;
+        default = mkDevShell pkgsDarwin;
       };
 
       # Packages that can be built

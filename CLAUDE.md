@@ -132,14 +132,14 @@ lib.seq verified (pkgs.runCommand "check" {} '' ... '')
 
 ### ISAR Builds - CRITICAL
 
-**Claude Code CAN and SHOULD run ISAR builds** using `nix develop .#debian -c`:
+**Claude Code CAN and SHOULD run ISAR builds** using `nix develop -c`:
 
 ```bash
 # CORRECT - Claude Code can run this directly
-nix develop .#debian -c bash -c "cd backends/debian && kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml:kas/test-k3s-overlay.yml:kas/network/simple.yml:kas/node/server-1.yml"
+nix develop -c bash -c "cd backends/debian && kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml:kas/test-k3s-overlay.yml:kas/network/simple.yml:kas/node/server-1.yml"
 
 # ALSO CORRECT - interactive shell then kas-build
-nix develop .#debian
+nix develop
 cd backends/debian
 kas-build kas/base.yml:...
 
@@ -221,15 +221,15 @@ The `--rename-existing` flag copies to unique names to avoid collisions.
 ```bash
 # Clean specific recipe's build artifacts (keeps sstate and downloads)
 # Use this when a recipe fails and needs rebuild
-nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar clean kas/machine/<machine>.yml:..."
+nix develop -c bash -c "cd backends/debian && kas-container --isar clean kas/machine/<machine>.yml:..."
 
 # Clean build artifacts + sstate cache (keeps downloads)
 # Use this for deeper clean - forces rebuild of all recipes
-nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar cleansstate kas/machine/<machine>.yml:..."
+nix develop -c bash -c "cd backends/debian && kas-container --isar cleansstate kas/machine/<machine>.yml:..."
 
 # Clean everything including downloads
 # Nuclear option - full rebuild from scratch
-nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar cleanall kas/machine/<machine>.yml:..."
+nix develop -c bash -c "cd backends/debian && kas-container --isar cleanall kas/machine/<machine>.yml:..."
 ```
 
 **Stale `.git-downloads` symlink** (common issue):
@@ -239,7 +239,7 @@ nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar cl
   rm -f backends/debian/build/tmp/work/debian-trixie-arm64/.git-downloads
   rm -f backends/debian/build/tmp/work/debian-trixie-amd64/.git-downloads
   ```
-- Integrate into build command: `rm -f backends/debian/build/tmp/work/debian-trixie-*/.git-downloads && nix develop '.#debian' -c bash -c "cd backends/debian && kas-build ..."`
+- Integrate into build command: `rm -f backends/debian/build/tmp/work/debian-trixie-*/.git-downloads && nix develop -c bash -c "cd backends/debian && kas-build ..."`
 
 **Download cache collision** (multi-arch):
 - k3s recipe uses `downloadfilename=k3s` for BOTH architectures — x86_64 and arm64 binaries share the same cache key

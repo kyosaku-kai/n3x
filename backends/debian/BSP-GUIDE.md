@@ -138,7 +138,7 @@ BAUDRATE_TTY ?= "115200"
 
 4. **Test the build**:
    ```bash
-   nix develop '.#debian'
+   nix develop
    cd backends/debian
    kas-build kas/base.yml:kas/machine/my-board.yml:kas/image/k3s-server.yml
    ```
@@ -282,7 +282,7 @@ For `menuconfig` style configuration:
 
 ```bash
 # Enter ISAR build environment
-nix develop .#debian
+nix develop
 cd backends/debian
 
 # Enter kernel devshell with config applied
@@ -369,7 +369,7 @@ ISAR provides example recipes in `isar/meta-isar/recipes-kernel/linux/`:
 
 Quick test cycle:
 ```bash
-nix develop .#debian
+nix develop
 cd backends/debian
 
 # Rebuild kernel package only:
@@ -584,7 +584,7 @@ For BSP package changes:
 
 ```bash
 # 1. Enter ISAR shell
-nix develop .#debian
+nix develop
 cd backends/debian
 
 # 2. Build image with your changes

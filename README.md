@@ -142,7 +142,7 @@ Each variant is assembled from stacked kas overlays:
 For lower-level builds without Nix store registration:
 
 ```bash
-nix develop '.#debian'
+nix develop
 cd backends/debian
 kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/image/k3s-server.yml:kas/network/simple.yml:kas/node/server-1.yml
 ```
