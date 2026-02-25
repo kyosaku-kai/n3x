@@ -1,15 +1,22 @@
-# Validate the default dev shell on all claimed platforms.
+# Validate the default dev shell across real host-environment configurations.
 #
-# Tests that `nix develop` enters, key tools are on PATH, shellHook
-# runs without error, and tools are functional. Lightweight (eval + fetch,
-# no builds).
+# Each matrix entry (fixture) represents a real developer machine state.
+# Fixtures use actual package management (apt-get, brew, nix) — no mocked
+# binaries, no fake scripts, no container jobs (DinD breaks kas-container
+# privileged testing).
 #
-# Platform coverage:
-#   - Ubuntu 24.04 (x86_64-linux): full validation — Docker present on
-#     runner, so shellHook passes and shell entry succeeds.
-#   - macOS latest (aarch64-darwin): verifies hard-fail behavior — no
-#     Docker on GH runners, so shellHook correctly rejects shell entry
-#     with actionable error message (T1d hard-fail validation).
+# Tier 1 fixtures (F1-F7):
+#   F1: Ubuntu + Docker running         → OK: engine=docker
+#   F2: Ubuntu + Docker daemon stopped   → ERROR: daemon not running
+#   F3: Ubuntu + system podman (apt)     → OK: engine=podman
+#   F4: Ubuntu + no container runtime    → ERROR: no runtime found
+#   F5: Ubuntu + nerdctl as docker       → ERROR: containerd mode
+#   F6: Ubuntu + Nix-store podman        → ERROR: Nix store path rejection
+#   F7: macOS + no Docker               → ERROR: Docker not found
+#
+# F8 (macOS + nerdctl) deferred to Tier 2: nerdctl has no macOS binary
+# and the Homebrew formula is Linux-only. The nerdctl detection logic
+# (docker -v | grep -qi nerdctl) is validated by F5 on Linux.
 
 name: Dev Shell
 
@@ -32,26 +39,214 @@ concurrency:
 
 jobs:
   validate:
-    name: "dev shell (${{ matrix.os }})"
-    runs-on: ${{ matrix.os }}
+    name: "${{ matrix.name }}"
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        include:
+          - fixture: F1
+            name: "F1: Ubuntu + Docker"
+            runner: ubuntu-24.04
+            expect_exit: "0"
+            expect_pattern: "engine: docker"
+            expect_engine: "docker"
+          - fixture: F2
+            name: "F2: Ubuntu + Docker stopped"
+            runner: ubuntu-24.04
+            expect_exit: "1"
+            expect_pattern: "Docker daemon not running"
+            expect_engine: ""
+          - fixture: F3
+            name: "F3: Ubuntu + podman (apt)"
+            runner: ubuntu-24.04
+            expect_exit: "0"
+            expect_pattern: "engine: podman"
+            expect_engine: "podman"
+          - fixture: F4
+            name: "F4: Ubuntu + no runtime"
+            runner: ubuntu-24.04
+            expect_exit: "1"
+            expect_pattern: "No container runtime found"
+            expect_engine: ""
+          - fixture: F5
+            name: "F5: Ubuntu + nerdctl as docker"
+            runner: ubuntu-24.04
+            expect_exit: "1"
+            expect_pattern: "containerd mode"
+            expect_engine: ""
+          - fixture: F6
+            name: "F6: Ubuntu + Nix-store podman"
+            runner: ubuntu-24.04
+            expect_exit: "1"
+            expect_pattern: "Nix store"
+            expect_engine: ""
+          - fixture: F7
+            name: "F7: macOS + no Docker"
+            runner: macos-latest
+            expect_exit: "1"
+            expect_pattern: "Docker not found"
+            expect_engine: ""
+
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      # Linux: full validation (Docker present on ubuntu-24.04)
-      - name: Enter shell
-        if: runner.os == 'Linux'
+      # ── Fixture setup ───────────────────────────────────────────────
+      - name: "Setup: remove Docker packages"
+        if: contains(fromJSON('["F3","F4","F5","F6"]'), matrix.fixture)
         run: |
-          nix develop --command bash -c 'echo "shell-entry: OK"'
+          echo "::group::Remove Docker packages"
+          sudo apt-get remove -y docker-ce docker-ce-cli containerd.io \
+            docker-buildx-plugin docker-compose-plugin \
+            docker-ce-rootless-extras 2>/dev/null || true
+          sudo apt-get autoremove -y 2>/dev/null || true
+          echo "::endgroup::"
 
+          # Verify docker is actually gone
+          if command -v docker &>/dev/null; then
+            echo "ERROR: docker still found at $(command -v docker) after removal"
+            dpkg -l | grep -i docker || true
+            exit 1
+          fi
+          echo "Docker removal verified: docker not in PATH"
+
+      - name: "Setup: stop Docker daemon"
+        if: matrix.fixture == 'F2'
+        run: |
+          # Stop both service and socket (socket activation would restart it)
+          sudo systemctl stop docker.socket docker.service
+          # Verify daemon is not responding
+          if docker info &>/dev/null 2>&1; then
+            echo "ERROR: Docker daemon still responding after stop"
+            exit 1
+          fi
+          echo "Docker daemon stopped and verified"
+
+      - name: "Setup: install podman via apt"
+        if: matrix.fixture == 'F3'
+        run: |
+          echo "::group::Install podman"
+          sudo apt-get update
+          sudo apt-get install -y podman
+          echo "::endgroup::"
+          echo "podman installed at: $(command -v podman)"
+          podman --version
+
+      - name: "Setup: install nerdctl and symlink as docker"
+        if: matrix.fixture == 'F5'
+        env:
+          NERDCTL_VERSION: "2.2.1"
+        run: |
+          echo "::group::Install nerdctl"
+          curl -fsSL "https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin nerdctl
+          sudo ln -sf /usr/local/bin/nerdctl /usr/local/bin/docker
+          echo "::endgroup::"
+          echo "nerdctl installed at: $(command -v nerdctl)"
+          nerdctl --version
+          echo "docker symlink -> $(readlink -f /usr/local/bin/docker)"
+          echo "docker -v output: $(docker -v 2>&1)"
+
+      - name: "Setup: install podman from Nix store"
+        if: matrix.fixture == 'F6'
+        run: |
+          # Build podman and get its Nix store path
+          PODMAN_STORE=$(nix build 'nixpkgs#podman' --no-link --print-out-paths)
+          echo "Podman Nix store path: $PODMAN_STORE"
+
+          # Add the store bin directory directly to PATH so that
+          # command -v podman returns /nix/store/*/bin/podman
+          echo "$PODMAN_STORE/bin" >> "$GITHUB_PATH"
+
+          # Verify (in current shell, simulating what next step sees)
+          export PATH="$PODMAN_STORE/bin:$PATH"
+          echo "podman binary: $(command -v podman)"
+          echo "podman version: $("$PODMAN_STORE/bin/podman" --version 2>&1 || echo 'version check skipped')"
+
+          # Confirm this is NOT NixOS (no /etc/NIXOS)
+          if [ -f /etc/NIXOS ]; then
+            echo "ERROR: /etc/NIXOS exists — this runner looks like NixOS"
+            exit 1
+          fi
+          echo "Confirmed: not NixOS (no /etc/NIXOS)"
+
+      # ── Test dev shell ──────────────────────────────────────────────
+      - name: Test dev shell entry
+        id: test
+        run: |
+          set +e
+          OUTPUT=$(nix develop --command bash -c 'echo "ENGINE=${KAS_CONTAINER_ENGINE:-UNSET}"' 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "--- Shell Output ---"
+          echo "$OUTPUT"
+          echo "--- Exit Code: $EXIT_CODE ---"
+
+          # Persist for assertion step
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          # Use temp file for multi-line output (GITHUB_OUTPUT heredoc is fragile)
+          echo "$OUTPUT" > "$RUNNER_TEMP/shell-output.txt"
+
+      # ── Assert results ──────────────────────────────────────────────
+      - name: Assert fixture expectations
+        env:
+          EXPECTED_EXIT: ${{ matrix.expect_exit }}
+          EXPECTED_PATTERN: ${{ matrix.expect_pattern }}
+          EXPECTED_ENGINE: ${{ matrix.expect_engine }}
+          ACTUAL_EXIT: ${{ steps.test.outputs.exit_code }}
+        run: |
+          OUTPUT=$(cat "$RUNNER_TEMP/shell-output.txt")
+          PASS=true
+
+          # Check exit code
+          if [[ "$EXPECTED_EXIT" == "0" ]] && [[ "$ACTUAL_EXIT" != "0" ]]; then
+            echo "FAIL: Expected exit 0, got $ACTUAL_EXIT"
+            PASS=false
+          elif [[ "$EXPECTED_EXIT" != "0" ]] && [[ "$ACTUAL_EXIT" == "0" ]]; then
+            echo "FAIL: Expected non-zero exit, got 0"
+            PASS=false
+          else
+            echo "OK: Exit code $ACTUAL_EXIT (expected: $EXPECTED_EXIT)"
+          fi
+
+          # Check output pattern
+          if echo "$OUTPUT" | grep -qi "$EXPECTED_PATTERN"; then
+            echo "OK: Found expected pattern '$EXPECTED_PATTERN'"
+          else
+            echo "FAIL: Expected pattern '$EXPECTED_PATTERN' not found in output"
+            PASS=false
+          fi
+
+          # Check KAS_CONTAINER_ENGINE value (OK paths only)
+          if [[ -n "$EXPECTED_ENGINE" ]]; then
+            if echo "$OUTPUT" | grep -q "ENGINE=$EXPECTED_ENGINE"; then
+              echo "OK: KAS_CONTAINER_ENGINE=$EXPECTED_ENGINE"
+            else
+              echo "FAIL: Expected ENGINE=$EXPECTED_ENGINE in output"
+              PASS=false
+            fi
+          fi
+
+          # Final verdict
+          echo ""
+          if [[ "$PASS" == "true" ]]; then
+            echo "PASS: ${{ matrix.name }}"
+          else
+            echo "FAIL: ${{ matrix.name }}"
+            echo ""
+            echo "--- Full output ---"
+            echo "$OUTPUT"
+            exit 1
+          fi
+
+      # ── Tool validation (F1 only — the happy path) ─────────────────
       - name: Validate tools on PATH
-        if: runner.os == 'Linux'
+        if: matrix.fixture == 'F1'
         run: |
           nix develop --command bash -c '
             FAIL=0
@@ -67,7 +262,7 @@ jobs:
           '
 
       - name: Validate tool functionality
-        if: runner.os == 'Linux'
+        if: matrix.fixture == 'F1'
         run: |
           nix develop --command bash -c '
             echo "--- kas ---"
@@ -77,20 +272,3 @@ jobs:
             echo "--- kas-build ---"
             kas-build --help | head -5
           '
-
-      # macOS: verify hard-fail behavior (no Docker on GH runners)
-      - name: Verify shell rejects missing Docker
-        if: runner.os == 'macOS'
-        run: |
-          OUTPUT=$(nix develop --command bash -c 'echo OK' 2>&1) && {
-            echo "ERROR: Shell should have rejected entry without Docker"
-            exit 1
-          }
-          echo "Shell correctly rejected entry (exit code: $?)"
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -q "Docker not found"; then
-            echo "PASS: Error message contains expected 'Docker not found'"
-          else
-            echo "FAIL: Expected 'Docker not found' in output"
-            exit 1
-          fi

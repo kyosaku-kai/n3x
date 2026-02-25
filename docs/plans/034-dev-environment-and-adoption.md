@@ -172,12 +172,15 @@ The `ubuntu-24.04` runner comes with Docker pre-installed. For fixtures that nee
 | F5 | Ubuntu + real nerdctl | `ubuntu-24.04` | `apt-get remove docker*`, install real nerdctl binary, symlink as `docker` | ERROR: "containerd mode" |
 | F6 | Ubuntu + podman via Nix (non-NixOS) | `ubuntu-24.04` | `apt-get remove docker*`, `nix profile install nixpkgs#podman` | ERROR: "Nix store" path rejection |
 | F7 | macOS + no Docker | `macos-latest` | default state (no Docker on GH macOS runners) | ERROR: "Docker not found" |
-| F8 | macOS + real nerdctl | `macos-latest` | install real nerdctl binary, symlink as `docker` | ERROR: "containerd mode" |
+| ~~F8~~ | ~~macOS + real nerdctl~~ | ~~`macos-latest`~~ | ~~install real nerdctl binary, symlink as `docker`~~ | ~~ERROR: "containerd mode"~~ |
+
+**F8 moved to Tier 2**: nerdctl has no macOS binary (GitHub releases: Linux/FreeBSD/Windows only). The Homebrew formula (`brew install nerdctl`) is Linux-only. The nerdctl detection logic (`docker -v | grep -qi nerdctl`) is validated by F5 on Linux — same code path, same grep check. F8 would only additionally validate the Darwin error message formatting.
 
 **Tier 2 — Needs research before implementation:**
 
 | ID | Fixture | Question |
 |----|---------|----------|
+| F8 | macOS + nerdctl as docker | nerdctl has no macOS binary (GH releases: Linux/FreeBSD/Windows only). Homebrew formula Linux-only. Research: build from Go source on macOS runner? Or accept F5 covers the detection logic? |
 | F9 | macOS + Docker | Is there a headless Docker option on macOS GH runners? (`colima`, `lima`, `docker-machine`?) If feasible, this tests OK path 1 — Darwin happy path, currently untested. |
 | F10 | NixOS + Nix-store podman | How to get a NixOS-like environment on a GH runner? Need `/etc/NIXOS` to exist and podman at `/nix/store/*/bin/podman`. Tests OK path 5. Options: NixOS self-hosted runner, or create `/etc/NIXOS` marker + nix-installed podman on ubuntu (semi-synthetic but tests the real code path). |
 | F11 | WSL + podman | Real WSL testing needs Windows runner + WSL2 + Nix inside WSL. Research feasibility and cost. Alternative: `WSL_DISTRO_NAME` env var on Linux runner (partial — tests env-var code path but not WSL-specific behavior like 9p mounts). |
@@ -208,13 +211,13 @@ All fixtures use runner VMs directly. Setup steps use real package management.
 
 #### Sub-tasks
 
-- **T1e-1**: Implement Tier 1 fixtures (F1-F8) on runner VMs with real package management. Validate `apt-get remove` fully removes docker on ubuntu-24.04 runners (may need to also remove `docker.io` or other variants). Validate real nerdctl binary download and behavior.
+- **T1e-1**: Implement Tier 1 fixtures (F1-F7) on runner VMs with real package management. F8 (macOS + nerdctl) deferred to Tier 2 — nerdctl has no macOS binary. Validate `apt-get remove` fully removes docker on ubuntu-24.04 runners. Validate real nerdctl binary download (v2.2.1 linux-amd64) and F6 Nix-store podman detection via `nix build --print-out-paths` PATH injection.
 - **T1e-2**: Research Tier 2 fixtures (F9-F12). Document findings in this plan file. Implement any that are feasible.
 - **T1e-3**: Implement researched Tier 2 fixtures. Update Tier 3 rationale if anything became feasible.
 
 #### DoD
 
-1. All Tier 1 fixtures (F1-F8) pass in CI
+1. All Tier 1 fixtures (F1-F7) pass in CI (F8 deferred — no macOS nerdctl binary)
 2. Each fixture asserts exit code, output pattern, and `KAS_CONTAINER_ENGINE` value
 3. Tier 2 research documented with findings and decisions
 4. Tier 3 deferred fixtures have explicit rationale
