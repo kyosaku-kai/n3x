@@ -50,83 +50,36 @@ This file provides project-specific rules and essential context for Claude Code 
 
 ## Project Status
 
-- **Branch**: `main`
-- **Plan 023**: **ACTIVE** (15/23) - CI Infrastructure and Runner Deployment
-  - Remaining: 5 BLOCKED (hardware/creds), 1 DEFERRED, 1 BLOCKED (dependency)
-- **Plan 025**: **ACTIVE** (4/7) - Cross-Architecture Build Environment Requirements
-  - Remaining: 2 PENDING, 1 IN_PROGRESS (needs hardware)
-- **Plans 001-003, 011-014, 016, 018-020**: COMPLETE (archived)
-- **Plan 027**: **COMPLETE** (8/8) - Documentation Cohesion and Navigation
-  - All tasks COMPLETE (2026-02-15). Docs hub, READMEs, cross-links, proprietary scrub.
-  - Plan file: `.claude/user-plans/027-documentation-cohesion.md`
-- **Plan 028**: **COMPLETE** (16/16) - Migrate n3x to NixOS/nixpkgs 25.11
-  - All tasks COMPLETE (T9, T10 SKIPPED as redundant). Final validation (T15) passed 2026-02-16.
-  - Both flakes on 25.11. NixOS test matrix 4/4, Debian cluster test PASS.
-  - Incompatibilities fixed: `services.resolved.settings` (T11), test driver API (T13).
-  - AMI pipeline migrated to native `system.build.images.amazon` API (post-plan).
-  - Fork clone at `/home/tim/src/nixpkgs-vm-rebase/` can be removed.
-  - Plan file: `.claude/user-plans/028-nixpkgs-25.05-migration.md`
-- **Plan 029**: **COMPLETE** (5/5) - Post-Migration Convergence
-  - T0: COMPLETE (2026-02-16) — 4 fixes committed, 9 no-fix findings documented
-  - T1: COMPLETE (2026-02-16) — all 5 diagrams verified accurate, no changes needed
-  - T1.5: COMPLETE (2026-02-16) — no migration needed, repos architecturally independent
-  - T2: COMPLETE (2026-02-16) — validated
-  - T3: COMPLETE (2026-02-16) — ADR audit: no arch discrepancies, 2 minor fixes
-  - Plan file: `.claude/user-plans/029-post-migration-convergence.md`
-- **Plan 031**: **COMPLETE** (10/10) - Backend Restructure + Layer Rename
-  - All tasks COMPLETE (2026-02-18). `infra` branch ready for merge to `main`.
-  - Renames: `backends/isar/`→`backends/debian/`, `lib/isar/`→`lib/debian/`,
-    `tests/isar/`→`tests/debian/`, `meta-isar-k3s/`→`meta-n3x/`, `isar-k3s-image-*`→`n3x-image-*`
-  - DevShell: `.#isar`→`.#debian`. Check names: `debian-k3s-*`→`debian-*`.
-  - 2 archive `.drawio.svg` diagrams removed (had embedded `isar-k3s` text)
-  - Plan file: `.claude/user-plans/031-backend-restructure.md`
-- **Plans 021-022**: ARCHIVED - analysis moved to Plan 023
-- **Plan 013**: MIGRATED TO NIXCFG - Distributed Nix Binary Caching
-- **Plan 024**: VALIDATED - ISAR Jetson Orin Nano Kernel 6.12 LTS (cross-compile passes)
+- **Release**: 0.0.2 (tagged, published with release notes)
+- **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring
+  - Moved business logic from GitHub Actions workflows to `build-matrix.nix`
+  - Release 0.0.2 validated end-to-end
+  - T8 (dynamic matrix generation) deferred for future work
+  - Plan file: `docs/plans/033-ci-pipeline-refactoring.md`
+- **Plan 032** (tracked in private n3x repo): Public Repo Publication
+  - Tasks 1-6.11 complete (repo public, CI 22/22 green, rulesets configured)
+  - Tasks 7-9 pending (GitLab fork, governance board, plan cleanup)
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
 - **BitBake Limits**: BB_NUMBER_THREADS=dynamic (min(CPUs, (RAM_GB-4)/3)), BB_PRESSURE_MAX_MEMORY=10000
-- **ISAR Build Matrix** (feature/isar-build-matrix branch, 11 commits ahead of main):
-  - 42 artifacts total across 4 machines, ALL in nix store, all hashes in artifact-hashes.nix
-  - qemuamd64 (33 artifacts): ALL in nix store
-  - amd-v3c18i (1 artifact): IN nix store
-  - qemuarm64 (6 artifacts): ALL in nix store (built 2026-02-19 with debian-snapshot overlay)
-  - jetson-orin-nano (2 artifacts): ALL in nix store (built 2026-02-19 with debian-snapshot overlay)
-  - `isar-artifact-validation` check: PASSES (all 42 artifacts validated)
-  - `nix flake check --no-build`: PASSES
-  - **VM test results** (2026-02-19): 18 PASS, 1 EXCLUDED
-    - PASS (18): vm-boot, k3s-server-boot, k3s-service, swupdate-{bundle-validation,apply},
-      two-vm-network, swupdate-network-ota, network-debug,
-      k3s-network-{simple,vlans,bonding}, k3s-cluster-{simple,vlans,bonding-vlans,dhcp-simple}
-      × {firmware,direct} boot modes where applicable
-    - EXCLUDED: swupdate-boot-switch (grubenv_open fails on vfat EFI partition, needs interactive debug)
-  - `isar-all` check: PASSES (boot-switch excluded from aggregate)
-  - **Test timing** (single execution, wall-clock): single-VM 18-25s, k3s-service 133s,
-    cluster-firmware 82-95s, cluster-direct 73-77s, network-debug 256s, two-vm-network 17s
-  - `nix run '.'` is the default app (isar-build-all); also available as `nix run '.#isar-build-all'`
-  - Debian snapshot overlay (`kas/opt/debian-snapshot.yml`) needed for arm64 builds due to
-    transient GPG "Not live until" timing issue on live trixie-security/trixie-updates mirrors
-  - DO NOT merge to main yet (per user instruction)
+- **ISAR Build Matrix**: 42 artifacts across 4 machines (qemuamd64, amd-v3c18i, qemuarm64, jetson-orin-nano)
+  - All hashes tracked in `lib/debian/artifact-hashes.nix`
+  - VM test results: 18 PASS, 1 EXCLUDED (swupdate-boot-switch)
+  - `nix run '.'` is the default app (`isar-build-all`)
 
 ### Architecture
 
-**CI Target Architecture** (Updated 2026-02-10):
+**GitHub Actions CI** (current, `.github/workflows/ci.yml`):
+- Tiered pipeline: eval/lint → deb packages → NixOS VM tests → ISAR builds → Debian VM tests
+- x86_64 on `ubuntu-latest`, aarch64 on `ubuntu-24.04-arm` (Cobalt 100)
+- KVM-accelerated VM tests on GitHub-hosted runners
+- `magic-nix-cache-action` for Nix store caching
+
+**Target CI Architecture** (future, see `docs/nix-binary-cache-architecture-decision.md`):
 - Self-managed EC2 runners (x86_64 + Graviton) for ISAR/Nix builds
 - On-prem NixOS bare metal for: VM tests (KVM required), HIL tests
-- JFrog Artifactory for: custom .deb packages + upstream Debian mirror
-- NixOS flake for runner config (reusable for EC2, dev workstations, lab servers)
-- apt-cacher-ng on all build environments
-- **Nix binary cache**: Harmonia + ZFS (local), HTTP substituters (no ZFS replication)
-- **TLS**: Caddy reverse proxy with internal CA
+- Harmonia + ZFS binary cache, Caddy reverse proxy with internal CA
 
-**Binary Cache Architecture** (docs/nix-binary-cache-architecture-decision.md):
-- Each node: ZFS-backed `/nix/store` with zstd compression (1.5-2x savings)
-- Each node: Harmonia serving local store via Caddy (HTTPS)
-- Cache sharing: HTTP substituters with priority configuration
-- NO ZFS replication (multi-master not possible; Nix content-addressing sufficient)
-- ZFS cluster prototype (3x Intel N100 mini PCs) validates architecture before AWS deployment
-- Cluster network via MikroTik CRS326-24G-2S+ managed switch
-
-### ISAR Package Parity (Plan 016 Complete)
+### ISAR Package Parity
 
 Package requirements are verified at **Nix eval time**. Missing packages fail `nix flake check --no-build` immediately.
 
@@ -160,7 +113,7 @@ nix build '.#checks.x86_64-linux.debian-network-debug' -L
 
 ## Technical Learnings
 
-### Nix Eval-Time Verification with lib.seq (Plan 016)
+### Nix Eval-Time Verification with lib.seq
 
 **Problem**: `passthru` attributes on derivations aren't evaluated during `nix flake check` unless explicitly accessed. A verification that uses `passthru.verified = throw "error"` will silently pass.
 
@@ -204,7 +157,7 @@ docker run ... ghcr.io/siemens/kas/kas-isar:5.1 build ...
 2. Manages WSL 9p filesystem unmounting (prevents sgdisk sync() hang)
 3. Sets `KAS_CONTAINER_ENGINE=podman` and correct image version
 
-**Build command structure** (Plan 018):
+**Build command structure**:
 ```
 kas-build kas/base.yml:kas/machine/<machine>.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/<role>.yml:kas/boot/grub.yml:kas/test-k3s-overlay.yml:kas/network/<profile>.yml:kas/node/<node>.yml
 ```
@@ -239,12 +192,12 @@ nix run '.#isar-build-all' -- --help
 ```
 
 **Three-file architecture** (critical to understand):
-1. **`lib/isar/build-matrix.nix`** (254 lines) - Single source of truth for 16 variants.
+1. **`lib/debian/build-matrix.nix`** - Single source of truth for 16 variants.
    Defines machines, roles, boot modes, naming functions (`mkVariantId`, `mkArtifactName`,
    `mkIsarOutputName`, `mkAttrPath`, `mkKasCommand`).
-2. **`lib/isar/artifact-hashes.nix`** (117 lines) - Mutable state: SHA256 hashes for all 42 artifacts.
+2. **`lib/debian/artifact-hashes.nix`** - Mutable state: SHA256 hashes for all 42 artifacts.
    Updated by `isar-build-all` via sed after each build.
-3. **`lib/isar/mk-artifact-registry.nix`** (174 lines) - Generator combining build-matrix + hashes
+3. **`lib/debian/mk-artifact-registry.nix`** - Generator combining build-matrix + hashes
    into a `requireFile` attrset. Powers `isarArtifacts.qemuamd64.server.wic` etc.
 
 **Why this matters**: Every ISAR VM test depends on artifacts being in the nix store.
@@ -305,7 +258,7 @@ nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar cl
 ### ISAR Build Cache
 - Shared cache: `DL_DIR="${HOME}/.cache/yocto/downloads"`, `SSTATE_DIR="${HOME}/.cache/yocto/sstate"`
 
-### ZFS Replication Limitations (Plan 023)
+### ZFS Replication Limitations
 
 **ZFS does NOT support multi-master replication.** Key findings:
 - `zfs send/recv` requires single-master topology (one writer, read-only replicas)
@@ -325,7 +278,7 @@ nix develop '.#debian' -c bash -c "cd backends/debian && kas-container --isar cl
 - Snapshots: Pre-GC safety, instant rollback
 - ARC cache: Intelligent read caching
 
-### Test Timing Patterns (Plan 018 N14)
+### Test Timing Patterns
 
 **"It works sometimes" = Timing Bug**. Diagnose with:
 - ICMP works but TCP fails? → TCP establishment latency (add warm-up loop)
@@ -350,9 +303,9 @@ for attempt in range(3):
 server_2.succeed("systemctl start k3s-server.service")
 ```
 
-**Resolved latent issues** (Plan 019):
-- Plan 019 A1 added bond state verification via `/proc/net/bonding/bond0`
-- Plan 019 A2 replaced `time.sleep(2)` with `wait_until_succeeds` IP polling
+**Resolved latent issues**:
+- Bond state verification via `/proc/net/bonding/bond0`
+- Replaced `time.sleep(2)` with `wait_until_succeeds` IP polling
 
 ### WIC Generation Hang (WSL2)
 - Cause: `sgdisk` sync() hangs on 9p mounts
@@ -365,7 +318,7 @@ server_2.succeed("systemctl start k3s-server.service")
 | WSL2 | YES | NO (2-level limit) |
 | Darwin | YES* | NO |
 
-### ISAR Kernel Selection Mechanism (Plan 024)
+### ISAR Kernel Selection Mechanism
 
 **ISAR does NOT use Yocto's `PREFERRED_PROVIDER_virtual/kernel`.**
 
@@ -375,7 +328,7 @@ ISAR kernel selection uses `KERNEL_NAME`:
 - Machine conf sets `KERNEL_NAME ?= "arm64"` (default = stock Debian)
 - To override: `KERNEL_NAME = "tegra"` in kas overlay `local_conf_header`
 
-### QEMU User-Mode for ISAR aarch64 Builds (Plan 024)
+### QEMU User-Mode for ISAR aarch64 Builds
 
 **WSL2 NixOS can build ISAR aarch64 images via QEMU user-mode emulation.**
 
@@ -425,7 +378,7 @@ ISAR kernel selection uses `KERNEL_NAME`:
 - **Caddyfile v2 syntax**: Use named matchers (`@name path /...`) for path-specific
   headers, not nested `{path ...}` inside header values.
 
-### NixOS 25.11 Migration Workarounds (Plan 028)
+### NixOS 25.11 Migration Workarounds
 
 **Migration date**: 2026-02-16. Both flakes migrated from nixpkgs master (main) / 24.11 (infra) to 25.11.
 
@@ -463,7 +416,7 @@ ISAR kernel selection uses `KERNEL_NAME`:
 - [tests/README.md](tests/README.md) - Testing framework
 - [docs/SECRETS-SETUP.md](docs/SECRETS-SETUP.md) - Secrets management
 - [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md) - ISAR L4 cluster test design
-- [.claude/user-plans/archive/016-image-capability-contracts.md](.claude/user-plans/archive/016-image-capability-contracts.md) - ISAR package parity verification plan
-- [docs/wip-L1.0-mikrotik-setup.md](docs/wip-L1.0-mikrotik-setup.md) - Mikrotik setup reference (Plan 013, in nixcfg)
-- [docs/wip-L1.1-infrastructure-survey.md](docs/wip-L1.1-infrastructure-survey.md) - NUC hardware survey (Plan 013, in nixcfg)
+- [docs/binfmt-requirements.md](docs/binfmt-requirements.md) - Cross-architecture binfmt_misc requirements
+- [docs/nix-binary-cache-architecture-decision.md](docs/nix-binary-cache-architecture-decision.md) - Binary cache ADR
+- [docs/plans/033-ci-pipeline-refactoring.md](docs/plans/033-ci-pipeline-refactoring.md) - CI pipeline refactoring plan
 - ALWAYS ask before adding packages to ISAR images
