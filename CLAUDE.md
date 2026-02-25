@@ -59,7 +59,7 @@ This file provides project-specific rules and essential context for Claude Code 
   - T1e-1: Tier 1 real test fixtures (F1-F7) — PENDING
   - T1e-2: Tier 2 macOS fixtures via Colima on `macos-15-intel` — PENDING
   - T1e-3: Tier 3 rationale + remaining Tier 2 (NixOS, WSL) — PENDING
-  - T1f-1: DRY refactor: extract shared container engine detection into Nix functions — PENDING
+  - T1f-1: DRY refactor: extract shared container engine detection into Nix functions — COMPLETE
   - T1f-2: Add Darwin+Podman path to shellHook and kas-build wrapper — PENDING
   - T1f-3: CI fixtures for Darwin+Podman — PENDING
   - Plan file: `docs/plans/034-dev-environment-and-adoption.md`

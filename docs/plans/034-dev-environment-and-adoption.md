@@ -21,7 +21,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1e-1 | Tier 1 fixtures: real test environments (F1-F7) | TASK:COMPLETE |
 | 1e-2 | Tier 2 research + implementation: macOS+Docker, macOS+nerdctl via Colima | TASK:PENDING |
 | 1e-3 | Tier 3 rationale + remaining Tier 2 (NixOS, WSL) | TASK:PENDING |
-| 1f-1 | DRY refactor: extract shared container engine detection into Nix functions | TASK:PENDING |
+| 1f-1 | DRY refactor: extract shared container engine detection into Nix functions | TASK:COMPLETE |
 | 1f-2 | Add Darwin+Podman path to shellHook and kas-build wrapper | TASK:PENDING |
 | 1f-3 | CI fixtures for Darwin+Podman (Tier 2/3 as feasible) | TASK:PENDING |
 
@@ -333,6 +333,9 @@ fi
 The Darwin wrapper should follow this same pattern.
 
 #### Sub-task T1f-1: Extract shared detection functions in Nix
+
+**Status**: `TASK:COMPLETE`
+**Commit**: `8a8b466`
 
 **Goal**: Define container engine detection as Nix-level shell snippet variables that both shellHook and kas-build wrapper consume, eliminating duplication.
 
