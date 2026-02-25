@@ -1,17 +1,15 @@
-# Validate every shellHook host-environment detection path.
+# Validate the default dev shell on all claimed platforms.
 #
-# The dev shell's shellHook detects container runtimes and validates
-# prerequisites before allowing shell entry. This workflow tests all 10
-# reachable code paths by manipulating the CI runner's environment:
+# Tests that `nix develop` enters, key tools are on PATH, shellHook
+# runs without error, and tools are functional. Lightweight (eval + fetch,
+# no builds).
 #
-#   Linux (non-WSL):  L1 docker-running, L2 docker-stopped, L3 podman-only,
-#                     L4 no-runtime, L5 nerdctl-mock
-#   Linux (WSL-sim):  W1 wsl+podman, W2 wsl+docker, W3 wsl+none
-#   macOS:            M1 no-docker, M2 nerdctl-mock
-#
-# Path 11 (Nix-store podman on non-NixOS) is not tested — requires a
-# binary at /nix/store/*/bin/podman outside the dev shell, which is
-# impractical to mock in CI without polluting the store.
+# Platform coverage:
+#   - Ubuntu 24.04 (x86_64-linux): full validation — Docker present on
+#     runner, so shellHook passes and shell entry succeeds.
+#   - macOS latest (aarch64-darwin): verifies hard-fail behavior — no
+#     Docker on GH runners, so shellHook correctly rejects shell entry
+#     with actionable error message (T1d hard-fail validation).
 
 name: Dev Shell
 
@@ -21,13 +19,11 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - 'backends/debian/kas/**'
-      - '.github/workflows/dev-shells.yml'
   pull_request:
     paths:
       - 'flake.nix'
       - 'flake.lock'
       - 'backends/debian/kas/**'
-      - '.github/workflows/dev-shells.yml'
   workflow_dispatch:
 
 concurrency:
@@ -35,251 +31,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  shellhook:
-    name: "${{ matrix.id }}: ${{ matrix.name }}"
+  validate:
+    name: "dev shell (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # --- Linux non-WSL ---
-          - id: L1
-            name: "docker running"
-            os: ubuntu-24.04
-            expected_exit: "0"
-            expected_engine: docker
-            expected_pattern: "docker version:"
-          - id: L2
-            name: "docker stopped"
-            os: ubuntu-24.04
-            expected_exit: "1"
-            expected_engine: ""
-            expected_pattern: "daemon not running"
-          - id: L3
-            name: "podman only"
-            os: ubuntu-24.04
-            expected_exit: "0"
-            expected_engine: podman
-            expected_pattern: "podman version:"
-          - id: L4
-            name: "no runtime"
-            os: ubuntu-24.04
-            expected_exit: "1"
-            expected_engine: ""
-            expected_pattern: "No container runtime found"
-          - id: L5
-            name: "nerdctl mock"
-            os: ubuntu-24.04
-            expected_exit: "1"
-            expected_engine: ""
-            expected_pattern: "containerd mode"
-          # --- Linux WSL-simulated ---
-          - id: W1
-            name: "WSL + podman"
-            os: ubuntu-24.04
-            expected_exit: "0"
-            expected_engine: podman
-            expected_pattern: "WSL2 Environment"
-          - id: W2
-            name: "WSL + docker"
-            os: ubuntu-24.04
-            expected_exit: "0"
-            expected_engine: docker
-            expected_pattern: "WSL2 Environment"
-          - id: W3
-            name: "WSL + none"
-            os: ubuntu-24.04
-            expected_exit: "1"
-            expected_engine: ""
-            expected_pattern: "No container runtime found"
-          # --- macOS ---
-          - id: M1
-            name: "no docker (macOS)"
-            os: macos-latest
-            expected_exit: "1"
-            expected_engine: ""
-            expected_pattern: "Docker not found"
-          - id: M2
-            name: "nerdctl mock (macOS)"
-            os: macos-latest
-            expected_exit: "1"
-            expected_engine: ""
-            expected_pattern: "containerd mode"
-
+        os: [ubuntu-24.04, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      # ------------------------------------------------------------------
-      # Setup: manipulate the runner environment per scenario
-      # ------------------------------------------------------------------
-      - name: "Setup: ${{ matrix.id }}"
+      # Linux: full validation (Docker present on ubuntu-24.04)
+      - name: Enter shell
+        if: runner.os == 'Linux'
         run: |
-          case "${{ matrix.id }}" in
-            L1)
-              echo "Default runner state — docker already running"
-              docker version --format 'docker {{.Server.Version}}'
-              ;;
-            L2)
-              echo "Stopping docker daemon and socket"
-              sudo systemctl stop docker.socket docker.service
-              # Verify docker binary exists but daemon is down
-              command -v docker
-              ! docker info &>/dev/null 2>&1 || { echo "FAIL: docker still responding"; exit 1; }
-              ;;
-            L3)
-              echo "Installing podman, hiding docker"
-              sudo apt-get update -qq
-              sudo apt-get install -y -qq podman >/dev/null
-              DOCKER_PATH="$(command -v docker)"
-              sudo mv "$DOCKER_PATH" "${DOCKER_PATH}.bak"
-              sudo systemctl stop docker.socket docker.service 2>/dev/null || true
-              ! command -v docker &>/dev/null || { echo "FAIL: docker still on PATH"; exit 1; }
-              podman --version
-              ;;
-            L4)
-              echo "Hiding docker (podman not installed by default)"
-              DOCKER_PATH="$(command -v docker)"
-              sudo mv "$DOCKER_PATH" "${DOCKER_PATH}.bak"
-              sudo systemctl stop docker.socket docker.service 2>/dev/null || true
-              ! command -v docker &>/dev/null || { echo "FAIL: docker still on PATH"; exit 1; }
-              ! command -v podman &>/dev/null || { echo "FAIL: podman unexpectedly on PATH"; exit 1; }
-              ;;
-            L5)
-              echo "Replacing docker with nerdctl mock"
-              DOCKER_PATH="$(command -v docker)"
-              sudo mv "$DOCKER_PATH" "${DOCKER_PATH}.real"
-              sudo tee "$DOCKER_PATH" > /dev/null <<'MOCK'
-          #!/bin/sh
-          echo "nerdctl version 1.7.0 (containerd)"
-          MOCK
-              sudo chmod +x "$DOCKER_PATH"
-              sudo systemctl stop docker.socket docker.service 2>/dev/null || true
-              echo "Mock docker output: $(docker -v)"
-              ;;
-            W1)
-              echo "WSL simulation: installing podman, hiding docker"
-              sudo apt-get update -qq
-              sudo apt-get install -y -qq podman >/dev/null
-              DOCKER_PATH="$(command -v docker)"
-              sudo mv "$DOCKER_PATH" "${DOCKER_PATH}.bak"
-              sudo systemctl stop docker.socket docker.service 2>/dev/null || true
-              podman --version
-              ;;
-            W2)
-              echo "WSL simulation: docker already running"
-              docker version --format 'docker {{.Server.Version}}'
-              ;;
-            W3)
-              echo "WSL simulation: hiding docker (no podman)"
-              DOCKER_PATH="$(command -v docker)"
-              sudo mv "$DOCKER_PATH" "${DOCKER_PATH}.bak"
-              sudo systemctl stop docker.socket docker.service 2>/dev/null || true
-              ;;
-            M1)
-              echo "Default macOS runner state — no docker"
-              ! command -v docker &>/dev/null || { echo "NOTE: docker found on macOS runner"; }
-              ;;
-            M2)
-              echo "Creating nerdctl mock at /usr/local/bin/docker"
-              sudo tee /usr/local/bin/docker > /dev/null <<'MOCK'
-          #!/bin/sh
-          echo "nerdctl version 1.7.0 (containerd)"
-          MOCK
-              sudo chmod +x /usr/local/bin/docker
-              echo "Mock docker output: $(docker -v)"
-              ;;
-          esac
-
-      # ------------------------------------------------------------------
-      # Run: enter dev shell, capture shellHook output and engine value
-      # ------------------------------------------------------------------
-      - name: "Run shellHook"
-        id: run
-        env:
-          # WSL scenarios: inject the env var the shellHook checks
-          WSL_DISTRO_NAME: ${{ startsWith(matrix.id, 'W') && 'ci-test' || '' }}
-        run: |
-          set +e
-          OUTPUT=$(nix develop --command bash -c \
-            'echo "::KAS_ENGINE=${KAS_CONTAINER_ENGINE:-UNSET}::"' 2>&1)
-          EXIT_CODE=$?
-          set -e
-
-          echo "--- shellHook output ---"
-          echo "$OUTPUT"
-          echo "--- exit code: $EXIT_CODE ---"
-
-          # Export for assertion step
-          {
-            echo "exit_code=$EXIT_CODE"
-            echo "output<<SHELLHOOK_EOF"
-            echo "$OUTPUT"
-            echo "SHELLHOOK_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      # ------------------------------------------------------------------
-      # Assert: validate exit code, output pattern, and engine value
-      # ------------------------------------------------------------------
-      - name: "Assert: ${{ matrix.id }}"
-        env:
-          ACTUAL_EXIT: ${{ steps.run.outputs.exit_code }}
-          EXPECTED_EXIT: ${{ matrix.expected_exit }}
-          EXPECTED_ENGINE: ${{ matrix.expected_engine }}
-          EXPECTED_PATTERN: ${{ matrix.expected_pattern }}
-          OUTPUT: ${{ steps.run.outputs.output }}
-        run: |
-          PASS=true
-
-          # 1. Exit code
-          if [ "$ACTUAL_EXIT" != "$EXPECTED_EXIT" ]; then
-            echo "FAIL: exit code $ACTUAL_EXIT (expected $EXPECTED_EXIT)"
-            PASS=false
-          else
-            echo "OK: exit code $ACTUAL_EXIT"
-          fi
-
-          # 2. Output pattern (case-insensitive)
-          if ! echo "$OUTPUT" | grep -qi "$EXPECTED_PATTERN"; then
-            echo "FAIL: pattern '$EXPECTED_PATTERN' not found in output"
-            PASS=false
-          else
-            echo "OK: found pattern '$EXPECTED_PATTERN'"
-          fi
-
-          # 3. Engine value (only meaningful for success paths)
-          if [ "$EXPECTED_EXIT" = "0" ]; then
-            if echo "$OUTPUT" | grep -q "::KAS_ENGINE=${EXPECTED_ENGINE}::"; then
-              echo "OK: KAS_CONTAINER_ENGINE=$EXPECTED_ENGINE"
-            else
-              ACTUAL_ENGINE=$(echo "$OUTPUT" | grep -o '::KAS_ENGINE=[^:]*::' | head -1)
-              echo "FAIL: expected engine '$EXPECTED_ENGINE', got '${ACTUAL_ENGINE:-not found}'"
-              PASS=false
-            fi
-          fi
-
-          if [ "$PASS" = "true" ]; then
-            echo ""
-            echo "PASS: ${{ matrix.id }} — ${{ matrix.name }}"
-          else
-            echo ""
-            echo "FAIL: ${{ matrix.id }} — ${{ matrix.name }}"
-            exit 1
-          fi
-
-  # Keep the original tool validation as a separate job (only needs to run once)
-  tools:
-    name: "tool validation"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+          nix develop --command bash -c 'echo "shell-entry: OK"'
 
       - name: Validate tools on PATH
+        if: runner.os == 'Linux'
         run: |
           nix develop --command bash -c '
             FAIL=0
@@ -295,6 +67,7 @@ jobs:
           '
 
       - name: Validate tool functionality
+        if: runner.os == 'Linux'
         run: |
           nix develop --command bash -c '
             echo "--- kas ---"
@@ -304,3 +77,20 @@ jobs:
             echo "--- kas-build ---"
             kas-build --help | head -5
           '
+
+      # macOS: verify hard-fail behavior (no Docker on GH runners)
+      - name: Verify shell rejects missing Docker
+        if: runner.os == 'macOS'
+        run: |
+          OUTPUT=$(nix develop --command bash -c 'echo OK' 2>&1) && {
+            echo "ERROR: Shell should have rejected entry without Docker"
+            exit 1
+          }
+          echo "Shell correctly rejected entry (exit code: $?)"
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "Docker not found"; then
+            echo "PASS: Error message contains expected 'Docker not found'"
+          else
+            echo "FAIL: Expected 'Docker not found' in output"
+            exit 1
+          fi

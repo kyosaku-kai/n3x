@@ -18,14 +18,18 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1b | Port upstream platform-aware shell logic | TASK:COMPLETE |
 | 1c | Dev shell validation CI workflow (basic) | TASK:COMPLETE |
 | 1d | Harden shellHook — validate all host-environment prerequisites | TASK:COMPLETE |
-| 1e | CI matrix for shellHook host-environment detection paths | TASK:COMPLETE |
+| 1e-1 | Tier 1 fixtures: real test environments (F1-F8) | TASK:PENDING |
+| 1e-2 | Tier 2 research: NixOS, WSL, macOS+Docker feasibility | TASK:PENDING |
+| 1e-3 | Tier 2 implementation + Tier 3 rationale | TASK:PENDING |
 
 ## Task Dependencies
 
 ```
 T1a,T1b (shell consolidation + platform logic) ──> T1c (basic CI workflow)
 T1c ──> T1d (harden shellHook host-environment validation)
-T1d ──> T1e (CI matrix validating all host-environment paths)
+T1d ──> T1e-1 (Tier 1 real fixtures F1-F8)
+T1d ──> T1e-2 (Tier 2 research: NixOS, WSL, macOS+Docker)
+T1e-2 ──> T1e-3 (Tier 2 implementation)
 ```
 
 ---
@@ -111,54 +115,106 @@ Ported from upstream:
 
 ---
 
-### Task 1e: CI matrix for shellHook host-environment detection paths
+### Task 1e: CI matrix — real test fixtures for every claimed dev environment
 
 **Status**: `TASK:PENDING`
 
-**Problem**: The current `dev-shells.yml` only tests 2 of 13+ shellHook code paths — docker-running on Linux and no-docker on macOS. The other paths (podman, nerdctl, WSL, no-runtime, daemon-stopped, binfmt missing) have zero CI coverage. The dev shell claims to work on "any host with Nix" but only validates two specific host configurations.
+**Previous attempt (reverted)**: Commits `32de225` + `990dd16` used a mocking approach — moving docker binaries, creating fake nerdctl scripts, setting `WSL_DISTRO_NAME` env vars on regular ubuntu runners. This tested bash branching logic, not real environments. Reverted because it doesn't prove the dev shell works on actual developer machines.
 
-**Goal**: Expand CI to validate every reachable shellHook code path by manipulating the host environment on GitHub runners. Each scenario simulates a real developer's machine state and asserts the shellHook produces correct behavior (engine detection, warnings, failures, guidance).
+**Principle**: Each CI matrix entry must be a **real test fixture** — a runner or container with a genuine OS baseline and real software installed (or genuinely absent). Start from **minimal base images and add** what each fixture needs, rather than starting from a bloated runner image and subtracting.
 
-**Test structure per scenario**:
-1. **Setup**: install/remove/mock tools, stop services, set env vars
-2. **Run**: `nix develop --command bash -c '...'` capturing shellHook stdout + `KAS_CONTAINER_ENGINE` value
-3. **Assert**: expected output patterns (warnings/errors) and expected engine value (or UNSET)
+**Goal**: Prove the dev shell works (or correctly rejects) on every environment the project claims to support. Each fixture represents a real developer's machine configuration.
 
-**Linux scenarios** (ubuntu-24.04):
+#### What the flake claims to support
 
-| ID | Scenario | Setup | Expected ENGINE | Expected output |
-|----|----------|-------|-----------------|-----------------|
-| L1 | docker running | (default runner state) | docker | "docker version:" |
-| L2 | docker stopped | `sudo systemctl stop docker docker.socket` | UNSET | "daemon not running" |
-| L3 | podman only | `sudo apt-get install -y podman` + hide docker | podman | "podman version:" |
-| L4 | no runtime | hide docker and podman from PATH | UNSET | "No container runtime found" |
-| L5 | nerdctl mock | mock `/usr/local/bin/docker` outputting nerdctl | UNSET | "containerd mode" |
+The flake defines `devShells` for `x86_64-linux` and `aarch64-darwin`. The shellHook detects and validates:
 
-**Linux WSL-simulated** (ubuntu-24.04 + `WSL_DISTRO_NAME=ci-test`):
+**OK paths** (shell enters, `KAS_CONTAINER_ENGINE` exported):
+1. Darwin + Docker Desktop → `docker`
+2. Darwin + Rancher Desktop (dockerd/moby mode) → `docker`
+3. Linux non-WSL + Docker running → `docker`
+4. Linux non-WSL + system podman → `podman`
+5. Linux non-WSL + Nix-store podman on NixOS → `podman`
+6. Linux WSL + system podman → `podman`
+7. Linux WSL + Docker → `docker`
 
-| ID | Scenario | Setup | Expected ENGINE | Expected output |
-|----|----------|-------|-----------------|-----------------|
-| W1 | WSL + podman | install podman, hide docker | podman | "WSL2 Environment" + "podman version:" |
-| W2 | WSL + docker | (default + env var) | docker | "WSL2 Environment" + "docker version:" |
-| W3 | WSL + none | hide both | UNSET | "No container runtime found" |
+**ERROR paths** (shell rejects with `exit 1` and guidance):
+8. Darwin + no Docker
+9. Darwin + nerdctl/containerd mode
+10. Darwin + Docker daemon stopped
+11. Linux non-WSL + nerdctl/containerd mode
+12. Linux non-WSL + Docker daemon stopped
+13. Linux non-WSL + Nix-store podman on non-NixOS
+14. Linux non-WSL + no runtime
+15. Linux WSL + no runtime
 
-**macOS scenarios** (macos-latest):
+#### Fixture design: additive from minimal bases
 
-| ID | Scenario | Setup | Expected ENGINE | Expected output |
-|----|----------|-------|-----------------|-----------------|
-| M1 | no docker | (default runner state) | UNSET | "Docker not found" |
-| M2 | nerdctl mock | mock docker outputting nerdctl | UNSET | "containerd mode" |
+**Key insight**: GitHub Actions supports `container:` jobs that run steps inside a specified Docker image. Instead of using the bloated `ubuntu-24.04` runner (which has Docker, Go, Java, etc. pre-installed) and removing software, use minimal container images and install only what each fixture needs. This is how real developer machines work — you start with an OS and install your tools.
 
-**Implementation notes**:
+**When to use container jobs vs regular runners:**
+- Container jobs (minimal image + additive installs): fixtures where Docker is NOT present, or where we need a different base OS (NixOS, minimal Ubuntu/Debian)
+- Regular runner directly: fixtures where Docker IS present and running (ubuntu-24.04 has a real Docker daemon; this is a legitimate fixture as-is)
+- macOS runner directly: no container option for macOS
 
-- "Hide docker" = `sudo mv /usr/bin/docker /usr/bin/docker.bak` (restore in post step)
-- "Nerdctl mock" = `printf '#!/bin/sh\necho "nerdctl version 1.7.0"' > /usr/local/bin/docker && chmod +x /usr/local/bin/docker`
-- WSL simulation only tests the env-var-gated code path, not actual WSL behavior (9p mounts, etc.)
-- The Nix-store-podman-on-non-NixOS path (path 11) is hard to mock and may be deferred — it requires a binary at `/nix/store/*/bin/podman` without `/etc/NIXOS` existing
-- Each scenario is a separate matrix entry with `fail-fast: false` so all paths are tested even if one fails
+#### Test fixture matrix
 
-**DoD**:
-1. All 10 testable scenarios (L1-L5, W1-W3, M1-M2) pass in CI
-2. Each scenario asserts on both output content and `KAS_CONTAINER_ENGINE` value
-3. Assertions validate the T1d hardened behavior (fail/flag on ERROR paths)
-4. Path 11 (Nix-store podman) either tested or explicitly deferred with rationale
+**Tier 1 — Immediately feasible on GH runners:**
+
+| ID | Fixture | Runner/Container | Setup | Expected |
+|----|---------|------------------|-------|----------|
+| F1 | Ubuntu + Docker running | `ubuntu-24.04` runner | default state | OK: engine=docker |
+| F2 | Ubuntu + Docker stopped | `ubuntu-24.04` runner | `systemctl stop docker.socket docker.service` | ERROR: "daemon not running" |
+| F3 | Minimal Linux + podman (apt) | container: `ubuntu:24.04` | install Nix + podman via apt | OK: engine=podman |
+| F4 | Minimal Linux + no runtime | container: `ubuntu:24.04` | install Nix only | ERROR: "No container runtime found" |
+| F5 | Minimal Linux + real nerdctl as docker | container: `ubuntu:24.04` | install Nix + real nerdctl binary, symlink as `docker` | ERROR: "containerd mode" |
+| F6 | Minimal Linux + podman via Nix (non-NixOS) | container: `ubuntu:24.04` | install Nix, `nix profile install nixpkgs#podman`, no `/etc/NIXOS` | ERROR: "Nix store" path rejection |
+| F7 | macOS + no Docker | `macos-latest` runner | default state | ERROR: "Docker not found" |
+| F8 | macOS + real nerdctl as docker | `macos-latest` runner | install real nerdctl, symlink as `docker` | ERROR: "containerd mode" |
+
+**Tier 2 — Needs research before implementation:**
+
+| ID | Fixture | Question |
+|----|---------|----------|
+| F9 | NixOS + Nix-store podman | Does `nixos/nix` or a NixOS container image work for container jobs? Need `/etc/NIXOS` to exist and podman at `/nix/store/*/bin/podman`. This tests OK path 5 — the only path where Nix-store podman is accepted. |
+| F10 | WSL + podman | Can `WSL_DISTRO_NAME` env var reliably trigger the WSL branch? This is partial (doesn't test 9p mounts, kas-build wrapper WSL logic). Real WSL testing needs Windows runner + WSL2. Research both options. |
+| F11 | WSL + Docker | Same as F10 but with Docker instead of podman. |
+| F12 | macOS + Docker | Is there a headless Docker option on macOS GH runners? (`colima`, `lima`, `docker-machine`?) If feasible, this tests OK path 1 — currently untested. |
+
+**Tier 3 — Deferred (self-hosted or impractical in CI):**
+
+| ID | Fixture | Reason |
+|----|---------|--------|
+| F13 | macOS + Rancher Desktop (dockerd) | GUI application, can't install headlessly in CI. Tests OK path 2. |
+| F14 | macOS + Docker daemon stopped | Requires Docker installed first (F12 prerequisite), then stop daemon. |
+| F15 | Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix inside WSL. Complex, high runner cost. |
+
+#### Implementation approach for container jobs
+
+Container jobs need Nix installed. Two options:
+- **Option A**: Use `nixos/nix` as base image (Nix pre-installed, but not minimal Ubuntu)
+- **Option B**: Use `ubuntu:24.04` as base + install Nix via determinate systems installer
+
+Option B is preferred for most fixtures because it matches the real developer experience (Ubuntu user installs Nix). Option A may be needed for the NixOS fixture (F9).
+
+**Test structure per fixture:**
+1. Runner/container provides the base OS
+2. Setup step installs Nix (if container job) and fixture-specific software
+3. Run step: `nix develop --command bash -c 'echo "ENGINE=${KAS_CONTAINER_ENGINE:-UNSET}"'` capturing all output
+4. Assert step: verify exit code, output patterns, and engine value
+
+**All fixtures run with `fail-fast: false`** so every fixture is tested regardless of individual failures.
+
+#### Sub-tasks
+
+- **T1e-1**: Implement Tier 1 fixtures (F1-F8). Research whether `nix develop` works reliably inside GH Actions container jobs with `ubuntu:24.04` base image. If container jobs prove problematic, document issues and fall back to runner-based approach with clear rationale.
+- **T1e-2**: Research Tier 2 fixtures (F9-F12). Document findings in this plan file. Implement any that are feasible.
+- **T1e-3**: Implement researched Tier 2 fixtures. Update Tier 3 rationale if anything became feasible.
+
+#### DoD
+
+1. All Tier 1 fixtures (F1-F8) pass in CI
+2. Each fixture asserts exit code, output pattern, and `KAS_CONTAINER_ENGINE` value
+3. Tier 2 research documented with findings and decisions
+4. Tier 3 deferred fixtures have explicit rationale
+5. No mocked binaries — every fixture uses real software or genuine absence
