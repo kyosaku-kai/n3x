@@ -8,76 +8,70 @@
 
 The n3x-public repo is live on GitHub with 22/22 CI checks passing, release automation validated (0.0.2), and repository rulesets configured. The next phase is validating the developer experience across all claimed platforms.
 
-The flake defines 5 dev shells but none have been tested in CI. The `debian` shell has platform-aware logic (WSL detection, podman vs Docker, binfmt validation) established during the upstream `fix/container-runtime-cross-arch` work. Validating these shells across platforms prevents "works on my machine" issues when teammates adopt the repo.
+The flake now defines a single `default` dev shell with platform-aware logic (WSL detection, container runtime auto-detection, binfmt validation, Rancher Desktop nerdctl detection) ported from upstream `fix/container-runtime-cross-arch` work. The shell works on both `x86_64-linux` and `aarch64-darwin`. The unused specialized shells (`k3s`, `test`, old NixOS-admin `default`) were deleted.
 
 ## Task Progress
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1 | Cross-platform dev shell validation CI | TASK:COMPLETE |
+| 1a | Consolidate dev shells — promote debian to default | TASK:COMPLETE |
+| 1b | Port upstream platform-aware shell logic | TASK:COMPLETE |
+| 1c | Dev shell validation CI workflow | TASK:PENDING |
 
 ## Task Dependencies
 
 ```
+T1a,T1b (shell consolidation + platform logic) ──> T1c (CI workflow)
 ```
 
 ---
 
 ## Task Definitions
 
-### Task 1: Cross-platform dev shell validation CI
+### Task 1a: Consolidate dev shells
 
 **Status**: `TASK:COMPLETE`
+**Commits**: `de62aec`
 
-**Goal**: Add a GitHub Actions workflow that validates `nix develop` shells work on all claimed platforms: Ubuntu 24.04, macOS (Apple Silicon), and NixOS.
+Promoted the `debian` shell to `default`. Deleted `k3s`, `test`, and old NixOS-admin `default` shells (zero consumers outside flake.nix). Renamed `mkDebianShell` → `mkDevShell`, shell name `"n3x-debian"` → `"n3x"`. Updated all `.#debian` references across docs and scripts to bare `nix develop`.
 
-**Dev shells to test**:
+### Task 1b: Port upstream platform-aware shell logic
 
-| Shell | x86_64-linux | aarch64-darwin | Notes |
-|-------|-------------|----------------|-------|
-| `default` | Yes | No | NixOS tools (nixos-rebuild, kubectl, etc.) |
-| `k3s` | Yes | No | Kubernetes tools |
-| `test` | Yes | No | VM test tools (qemu, libvirt) |
-| `debian` | Yes | Yes | ISAR/Debian build tools (kas, podman/docker) |
+**Status**: `TASK:COMPLETE`
+**Commits**: (see git log)
+
+Ported from upstream:
+
+**shellHook changes**:
+- Darwin: Rancher Desktop nerdctl detection, conditional `KAS_CONTAINER_ENGINE` export
+- Linux WSL: podman-first with docker fallback, `WSL_DISTRO` env var fallback
+- Linux non-WSL: docker-first preference (avoids sudo PATH issues), Nix-store podman warning for non-NixOS, full no-runtime guidance
+- Removed `podman` from Nix `buildInputs` — must be system-installed
+
+**kas-build wrapper changes**:
+- Darwin: nerdctl detection, host/target arch detection, native-build.yml overlay
+- Linux: `WSL_DISTRO` fallback, container engine auto-detection, arch detection, binfmt_misc validation for cross-arch builds
+
+### Task 1c: Dev shell validation CI workflow
+
+**Status**: `TASK:PENDING`
+
+**Goal**: Replace the current `dev-shells.yml` (which tests the wrong thing) with a CI workflow that validates the actual developer onboarding experience on Linux and macOS.
+
+**What to test** (single `default` shell on both platforms):
+
+1. **Shell entry**: `nix develop --command bash -c 'echo OK'` succeeds
+2. **Key tools on PATH**: `kas`, `jq`, `yq`, `kas-build`, `kas-container`
+3. **shellHook completes without error** (captures platform detection output)
+4. **Tool functionality**: `kas --version`, `kas-build --help` (validates wrapper is executable)
 
 **Platforms and runners**:
+- `ubuntu-24.04` (x86_64-linux): Full validation
+- `macos-latest` (aarch64-darwin): Shell entry + tools (no Docker on GH runners, so shellHook will warn about missing Docker — that's expected)
 
-1. **Ubuntu 24.04** (`ubuntu-24.04`): Tests all 4 x86_64-linux shells. Nix installed via DeterminateSystems/nix-installer-action. Most common CI/developer platform.
-
-2. **macOS** (`macos-latest`, Apple Silicon): Tests `debian` shell only (aarch64-darwin). Validates Docker Desktop detection logic in shellHook. Note: no Docker on GitHub macOS runners, so shellHook will warn — test should verify the shell *enters* and tools are available, not that Docker is running.
-
-3. **NixOS**: No native GitHub Actions runner exists. Options:
-   - **Option A**: Use `nixos/nix` Docker image on `ubuntu-latest` — tests Nix-in-container, not NixOS host. Lightweight.
-   - **Option B**: Use DeterminateSystems installer on `ubuntu-latest` — same as Ubuntu test but with different Nix distribution. May not add value over Ubuntu test.
-   - **Option C**: Boot a NixOS VM via QEMU on `ubuntu-latest` — tests actual NixOS, heavy.
-   - **Recommended**: Option A for now. Document that NixOS host validation requires on-prem runner.
-
-**Validation approach per shell**:
-```bash
-# 1. Shell entry succeeds
-nix develop '.#<shell>' --command bash -c 'echo "shell-entry: OK"'
-
-# 2. Key tools are on PATH
-nix develop '.#default' --command bash -c 'which kubectl && which nixpkgs-fmt && echo "tools: OK"'
-nix develop '.#k3s' --command bash -c 'which kubectl && which helm && echo "tools: OK"'
-nix develop '.#test' --command bash -c 'which qemu-system-x86_64 && echo "tools: OK"'
-nix develop '.#debian' --command bash -c 'which kas && which jq && echo "tools: OK"'
-
-# 3. shellHook runs without error (captured via nix develop -c env check)
-```
-
-**Implementation approach**:
-- New workflow file: `.github/workflows/dev-shells.yml`
-- Trigger: on push/PR (same as ci.yml), or potentially on flake.nix/flake.lock changes only
-- Matrix strategy: `{os: [ubuntu-24.04, macos-latest], shell: [default, k3s, test, debian]}` with exclude rules for darwin-unsupported shells
-- Use `magic-nix-cache-action` for caching (same as ci.yml)
-- Separate from ci.yml to keep concerns clean (ci.yml = build/test pipeline, dev-shells.yml = developer environment validation)
-
-**Reference**: upstream `fix/container-runtime-cross-arch` branch established the platform-aware shellHook pattern with container runtime detection, binfmt validation, and Darwin-specific Docker Desktop checks.
+**Trigger**: Only on changes to `flake.nix`, `flake.lock`, or `backends/debian/kas/**` — not every push.
 
 **DoD**:
-1. `.github/workflows/dev-shells.yml` exists and passes on all platforms
-2. All 4 x86_64-linux shells validated on Ubuntu 24.04
-3. `debian` shell validated on macOS (aarch64-darwin)
-4. NixOS coverage documented (on-prem scope) or Docker-based NixOS test included
-5. CI status badge added to README (optional)
+1. `.github/workflows/dev-shells.yml` replaced with focused workflow
+2. Passes on both Ubuntu 24.04 and macOS
+3. Validates tool availability and shellHook execution
