@@ -115,6 +115,22 @@ jobs:
           fi
           echo "Docker removal verified: docker not in PATH"
 
+      - name: "Setup: remove podman"
+        if: matrix.fixture == 'F4'
+        run: |
+          echo "::group::Remove podman"
+          sudo apt-get remove -y podman 2>/dev/null || true
+          sudo apt-get autoremove -y 2>/dev/null || true
+          echo "::endgroup::"
+
+          # Verify podman is actually gone
+          if command -v podman &>/dev/null; then
+            echo "ERROR: podman still found at $(command -v podman) after removal"
+            dpkg -l | grep -i podman || true
+            exit 1
+          fi
+          echo "Podman removal verified: podman not in PATH"
+
       - name: "Setup: stop Docker daemon"
         if: matrix.fixture == 'F2'
         run: |
