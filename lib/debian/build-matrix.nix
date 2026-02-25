@@ -164,6 +164,48 @@ let
     lib.concatStringsSep ":" overlays;
 
   # ===========================================================================
+  # CI and release helpers
+  # ===========================================================================
+
+  # CI-aware kas command: appends ci-cache.yml always, native-build.yml when
+  # the runner's host architecture matches the target machine's architecture.
+  mkCiKasCommand = { hostArch }: variant:
+    let
+      machineInfo = machines.${variant.machine};
+      baseCommand = mkKasCommand variant;
+      isNative = hostArch == machineInfo.arch;
+      ciOverlays = [ "kas/opt/ci-cache.yml" ]
+        ++ lib.optional isNative "kas/opt/native-build.yml";
+    in
+    lib.concatStringsSep ":" ([ baseCommand ] ++ ciOverlays);
+
+  # Release variants: base/production images only (no test overlays, no
+  # profile-specific server/agent images). These are the variants that
+  # get published as GitHub Release assets.
+  releaseVariants = [
+    { machine = "qemuamd64"; role = "base"; }
+    { machine = "qemuamd64"; role = "base"; variant = "swupdate"; }
+    { machine = "qemuarm64"; role = "base"; }
+    { machine = "amd-v3c18i"; role = "agent"; }
+    { machine = "jetson-orin-nano"; role = "base"; }
+  ];
+
+  # Generate release asset filename.
+  # Pattern: n3x-{variantId}-{machine}-{version}{extension}
+  # Example: "n3x-base-qemuamd64-0.0.2.wic.zst"
+  mkReleaseAssetName = { version }: variant: extension:
+    "n3x-${mkVariantId variant}-${variant.machine}-${version}${extension}";
+
+  # Generate ISAR output filename with an arbitrary extension (for release
+  # artifacts that use compressed formats like .wic.zst instead of raw .wic).
+  # Pattern: n3x-image-{recipeName}-debian-trixie-{machine}{extension}
+  mkReleaseIsarOutputName = variant: extension:
+    let
+      roleInfo = roles.${variant.role};
+    in
+    "n3x-image-${roleInfo.recipeName}-debian-trixie-${variant.machine}${extension}";
+
+  # ===========================================================================
   # Complete variant list
   # ===========================================================================
 
@@ -244,8 +286,9 @@ let
 
 in
 {
-  inherit machines roles variants;
+  inherit machines roles variants releaseVariants;
   inherit mkVariantId mkArtifactName mkIsarOutputName mkAttrPath mkKasCommand;
+  inherit mkCiKasCommand mkReleaseAssetName mkReleaseIsarOutputName;
 
   # Total variant count for assertions
   variantCount = builtins.length variants;
