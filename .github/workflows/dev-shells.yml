@@ -14,9 +14,9 @@
 #   F6: Ubuntu + Nix-store podman        → ERROR: Nix store path rejection
 #   F7: macOS + no Docker               → ERROR: Docker not found
 #
-# F8 (macOS + Rancher Desktop containerd mode) deferred to Tier 3:
-# Rancher Desktop is a GUI app (no headless CI install) and nerdctl has
-# no standalone macOS binary. Detection logic validated by F5 on Linux.
+# Tier 2 fixtures (F8-F10, macOS via Colima) and Tier 3 rationale are
+# defined in docs/plans/034-dev-environment-and-adoption.md.
+# Coverage model: docs/ci.md § Dev Shell Validation.
 
 name: Dev Shell
 
@@ -26,11 +26,13 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - 'backends/debian/kas/**'
+      - '.github/workflows/dev-shells.yml'
   pull_request:
     paths:
       - 'flake.nix'
       - 'flake.lock'
       - 'backends/debian/kas/**'
+      - '.github/workflows/dev-shells.yml'
   workflow_dispatch:
 
 concurrency:

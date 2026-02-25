@@ -386,8 +386,60 @@ For projects with multiple contributors or a need for automated changelogs, Goog
 2. Add `.release-please-manifest.json` and `release-please-config.json`
 3. Adopt [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, etc.)
 
+## Dev Shell Validation
+
+A separate workflow (`.github/workflows/dev-shells.yml`) validates that the `nix develop` dev shell works correctly — or correctly rejects — across every host-environment configuration the project claims to support. This workflow is independent of the main CI pipeline.
+
+### What the shellHook validates
+
+The dev shell's `shellHook` performs three behavioral checks against whatever container runtime is installed on the host:
+
+1. **Binary on PATH**: `command -v docker` / `command -v podman`
+2. **Identity check**: `docker -v | grep -qi nerdctl` — detects nerdctl masquerading as docker (Rancher Desktop containerd mode, Colima containerd mode)
+3. **Daemon reachability**: `docker info` / `podman info` — verifies the runtime can actually execute containers
+
+These checks produce one of two outcomes: the shell enters successfully with `KAS_CONTAINER_ENGINE` exported, or it exits with a descriptive error message and installation guidance.
+
+### Contract-based coverage model
+
+The shellHook tests **behavioral contracts**, not specific products. This is a deliberate design choice that enables broad coverage with a small number of CI fixtures.
+
+A "contract" is the set of observable behaviors the shellHook checks for. Any product satisfying the same contract is indistinguishable to the shellHook. Testing with one product validates all products in that equivalence class.
+
+| Contract | What the shellHook checks | CI fixture(s) | Products covered by equivalence |
+|---|---|---|---|
+| Docker-compatible daemon | `command -v docker` succeeds, `docker -v` doesn't contain "nerdctl", `docker info` succeeds | F1 (Linux), F8 (macOS Colima) | Docker Desktop, Colima, Rancher Desktop (dockerd mode), OrbStack |
+| nerdctl masquerading as docker | `docker -v` output contains "nerdctl" | F5 (Linux) | Rancher Desktop (containerd mode), Colima containerd mode |
+| Docker daemon stopped | `docker info` fails while `command -v docker` succeeds | F2 (Linux) | Any stopped docker daemon |
+| System podman running | `command -v podman` succeeds, path is not `/nix/store/*` | F3 (Linux) | System podman (apt/dnf), Podman Machine |
+| Nix-store podman on non-NixOS | `command -v podman` returns `/nix/store/*` path, `/etc/NIXOS` absent | F6 (Linux) | Nix-installed podman on Ubuntu/Debian/Fedora |
+| No container runtime | Both `command -v docker` and `command -v podman` fail | F4 (Linux), F7 (macOS) | Clean system, incomplete install |
+
+### Fixture tiers
+
+Fixtures are organized into three tiers based on CI feasibility:
+
+**Tier 1** (F1-F7): Immediately feasible on standard GitHub-hosted runners. Uses real package management (`apt-get install/remove`, `systemctl stop`) on `ubuntu-24.04` and `macos-latest` runner VMs. No mocked binaries, no container jobs, no fake scripts.
+
+**Tier 2** (F8-F14): Feasible with validated approach. macOS fixtures (F8-F10) use Colima on `macos-15-intel` runners (the only GH Actions macOS runner supporting nested virtualization). NixOS semi-synthetic (F12) and WSL partial (F13-F14) fixtures test real code paths with environmental approximations.
+
+**Tier 3** (F11, F15-F18): Require self-hosted runners or cannot run in CI. Each Tier 3 fixture maps to a Tier 1 or Tier 2 fixture that validates the same behavioral contract. For example, F11 (macOS + Podman Machine) cannot run on GH runners (Podman Machine requires nested virt), but F3 (Linux podman) validates the identical `command -v podman` + `podman info` contract.
+
+### Why no mocked binaries
+
+The previous version of this workflow used mocked approaches — moving docker binaries, creating fake nerdctl scripts, setting `WSL_DISTRO_NAME` on regular Ubuntu runners. This tested bash branching logic, not real environments. The current design uses genuine package state changes on runner VMs because the goal is to prove the dev shell works on actual developer machines, not that the bash conditionals are syntactically correct.
+
+### macOS container runtime constraints
+
+Every macOS container runtime requires a Linux VM (containers are Linux). GH Actions macOS runners are themselves VMs, so nested virtualization is required. Only Intel macOS runners (`macos-15-intel`) support this. ARM runners (`macos-14`, `macos-15`) cannot run any container runtime.
+
+Colima is the only confirmed working container runtime on GH Actions macOS runners. It supports both Docker mode (`colima start`) and containerd mode (`colima start --runtime containerd`), making it a CI proxy for Docker Desktop, Rancher Desktop, and OrbStack via contract equivalence.
+
+See the [plan file](plans/034-dev-environment-and-adoption.md) for the full macOS runtime survey (11 tools evaluated) and per-fixture setup details.
+
 ## Related Documentation
 
 - [ci-test-failure-modes.md](ci-test-failure-modes.md) — Catalog of CI failure patterns with diagnosis and remediation
 - [tests/README.md](../tests/README.md) — Test framework documentation
 - [ISAR-L4-TEST-ARCHITECTURE.md](ISAR-L4-TEST-ARCHITECTURE.md) — Debian cluster test architecture
+- [plans/034-dev-environment-and-adoption.md](plans/034-dev-environment-and-adoption.md) — Dev shell fixture matrix and macOS runtime research
