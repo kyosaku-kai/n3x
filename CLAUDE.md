@@ -55,8 +55,8 @@ This file provides project-specific rules and essential context for Claude Code 
   - T1a: Consolidate dev shells (promote debian→default, delete others) — COMPLETE
   - T1b: Port upstream platform-aware shell logic — COMPLETE
   - T1c: Dev shell validation CI workflow (basic) — COMPLETE
-  - T1d: Harden shellHook — fail on missing container runtime — PENDING
-  - T1e: CI matrix for shellHook container runtime detection (10 scenarios) — PENDING
+  - T1d: Harden shellHook — validate all host-environment prerequisites — PENDING
+  - T1e: CI matrix for shellHook host-environment detection paths (10+ scenarios) — PENDING
   - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
   - PR: https://github.com/kyosaku-kai/n3x/pull/6 (T1a-T1c)
 - **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring

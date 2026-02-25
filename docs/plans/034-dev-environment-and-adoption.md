@@ -17,15 +17,15 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1a | Consolidate dev shells — promote debian to default | TASK:COMPLETE |
 | 1b | Port upstream platform-aware shell logic | TASK:COMPLETE |
 | 1c | Dev shell validation CI workflow (basic) | TASK:COMPLETE |
-| 1d | Harden shellHook — fail on missing container runtime | TASK:PENDING |
-| 1e | CI matrix for shellHook container runtime detection | TASK:PENDING |
+| 1d | Harden shellHook — validate all host-environment prerequisites | TASK:PENDING |
+| 1e | CI matrix for shellHook host-environment detection paths | TASK:PENDING |
 
 ## Task Dependencies
 
 ```
 T1a,T1b (shell consolidation + platform logic) ──> T1c (basic CI workflow)
-T1c ──> T1d (harden shellHook behavior)
-T1d ──> T1e (CI matrix validating all detection paths)
+T1c ──> T1d (harden shellHook host-environment validation)
+T1d ──> T1e (CI matrix validating all host-environment paths)
 ```
 
 ---
@@ -82,23 +82,32 @@ Ported from upstream:
 
 ---
 
-### Task 1d: Harden shellHook — fail on missing container runtime
+### Task 1d: Harden shellHook — validate all host-environment prerequisites
 
 **Status**: `TASK:PENDING`
 
-**Problem**: The shellHook currently only prints warnings when no container runtime is found. A developer can enter the shell, miss the warning, and only discover the problem when `kas-build` fails later. The shellHook should make missing-runtime failures impossible to miss.
+**Problem**: The shellHook currently only prints warnings when host-environment prerequisites aren't met. A developer can enter the shell, scroll past warnings, and only discover problems when `kas-build` fails later with confusing errors. The dev shell's promise is "clone, `nix develop`, build" — every host-side assumption must be validated at shell entry with actionable guidance on failure.
 
-**Current behavior** (all platforms): shellHook prints warnings via `echo`, sets `KAS_CONTAINER_ENGINE` on success, but never exits non-zero. The shell always opens regardless of runtime state.
+**Current behavior** (all platforms): shellHook prints warnings via `echo`, sets env vars on success, but never exits non-zero. The shell always opens regardless of host state.
+
+**Host-environment prerequisites to validate**:
+
+1. **Container runtime** (docker/podman) — required for all ISAR builds
+2. **Container daemon state** — runtime installed but daemon not running is a distinct failure mode
+3. **Container API compatibility** — nerdctl (Rancher Desktop containerd mode) looks like docker but kas-container needs Docker-compatible API
+4. **sudo PATH visibility** — kas-container invokes the container runtime via sudo; on non-NixOS systems, `secure_path` resets PATH, making Nix-store binaries unreachable
+5. **binfmt_misc registration** — required for cross-architecture builds (e.g., x86_64 host building aarch64 images); currently only checked in kas-build wrapper, not at shell entry
+6. **WSL environment** — needs guidance toward `kas-build` wrapper (handles 9p mount/unmount for sgdisk sync() hang); different container runtime preferences (podman-first vs docker-first)
 
 **Design decision** — choose one approach:
 
-- **Option A: Hard fail** — shellHook calls `return 1` when no usable container runtime is detected. Shell entry fails entirely. Pros: impossible to miss. Cons: prevents shell entry for non-build tasks (code review, `jq`/`yq` usage, documentation work).
+- **Option A: Hard fail** — shellHook calls `return 1` when prerequisites aren't met. Shell entry fails entirely. Pros: impossible to miss. Cons: prevents shell entry for non-build tasks (code review, `jq`/`yq` usage, documentation work).
 
-- **Option B: Export a readiness flag** — shellHook sets `N3X_CONTAINER_READY=0|1`. `kas-build` wrapper checks this flag and fails early with a reference back to the shellHook output. Pros: shell still usable for non-build tasks; failure happens at the right time. Cons: more moving parts.
+- **Option B: Export readiness flags** — shellHook sets `N3X_BUILD_READY=0|1` (and detail flags like `N3X_CONTAINER_ENGINE`, `N3X_BINFMT_READY`). `kas-build` wrapper checks flags and fails early with reference to shellHook output. Pros: shell usable for non-build tasks; failure at the right time. Cons: more moving parts.
 
-- **Option C: Prominent banner, no fail** — keep current warn-and-continue but make the warning unmissable (color, box drawing, repeated). Pros: simplest change. Cons: warnings can still be scrolled past.
+- **Option C: Prominent banner, no fail** — keep warn-and-continue but make warnings unmissable (color, box drawing, repeated). Pros: simplest change. Cons: warnings can still be scrolled past.
 
-**Scope of changes** — whichever option is chosen, apply consistently to all 13 detection paths in the shellHook:
+**Scope of changes** — whichever option is chosen, apply consistently to all detection paths in the shellHook:
 
 *Darwin (4 paths)*:
 1. `docker` not on PATH → ERROR
@@ -128,13 +137,13 @@ Ported from upstream:
 
 ---
 
-### Task 1e: CI matrix for shellHook container runtime detection
+### Task 1e: CI matrix for shellHook host-environment detection paths
 
 **Status**: `TASK:PENDING`
 
-**Problem**: The current `dev-shells.yml` only tests 2 of 13 shellHook paths — docker-running on Linux and no-docker on macOS. The other 11 paths (podman, nerdctl, WSL, no-runtime, daemon-stopped) have zero CI coverage.
+**Problem**: The current `dev-shells.yml` only tests 2 of 13+ shellHook code paths — docker-running on Linux and no-docker on macOS. The other paths (podman, nerdctl, WSL, no-runtime, daemon-stopped, binfmt missing) have zero CI coverage. The dev shell claims to work on "any host with Nix" but only validates two specific host configurations.
 
-**Goal**: Expand CI to validate every reachable shellHook code path by manipulating the host environment on GitHub runners.
+**Goal**: Expand CI to validate every reachable shellHook code path by manipulating the host environment on GitHub runners. Each scenario simulates a real developer's machine state and asserts the shellHook produces correct behavior (engine detection, warnings, failures, guidance).
 
 **Test structure per scenario**:
 1. **Setup**: install/remove/mock tools, stop services, set env vars
