@@ -51,17 +51,23 @@ This file provides project-specific rules and essential context for Claude Code 
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
-- **Plan 034**: **ACTIVE** (4/7 complete) - Dev Environment Validation and Team Adoption
+- **Plan 034**: **ACTIVE** (4/10 complete) - Dev Environment Validation and Team Adoption
   - T1a: Consolidate dev shells (promote debian→default, delete others) — COMPLETE
   - T1b: Port upstream platform-aware shell logic — COMPLETE
   - T1c: Dev shell validation CI workflow (basic) — COMPLETE
   - T1d: Harden shellHook — validate all host-environment prerequisites — COMPLETE
-  - T1e-1: Tier 1 real test fixtures (F1-F8) — PENDING
-  - T1e-2: Tier 2 research (NixOS container, WSL, macOS+Docker) — PENDING
-  - T1e-3: Tier 2 implementation + Tier 3 rationale — PENDING
+  - T1e-1: Tier 1 real test fixtures (F1-F7) — PENDING
+  - T1e-2: Tier 2 macOS fixtures via Colima on `macos-15-intel` — PENDING
+  - T1e-3: Tier 3 rationale + remaining Tier 2 (NixOS, WSL) — PENDING
+  - T1f-1: DRY refactor: extract shared container engine detection into Nix functions — PENDING
+  - T1f-2: Add Darwin+Podman path to shellHook and kas-build wrapper — PENDING
+  - T1f-3: CI fixtures for Darwin+Podman — PENDING
   - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
   - PR: https://github.com/kyosaku-kai/n3x/pull/6 (T1a-T1d pushed)
   - **CRITICAL**: Test fixtures must use real software on runner VMs. NO mocked binaries, NO fake scripts, NO container jobs (DinD breaks privileged kas-container testing). Use runner VMs directly with real package management (`apt-get install/remove`, `brew install`, `nix profile install`). See plan file T1e spec for fixture matrix and rationale.
+  - **macOS CI constraint**: Only Colima works on GH Actions macOS runners (`macos-15-intel`). Podman Machine, Docker Desktop, Rancher Desktop, OrbStack all require nested virt that ARM runners don't support. Intel runner available until ~Aug 2027.
+  - **Contract-based coverage**: ShellHook tests behavioral contracts (binary on PATH + version string + daemon reachable), not products. Testing with Colima validates Docker Desktop, Rancher Desktop (dockerd), OrbStack by contract equivalence.
+  - **DRY violations**: Container engine detection duplicated in 4 places in flake.nix (Darwin shellHook, Linux shellHook, Darwin kas-build wrapper, Linux kas-build wrapper). Darwin wrapper hardcodes "docker" throughout. T1f refactors into shared `detect_container_engine` function.
 - **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring
   - Plan file: `docs/plans/033-ci-pipeline-refactoring.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
