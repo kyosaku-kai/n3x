@@ -51,14 +51,11 @@ This file provides project-specific rules and essential context for Claude Code 
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
+- **Plan 034**: **ACTIVE** (0/1) - Dev Environment Validation and Team Adoption
+  - T1: Cross-platform dev shell validation CI — PENDING
+  - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
 - **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring
-  - Moved business logic from GitHub Actions workflows to `build-matrix.nix`
-  - Release 0.0.2 validated end-to-end
-  - T8 (dynamic matrix generation) deferred for future work
   - Plan file: `docs/plans/033-ci-pipeline-refactoring.md`
-- **Plan 032** (tracked in private n3x repo): Public Repo Publication
-  - Tasks 1-6.11 complete (repo public, CI 22/22 green, rulesets configured)
-  - Tasks 7-9 pending (GitLab fork, governance board, plan cleanup)
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
 - **BitBake Limits**: BB_NUMBER_THREADS=dynamic (min(CPUs, (RAM_GB-4)/3)), BB_PRESSURE_MAX_MEMORY=10000
 - **ISAR Build Matrix**: 42 artifacts across 4 machines (qemuamd64, amd-v3c18i, qemuarm64, jetson-orin-nano)
@@ -418,5 +415,6 @@ ISAR kernel selection uses `KERNEL_NAME`:
 - [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md) - ISAR L4 cluster test design
 - [docs/binfmt-requirements.md](docs/binfmt-requirements.md) - Cross-architecture binfmt_misc requirements
 - [docs/nix-binary-cache-architecture-decision.md](docs/nix-binary-cache-architecture-decision.md) - Binary cache ADR
+- [docs/plans/034-dev-environment-and-adoption.md](docs/plans/034-dev-environment-and-adoption.md) - Dev environment validation and team adoption plan
 - [docs/plans/033-ci-pipeline-refactoring.md](docs/plans/033-ci-pipeline-refactoring.md) - CI pipeline refactoring plan
 - ALWAYS ask before adding packages to ISAR images
