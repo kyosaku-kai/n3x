@@ -121,6 +121,128 @@
         fi
       '';
 
+      # Shared container engine detection function (DRY: used by shellHook + kas-build wrappers)
+      # Checks docker first (nerdctl detection, daemon check), then podman (Nix-store rejection).
+      # Fails fast: if docker is found but broken, returns error WITHOUT falling through to podman.
+      # Returns: sets ENGINE_NAME on success (rc=0), ENGINE_ERROR/ENGINE_ERROR_PATH on failure (rc=1).
+      detectContainerEngine = ''
+        detect_container_engine() {
+          ENGINE_NAME=""
+          ENGINE_ERROR=""
+          ENGINE_ERROR_PATH=""
+
+          if command -v docker &>/dev/null; then
+            # Detect nerdctl masquerading as docker (Rancher Desktop containerd mode)
+            if docker -v 2>/dev/null | grep -qi nerdctl; then
+              ENGINE_ERROR="NERDCTL_AS_DOCKER"
+              return 1
+            fi
+            # Check daemon is running
+            if ! docker info &>/dev/null 2>&1; then
+              ENGINE_ERROR="DOCKER_STOPPED"
+              return 1
+            fi
+            ENGINE_NAME="docker"
+            return 0
+          fi
+
+          if command -v podman &>/dev/null; then
+            local podman_path
+            podman_path=$(command -v podman)
+            # Nix-store podman is unreachable via sudo on non-NixOS (secure_path resets PATH).
+            # NixOS (/etc/NIXOS) configures sudo to preserve Nix paths, so it's fine there.
+            if [[ "$podman_path" == /nix/store/* ]] && [[ ! -f /etc/NIXOS ]]; then
+              ENGINE_ERROR="PODMAN_NIX_STORE"
+              ENGINE_ERROR_PATH="$podman_path"
+              return 1
+            fi
+            ENGINE_NAME="podman"
+            return 0
+          fi
+
+          ENGINE_ERROR="NONE"
+          return 1
+        }
+      '';
+
+      # Darwin-specific error handler for container engine detection failures.
+      # Messages match existing Darwin shellHook output exactly (CI fixtures F5, F2, F7).
+      darwinEngineErrors = ''
+        handle_engine_error() {
+          case "$ENGINE_ERROR" in
+            NERDCTL_AS_DOCKER)
+              echo ""
+              echo -e "  ''${RED}ERROR: Rancher Desktop detected in containerd mode.''${NC}"
+              echo "  kas-container requires Docker-compatible API."
+              echo "  Switch to dockerd (moby) mode:"
+              echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
+              echo ""
+              ;;
+            DOCKER_STOPPED)
+              echo ""
+              echo -e "  ''${RED}ERROR: Docker daemon not running''${NC}"
+              echo "  Start Docker Desktop and try again."
+              echo ""
+              ;;
+            *)
+              echo ""
+              echo -e "  ''${RED}ERROR: Docker not found in PATH''${NC}"
+              echo "  Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+              echo "  Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
+              echo ""
+              ;;
+          esac
+          exit 1
+        }
+      '';
+
+      # Linux-specific error handler for container engine detection failures.
+      # Messages match existing Linux non-WSL shellHook output exactly (CI fixtures F5, F2, F6, F4).
+      linuxEngineErrors = ''
+        handle_engine_error() {
+          case "$ENGINE_ERROR" in
+            NERDCTL_AS_DOCKER)
+              echo ""
+              echo -e "  ''${RED}ERROR: Rancher Desktop detected in containerd mode.''${NC}"
+              echo "  kas-container requires Docker-compatible API."
+              echo "  Switch to dockerd (moby) mode:"
+              echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
+              echo ""
+              ;;
+            DOCKER_STOPPED)
+              echo ""
+              echo -e "  ''${RED}ERROR: Docker daemon not running''${NC}"
+              echo "  Start with: sudo systemctl start docker"
+              echo ""
+              ;;
+            PODMAN_NIX_STORE)
+              echo ""
+              echo -e "  ''${RED}ERROR: podman found in Nix store ($ENGINE_ERROR_PATH)''${NC}"
+              echo "  kas-container runs podman via sudo, which cannot access Nix store paths"
+              echo "  on non-NixOS systems (sudo resets PATH via secure_path)."
+              echo ""
+              echo "  Install system podman: sudo apt-get install podman"
+              echo "  Or install docker instead (recommended)."
+              echo ""
+              ;;
+            *)
+              echo ""
+              echo -e "  ''${RED}ERROR: No container runtime found.''${NC}"
+              echo "  ISAR builds require docker or podman (system-installed, not from Nix)."
+              echo ""
+              echo "  Docker (recommended - avoids sudo PATH issues):"
+              echo "    https://docs.docker.com/engine/install/"
+              echo "    sudo usermod -aG docker \$USER  # then log out/in"
+              echo ""
+              echo "  Podman (note: kas-container runs podman via sudo):"
+              echo "    sudo apt-get install podman"
+              echo ""
+              ;;
+          esac
+          exit 1
+        }
+      '';
+
       # Version from VERSION file + git rev
       baseVersion = lib.trim (builtins.readFile ./VERSION);
       version =
@@ -145,7 +267,7 @@
 
       # Platform-aware kas-container wrapper script
       # Linux: Handles the sgdisk sync() hang on WSL2 by temporarily unmounting 9p filesystems
-      # Darwin: Uses Docker Desktop as container engine (podman broken on nix-darwin)
+      # Darwin: Docker Desktop, Colima, or Rancher Desktop (dockerd mode) as container engine
       mkKasBuildWrapper = wrapperPkgs:
         if wrapperPkgs.stdenv.isDarwin then
           wrapperPkgs.writeShellScriptBin "kas-build" ''
@@ -163,11 +285,13 @@
             log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
             log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $*"; }
 
+            ${detectContainerEngine}
+
             if [[ $# -lt 1 ]]; then
               echo "Usage: kas-build <kas-config-files> [additional-args...]"
               echo ""
               echo "Wrapper around 'kas-container --isar build' for macOS."
-              echo "Requires Docker Desktop or Rancher Desktop (dockerd/moby mode)."
+              echo "Requires Docker Desktop, Colima, or Rancher Desktop (dockerd/moby mode)."
               echo ""
               echo "Examples:"
               echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
@@ -175,29 +299,32 @@
               exit 1
             fi
 
-            # Validate Docker is available
-            if ! command -v docker &>/dev/null; then
-              log_error "Docker not found in PATH"
-              echo ""
-              echo "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
-              echo "Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
-              exit 1
-            fi
-
-            # Detect Rancher Desktop in containerd mode (nerdctl masquerading as docker)
-            if docker -v 2>/dev/null | grep -qi nerdctl; then
-              log_error "Rancher Desktop detected in containerd mode."
-              echo ""
-              echo "kas-container requires Docker-compatible API. Switch to dockerd (moby) mode:"
-              echo "  Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
-              exit 1
-            fi
-
-            if ! docker info &>/dev/null 2>&1; then
-              log_error "Docker daemon is not running"
-              echo ""
-              echo "Start Docker Desktop and try again."
-              exit 1
+            # Validate container engine (use env override or auto-detect)
+            if [[ -z "''${KAS_CONTAINER_ENGINE:-}" ]]; then
+              if detect_container_engine; then
+                export KAS_CONTAINER_ENGINE="$ENGINE_NAME"
+              else
+                case "$ENGINE_ERROR" in
+                  NERDCTL_AS_DOCKER)
+                    log_error "Rancher Desktop detected in containerd mode."
+                    echo ""
+                    echo "kas-container requires Docker-compatible API. Switch to dockerd (moby) mode:"
+                    echo "  Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
+                    ;;
+                  DOCKER_STOPPED)
+                    log_error "Docker daemon is not running"
+                    echo ""
+                    echo "Start Docker Desktop and try again."
+                    ;;
+                  *)
+                    log_error "Docker not found in PATH"
+                    echo ""
+                    echo "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+                    echo "Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
+                    ;;
+                esac
+                exit 1
+              fi
             fi
 
             kas_config="$1"
@@ -227,16 +354,15 @@
                 log_info "Cross-compilation: $HOST_ARCH -> $TARGET_ARCH (ISAR default)"
                 log_info "Docker Desktop handles binfmt_misc automatically."
                 log_info "If you see 'Exec format error', try:"
-                log_info "  docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
+                log_info "  $KAS_CONTAINER_ENGINE run --rm --privileged multiarch/qemu-user-static --reset -p yes"
               fi
             else
               log_warn "Could not detect machine from kas config — skipping arch detection"
             fi
 
-            export KAS_CONTAINER_ENGINE=docker
             export KAS_CONTAINER_IMAGE="ghcr.io/siemens/kas/kas-isar:5.1"
 
-            log_info "Starting kas-container build (engine: docker)..."
+            log_info "Starting kas-container build (engine: $KAS_CONTAINER_ENGINE)..."
             log_info "Config: $kas_config"
             echo
 
@@ -259,6 +385,8 @@
             log_warn() { echo -e "''${YELLOW}[WARN]''${NC} $*"; }
             log_error() { echo -e "''${RED}[ERROR]''${NC} $*"; }
             log_success() { echo -e "''${GREEN}[SUCCESS]''${NC} $*"; }
+
+            ${detectContainerEngine}
 
             is_wsl() { [[ -n "''${WSL_DISTRO_NAME:-}" || -n "''${WSL_DISTRO:-}" ]]; }
 
@@ -361,12 +489,31 @@
             # --- Container engine detection ---
             # Use engine detected by shellHook, or auto-detect
             if [[ -z "''${KAS_CONTAINER_ENGINE:-}" ]]; then
-              if command -v docker &>/dev/null; then
-                export KAS_CONTAINER_ENGINE=docker
-              elif command -v podman &>/dev/null; then
-                export KAS_CONTAINER_ENGINE=podman
+              if detect_container_engine; then
+                export KAS_CONTAINER_ENGINE="$ENGINE_NAME"
               else
-                log_error "No container engine found. Install docker-ce or podman."
+                case "$ENGINE_ERROR" in
+                  NERDCTL_AS_DOCKER)
+                    log_error "Rancher Desktop detected in containerd mode."
+                    echo "kas-container requires Docker-compatible API. Switch to dockerd (moby) mode:"
+                    echo "  Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
+                    ;;
+                  DOCKER_STOPPED)
+                    log_error "Docker daemon is not running."
+                    echo "Start with: sudo systemctl start docker"
+                    ;;
+                  PODMAN_NIX_STORE)
+                    log_error "podman found in Nix store ($ENGINE_ERROR_PATH)"
+                    echo "kas-container runs podman via sudo, which cannot access Nix store paths"
+                    echo "on non-NixOS systems (sudo resets PATH via secure_path)."
+                    echo ""
+                    echo "Install system podman: sudo apt-get install podman"
+                    echo "Or install docker instead (recommended)."
+                    ;;
+                  *)
+                    log_error "No container engine found. Install docker-ce or podman."
+                    ;;
+                esac
                 exit 1
               fi
             fi
@@ -551,7 +698,7 @@
 
       # Platform-aware development shell
       # Linux: system container runtime detection, WSL guidance
-      # Darwin: Docker Desktop / Rancher Desktop validation
+      # Darwin: container engine validation (Docker, Colima, Rancher Desktop dockerd)
       # Container runtimes (docker/podman) are NOT provided by Nix — they must
       # be system-installed because kas-container runs them via sudo, which
       # resets PATH and cannot reach Nix store paths on non-NixOS systems.
@@ -590,35 +737,22 @@
           # ANSI colors for error reporting
           RED='\033[0;31m'
           NC='\033[0m'
-        '' + (if shellPkgs.stdenv.isDarwin then ''
+        '' + detectContainerEngine
+          + (if shellPkgs.stdenv.isDarwin then darwinEngineErrors else linuxEngineErrors)
+          + (if shellPkgs.stdenv.isDarwin then ''
           # Hard-fail validation (T1d, Option A): shell exits on missing
           # prerequisites. Rationale: prevents developers from entering a
           # broken shell and discovering problems only when kas-build fails.
-          if ! command -v docker &>/dev/null; then
-            echo ""
-            echo -e "  ''${RED}ERROR: Docker not found in PATH''${NC}"
-            echo "  Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
-            echo "  Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
-            echo ""
-            exit 1
-          elif docker -v 2>/dev/null | grep -qi nerdctl; then
-            echo ""
-            echo -e "  ''${RED}ERROR: Rancher Desktop detected in containerd mode.''${NC}"
-            echo "  kas-container requires Docker-compatible API."
-            echo "  Switch to dockerd (moby) mode:"
-            echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
-            echo ""
-            exit 1
-          elif ! docker info &>/dev/null 2>&1; then
-            echo ""
-            echo -e "  ''${RED}ERROR: Docker daemon not running''${NC}"
-            echo "  Start Docker Desktop and try again."
-            echo ""
-            exit 1
+          if detect_container_engine; then
+            export KAS_CONTAINER_ENGINE="$ENGINE_NAME"
+            echo "  $ENGINE_NAME version: $($ENGINE_NAME --version)"
+            if [[ "$ENGINE_NAME" == "docker" ]]; then
+              echo "  engine: docker (Docker Desktop)"
+            else
+              echo "  engine: $ENGINE_NAME"
+            fi
           else
-            export KAS_CONTAINER_ENGINE=docker
-            echo "  docker version: $(docker --version)"
-            echo "  engine: docker (Docker Desktop)"
+            handle_engine_error
           fi
         '' else ''
           # Container runtime detection
@@ -646,61 +780,19 @@
               exit 1
             fi
           else
-            # Non-WSL Linux: prefer docker (no sudo PATH issues with kas-container)
-            if command -v docker &>/dev/null; then
-              # Detect nerdctl masquerading as docker (Rancher Desktop containerd mode)
-              if docker -v 2>/dev/null | grep -qi nerdctl; then
-                echo ""
-                echo -e "  ''${RED}ERROR: Rancher Desktop detected in containerd mode.''${NC}"
-                echo "  kas-container requires Docker-compatible API."
-                echo "  Switch to dockerd (moby) mode:"
-                echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
-                echo ""
-                exit 1
-              elif docker info &>/dev/null 2>&1; then
-                export KAS_CONTAINER_ENGINE=docker
+            # Non-WSL Linux: use shared container engine detection
+            if detect_container_engine; then
+              export KAS_CONTAINER_ENGINE="$ENGINE_NAME"
+              if [[ "$ENGINE_NAME" == "docker" ]]; then
                 echo "  docker version: $(docker --version)"
                 echo "  engine: docker"
               else
-                echo ""
-                echo -e "  ''${RED}ERROR: Docker daemon not running''${NC}"
-                echo "  Start with: sudo systemctl start docker"
-                echo ""
-                exit 1
-              fi
-            elif command -v podman &>/dev/null; then
-              podman_path=$(command -v podman)
-              # Nix-store podman is unreachable via sudo on non-NixOS (secure_path resets PATH).
-              # NixOS (/etc/NIXOS) configures sudo to preserve Nix paths, so it's fine there.
-              if [[ "$podman_path" == /nix/store/* ]] && [[ ! -f /etc/NIXOS ]]; then
-                echo ""
-                echo -e "  ''${RED}ERROR: podman found in Nix store ($podman_path)''${NC}"
-                echo "  kas-container runs podman via sudo, which cannot access Nix store paths"
-                echo "  on non-NixOS systems (sudo resets PATH via secure_path)."
-                echo ""
-                echo "  Install system podman: sudo apt-get install podman"
-                echo "  Or install docker instead (recommended)."
-                echo ""
-                exit 1
-              else
-                export KAS_CONTAINER_ENGINE=podman
                 echo "  podman version: $(podman --version)"
                 echo "  engine: podman (system-installed)"
                 echo "  NOTE: kas-container runs podman via sudo for ISAR privileged builds"
               fi
             else
-              echo ""
-              echo -e "  ''${RED}ERROR: No container runtime found.''${NC}"
-              echo "  ISAR builds require docker or podman (system-installed, not from Nix)."
-              echo ""
-              echo "  Docker (recommended - avoids sudo PATH issues):"
-              echo "    https://docs.docker.com/engine/install/"
-              echo "    sudo usermod -aG docker \$USER  # then log out/in"
-              echo ""
-              echo "  Podman (note: kas-container runs podman via sudo):"
-              echo "    sudo apt-get install podman"
-              echo ""
-              exit 1
+              handle_engine_error
             fi
           fi
         '') + ''
