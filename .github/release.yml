@@ -1,8 +1,18 @@
+# GitHub auto-generated release notes configuration.
+# Used as fallback when creating releases manually via GitHub UI.
+# The release workflow (release.yml) generates its own notes from
+# conventional commit messages and does not use this file.
 changelog:
   categories:
     - title: Features
-      labels: [enhancement]
+      labels: [enhancement, feat]
     - title: Bug Fixes
-      labels: [bug]
+      labels: [bug, fix]
+    - title: Documentation
+      labels: [documentation, docs]
+    - title: CI
+      labels: [ci]
+    - title: Tests
+      labels: [test]
     - title: Other Changes
       labels: ["*"]

@@ -286,6 +286,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for conventional commit parsing
+          fetch-tags: true
 
       - name: Download all release artifacts
         uses: actions/download-artifact@v4
@@ -301,6 +304,118 @@ jobs:
           echo ""
           echo "Total: $(ls release-assets/ | wc -l) files"
 
+      - name: Generate release notes from conventional commits
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          # Find previous tag (second most recent version tag)
+          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^[0-9]' | sed -n '2p')
+
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..${TAG}"
+            echo "Generating notes for commits in: $RANGE"
+          else
+            # First release: all commits reachable from tag
+            RANGE="$TAG"
+            echo "First release: including all commits"
+          fi
+
+          # Collect commit subjects (skip merge commits)
+          mapfile -t SUBJECTS < <(git log --format="%s" --no-merges "$RANGE")
+          echo "Found ${#SUBJECTS[@]} commits to process"
+
+          # Ordered type list: type:display_name
+          TYPES=(
+            "feat:Features"
+            "fix:Bug Fixes"
+            "perf:Performance"
+            "refactor:Refactoring"
+            "docs:Documentation"
+            "test:Tests"
+            "ci:CI"
+            "build:Build"
+            "style:Style"
+            "chore:Chores"
+          )
+
+          # Create temp files for each section
+          TMPDIR=$(mktemp -d)
+          trap 'rm -rf "$TMPDIR"' EXIT
+          for TYPE_PAIR in "${TYPES[@]}"; do
+            touch "$TMPDIR/${TYPE_PAIR%%:*}"
+          done
+          touch "$TMPDIR/breaking" "$TMPDIR/other"
+
+          # Parse each commit subject
+          CC_REGEX='^(feat|fix|docs|ci|test|refactor|chore|build|perf|style)(\(([^)]+)\))?(!)?: (.+)$'
+          for SUBJECT in "${SUBJECTS[@]}"; do
+            if [[ "$SUBJECT" =~ $CC_REGEX ]]; then
+              TYPE="${BASH_REMATCH[1]}"
+              SCOPE="${BASH_REMATCH[3]}"
+              BREAKING="${BASH_REMATCH[4]}"
+              DESC="${BASH_REMATCH[5]}"
+
+              if [ -n "$SCOPE" ]; then
+                echo "- **$SCOPE**: $DESC" >> "$TMPDIR/$TYPE"
+              else
+                echo "- $DESC" >> "$TMPDIR/$TYPE"
+              fi
+
+              if [ -n "$BREAKING" ]; then
+                if [ -n "$SCOPE" ]; then
+                  echo "- **$SCOPE**: $DESC" >> "$TMPDIR/breaking"
+                else
+                  echo "- $DESC" >> "$TMPDIR/breaking"
+                fi
+              fi
+            else
+              # Non-conventional commit (e.g., epoch commits from initial import)
+              echo "- $SUBJECT" >> "$TMPDIR/other"
+            fi
+          done
+
+          # Assemble release notes
+          {
+            echo "## What's Changed"
+            echo ""
+
+            if [ -s "$TMPDIR/breaking" ]; then
+              echo "### Breaking Changes"
+              echo ""
+              cat "$TMPDIR/breaking"
+              echo ""
+            fi
+
+            for TYPE_PAIR in "${TYPES[@]}"; do
+              TYPE="${TYPE_PAIR%%:*}"
+              DISPLAY="${TYPE_PAIR#*:}"
+              if [ -s "$TMPDIR/$TYPE" ]; then
+                echo "### $DISPLAY"
+                echo ""
+                cat "$TMPDIR/$TYPE"
+                echo ""
+              fi
+            done
+
+            if [ -s "$TMPDIR/other" ]; then
+              echo "### Other Changes"
+              echo ""
+              cat "$TMPDIR/other"
+              echo ""
+            fi
+
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Full changelog**: https://github.com/$GITHUB_REPOSITORY/compare/${PREV_TAG}...${TAG}"
+            fi
+          } > release-notes.md
+
+          echo ""
+          echo "=== Generated release notes ==="
+          cat release-notes.md
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -308,10 +423,9 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
 
-          # Create the release with auto-generated notes
           gh release create "$TAG" \
             --title "n3x $VERSION" \
-            --generate-notes \
+            --notes-file release-notes.md \
             release-assets/*
 
           echo ""
