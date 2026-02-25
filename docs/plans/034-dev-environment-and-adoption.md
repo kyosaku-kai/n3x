@@ -148,66 +148,67 @@ The flake defines `devShells` for `x86_64-linux` and `aarch64-darwin`. The shell
 14. Linux non-WSL + no runtime
 15. Linux WSL + no runtime
 
-#### Fixture design: additive from minimal bases
+#### Fixture design: runner VMs with real package management
 
-**Key insight**: GitHub Actions supports `container:` jobs that run steps inside a specified Docker image. Instead of using the bloated `ubuntu-24.04` runner (which has Docker, Go, Java, etc. pre-installed) and removing software, use minimal container images and install only what each fixture needs. This is how real developer machines work — you start with an OS and install your tools.
+**No container jobs.** The dev shell's purpose is to prepare for `kas-container`, which runs privileged containers. Testing inside a GH Actions `container:` job would require Docker-in-Docker or podman-in-container — adding complexity that doesn't represent any real developer's machine and may not work for privileged execution.
 
-**When to use container jobs vs regular runners:**
-- Container jobs (minimal image + additive installs): fixtures where Docker is NOT present, or where we need a different base OS (NixOS, minimal Ubuntu/Debian)
-- Regular runner directly: fixtures where Docker IS present and running (ubuntu-24.04 has a real Docker daemon; this is a legitimate fixture as-is)
-- macOS runner directly: no container option for macOS
+GitHub Actions runners ARE VMs. They are the test fixtures. Configure them with real package management:
+- **Install**: `sudo apt-get install podman`, `nix profile install nixpkgs#podman`, `brew install nerdctl`
+- **Remove**: `sudo apt-get remove docker-ce docker-ce-cli containerd.io` (real package removal, not `mv`)
+- **Stop services**: `sudo systemctl stop docker.socket docker.service` (real daemon state change)
+
+The `ubuntu-24.04` runner comes with Docker pre-installed. For fixtures that need Docker, use it as-is. For fixtures that need no Docker, remove the Docker packages. For fixtures that need podman, install it via apt. This mirrors what real developers do on their machines.
 
 #### Test fixture matrix
 
 **Tier 1 — Immediately feasible on GH runners:**
 
-| ID | Fixture | Runner/Container | Setup | Expected |
-|----|---------|------------------|-------|----------|
-| F1 | Ubuntu + Docker running | `ubuntu-24.04` runner | default state | OK: engine=docker |
-| F2 | Ubuntu + Docker stopped | `ubuntu-24.04` runner | `systemctl stop docker.socket docker.service` | ERROR: "daemon not running" |
-| F3 | Minimal Linux + podman (apt) | container: `ubuntu:24.04` | install Nix + podman via apt | OK: engine=podman |
-| F4 | Minimal Linux + no runtime | container: `ubuntu:24.04` | install Nix only | ERROR: "No container runtime found" |
-| F5 | Minimal Linux + real nerdctl as docker | container: `ubuntu:24.04` | install Nix + real nerdctl binary, symlink as `docker` | ERROR: "containerd mode" |
-| F6 | Minimal Linux + podman via Nix (non-NixOS) | container: `ubuntu:24.04` | install Nix, `nix profile install nixpkgs#podman`, no `/etc/NIXOS` | ERROR: "Nix store" path rejection |
-| F7 | macOS + no Docker | `macos-latest` runner | default state | ERROR: "Docker not found" |
-| F8 | macOS + real nerdctl as docker | `macos-latest` runner | install real nerdctl, symlink as `docker` | ERROR: "containerd mode" |
+| ID | Fixture | Runner | Setup | Expected |
+|----|---------|--------|-------|----------|
+| F1 | Ubuntu + Docker running | `ubuntu-24.04` | default state | OK: engine=docker |
+| F2 | Ubuntu + Docker stopped | `ubuntu-24.04` | `systemctl stop docker.socket docker.service` | ERROR: "daemon not running" |
+| F3 | Ubuntu + podman (apt) | `ubuntu-24.04` | `apt-get remove docker*`, `apt-get install podman` | OK: engine=podman |
+| F4 | Ubuntu + no runtime | `ubuntu-24.04` | `apt-get remove docker*` | ERROR: "No container runtime found" |
+| F5 | Ubuntu + real nerdctl | `ubuntu-24.04` | `apt-get remove docker*`, install real nerdctl binary, symlink as `docker` | ERROR: "containerd mode" |
+| F6 | Ubuntu + podman via Nix (non-NixOS) | `ubuntu-24.04` | `apt-get remove docker*`, `nix profile install nixpkgs#podman` | ERROR: "Nix store" path rejection |
+| F7 | macOS + no Docker | `macos-latest` | default state (no Docker on GH macOS runners) | ERROR: "Docker not found" |
+| F8 | macOS + real nerdctl | `macos-latest` | install real nerdctl binary, symlink as `docker` | ERROR: "containerd mode" |
 
 **Tier 2 — Needs research before implementation:**
 
 | ID | Fixture | Question |
 |----|---------|----------|
-| F9 | NixOS + Nix-store podman | Does `nixos/nix` or a NixOS container image work for container jobs? Need `/etc/NIXOS` to exist and podman at `/nix/store/*/bin/podman`. This tests OK path 5 — the only path where Nix-store podman is accepted. |
-| F10 | WSL + podman | Can `WSL_DISTRO_NAME` env var reliably trigger the WSL branch? This is partial (doesn't test 9p mounts, kas-build wrapper WSL logic). Real WSL testing needs Windows runner + WSL2. Research both options. |
-| F11 | WSL + Docker | Same as F10 but with Docker instead of podman. |
-| F12 | macOS + Docker | Is there a headless Docker option on macOS GH runners? (`colima`, `lima`, `docker-machine`?) If feasible, this tests OK path 1 — currently untested. |
+| F9 | macOS + Docker | Is there a headless Docker option on macOS GH runners? (`colima`, `lima`, `docker-machine`?) If feasible, this tests OK path 1 — Darwin happy path, currently untested. |
+| F10 | NixOS + Nix-store podman | How to get a NixOS-like environment on a GH runner? Need `/etc/NIXOS` to exist and podman at `/nix/store/*/bin/podman`. Tests OK path 5. Options: NixOS self-hosted runner, or create `/etc/NIXOS` marker + nix-installed podman on ubuntu (semi-synthetic but tests the real code path). |
+| F11 | WSL + podman | Real WSL testing needs Windows runner + WSL2 + Nix inside WSL. Research feasibility and cost. Alternative: `WSL_DISTRO_NAME` env var on Linux runner (partial — tests env-var code path but not WSL-specific behavior like 9p mounts). |
+| F12 | WSL + Docker | Same as F11 but with Docker. |
 
 **Tier 3 — Deferred (self-hosted or impractical in CI):**
 
 | ID | Fixture | Reason |
 |----|---------|--------|
 | F13 | macOS + Rancher Desktop (dockerd) | GUI application, can't install headlessly in CI. Tests OK path 2. |
-| F14 | macOS + Docker daemon stopped | Requires Docker installed first (F12 prerequisite), then stop daemon. |
-| F15 | Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix inside WSL. Complex, high runner cost. |
+| F14 | macOS + Docker daemon stopped | Requires Docker installed first (F9 prerequisite). Implement after F9 if feasible. |
+| F15 | Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix inside WSL. Complex, high runner cost. Document as self-hosted-only if F11 research shows GH Windows runners can't do this. |
 
-#### Implementation approach for container jobs
+#### Implementation approach
 
-Container jobs need Nix installed. Two options:
-- **Option A**: Use `nixos/nix` as base image (Nix pre-installed, but not minimal Ubuntu)
-- **Option B**: Use `ubuntu:24.04` as base + install Nix via determinate systems installer
-
-Option B is preferred for most fixtures because it matches the real developer experience (Ubuntu user installs Nix). Option A may be needed for the NixOS fixture (F9).
+All fixtures use runner VMs directly. Setup steps use real package management.
 
 **Test structure per fixture:**
-1. Runner/container provides the base OS
-2. Setup step installs Nix (if container job) and fixture-specific software
-3. Run step: `nix develop --command bash -c 'echo "ENGINE=${KAS_CONTAINER_ENGINE:-UNSET}"'` capturing all output
-4. Assert step: verify exit code, output patterns, and engine value
+1. Setup step: install/remove real packages, start/stop real services
+2. Run step: `nix develop --command bash -c 'echo "ENGINE=${KAS_CONTAINER_ENGINE:-UNSET}"'` capturing all output
+3. Assert step: verify exit code, output patterns, and engine value
 
 **All fixtures run with `fail-fast: false`** so every fixture is tested regardless of individual failures.
 
+**nerdctl installation** (F5, F8): Download the real nerdctl binary from the official GitHub release. Create a `docker` symlink pointing to it. This is what Rancher Desktop containerd mode does — `docker` is actually nerdctl. The shellHook's `docker -v | grep -qi nerdctl` check runs against the real nerdctl binary output.
+
+**Docker removal** (F3-F6): Use `sudo apt-get remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` or similar to genuinely uninstall Docker packages. Verify with `! command -v docker` post-removal. This is a real package state, not a moved binary.
+
 #### Sub-tasks
 
-- **T1e-1**: Implement Tier 1 fixtures (F1-F8). Research whether `nix develop` works reliably inside GH Actions container jobs with `ubuntu:24.04` base image. If container jobs prove problematic, document issues and fall back to runner-based approach with clear rationale.
+- **T1e-1**: Implement Tier 1 fixtures (F1-F8) on runner VMs with real package management. Validate `apt-get remove` fully removes docker on ubuntu-24.04 runners (may need to also remove `docker.io` or other variants). Validate real nerdctl binary download and behavior.
 - **T1e-2**: Research Tier 2 fixtures (F9-F12). Document findings in this plan file. Implement any that are feasible.
 - **T1e-3**: Implement researched Tier 2 fixtures. Update Tier 3 rationale if anything became feasible.
 
@@ -217,4 +218,4 @@ Option B is preferred for most fixtures because it matches the real developer ex
 2. Each fixture asserts exit code, output pattern, and `KAS_CONTAINER_ENGINE` value
 3. Tier 2 research documented with findings and decisions
 4. Tier 3 deferred fixtures have explicit rationale
-5. No mocked binaries — every fixture uses real software or genuine absence
+5. No mocked binaries, no container jobs, no fake scripts — every fixture uses real software on real runner VMs

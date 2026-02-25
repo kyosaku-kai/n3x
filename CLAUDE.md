@@ -61,7 +61,7 @@ This file provides project-specific rules and essential context for Claude Code 
   - T1e-3: Tier 2 implementation + Tier 3 rationale — PENDING
   - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
   - PR: https://github.com/kyosaku-kai/n3x/pull/6 (T1a-T1d pushed)
-  - **CRITICAL**: Test fixtures must use real software on real/minimal base images. NO mocked binaries, NO fake scripts, NO environment subtraction from bloated runners. Use GH Actions `container:` jobs with minimal base images (e.g. `ubuntu:24.04`) for additive fixture construction. See plan file T1e spec for details.
+  - **CRITICAL**: Test fixtures must use real software on runner VMs. NO mocked binaries, NO fake scripts, NO container jobs (DinD breaks privileged kas-container testing). Use runner VMs directly with real package management (`apt-get install/remove`, `brew install`, `nix profile install`). See plan file T1e spec for fixture matrix and rationale.
 - **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring
   - Plan file: `docs/plans/033-ci-pipeline-refactoring.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
