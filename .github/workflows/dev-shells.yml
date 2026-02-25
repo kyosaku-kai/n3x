@@ -14,9 +14,9 @@
 #   F6: Ubuntu + Nix-store podman        → ERROR: Nix store path rejection
 #   F7: macOS + no Docker               → ERROR: Docker not found
 #
-# F8 (macOS + nerdctl) deferred to Tier 2: nerdctl has no macOS binary
-# and the Homebrew formula is Linux-only. The nerdctl detection logic
-# (docker -v | grep -qi nerdctl) is validated by F5 on Linux.
+# F8 (macOS + Rancher Desktop containerd mode) deferred to Tier 3:
+# Rancher Desktop is a GUI app (no headless CI install) and nerdctl has
+# no standalone macOS binary. Detection logic validated by F5 on Linux.
 
 name: Dev Shell
 

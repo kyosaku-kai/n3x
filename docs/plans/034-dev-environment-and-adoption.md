@@ -172,16 +172,21 @@ The `ubuntu-24.04` runner comes with Docker pre-installed. For fixtures that nee
 | F5 | Ubuntu + real nerdctl | `ubuntu-24.04` | `apt-get remove docker*`, install real nerdctl binary, symlink as `docker` | ERROR: "containerd mode" |
 | F6 | Ubuntu + podman via Nix (non-NixOS) | `ubuntu-24.04` | `apt-get remove docker*`, `nix profile install nixpkgs#podman` | ERROR: "Nix store" path rejection |
 | F7 | macOS + no Docker | `macos-latest` | default state (no Docker on GH macOS runners) | ERROR: "Docker not found" |
-| ~~F8~~ | ~~macOS + real nerdctl~~ | ~~`macos-latest`~~ | ~~install real nerdctl binary, symlink as `docker`~~ | ~~ERROR: "containerd mode"~~ |
+| ~~F8~~ | ~~macOS + Rancher Desktop (containerd)~~ | ~~`macos-latest`~~ | ~~Rancher Desktop in containerd mode (docker = nerdctl)~~ | ~~ERROR: "containerd mode"~~ |
 
-**F8 moved to Tier 2**: nerdctl has no macOS binary (GitHub releases: Linux/FreeBSD/Windows only). The Homebrew formula (`brew install nerdctl`) is Linux-only. The nerdctl detection logic (`docker -v | grep -qi nerdctl`) is validated by F5 on Linux — same code path, same grep check. F8 would only additionally validate the Darwin error message formatting.
+**F8 moved to Tier 3**: Rancher Desktop is a GUI application that can't be installed headlessly in CI. The containerd mode (where `docker` is actually nerdctl) is the same scenario as F13 (dockerd mode) — both require Rancher Desktop installed. The nerdctl detection logic (`docker -v | grep -qi nerdctl`) is validated by F5 on Linux — same grep check, same code path. A standalone nerdctl binary can't be installed either: nerdctl publishes no macOS binaries (GitHub releases: Linux/FreeBSD/Windows only) and the Homebrew formula is Linux-only.
+
+**macOS fixture coverage summary**: The shellHook has 4 macOS use cases:
+1. Bare macOS (no container tools) → **F7 (Tier 1, implemented)**
+2. Docker Desktop installed → **F9 (Tier 2, needs headless Docker research)**
+3. Rancher Desktop in dockerd/moby mode → **F13 (Tier 3, GUI app)**
+4. Rancher Desktop in containerd mode → **F8 (Tier 3, GUI app + no standalone nerdctl)**
 
 **Tier 2 — Needs research before implementation:**
 
 | ID | Fixture | Question |
 |----|---------|----------|
-| F8 | macOS + nerdctl as docker | nerdctl has no macOS binary (GH releases: Linux/FreeBSD/Windows only). Homebrew formula Linux-only. Research: build from Go source on macOS runner? Or accept F5 covers the detection logic? |
-| F9 | macOS + Docker | Is there a headless Docker option on macOS GH runners? (`colima`, `lima`, `docker-machine`?) If feasible, this tests OK path 1 — Darwin happy path, currently untested. |
+| F9 | macOS + Docker Desktop | Is there a headless Docker option on macOS GH runners? (`colima`, `lima`, `docker-machine`?) If feasible, this tests OK path 1 — Darwin happy path, currently untested. |
 | F10 | NixOS + Nix-store podman | How to get a NixOS-like environment on a GH runner? Need `/etc/NIXOS` to exist and podman at `/nix/store/*/bin/podman`. Tests OK path 5. Options: NixOS self-hosted runner, or create `/etc/NIXOS` marker + nix-installed podman on ubuntu (semi-synthetic but tests the real code path). |
 | F11 | WSL + podman | Real WSL testing needs Windows runner + WSL2 + Nix inside WSL. Research feasibility and cost. Alternative: `WSL_DISTRO_NAME` env var on Linux runner (partial — tests env-var code path but not WSL-specific behavior like 9p mounts). |
 | F12 | WSL + Docker | Same as F11 but with Docker. |
@@ -190,6 +195,7 @@ The `ubuntu-24.04` runner comes with Docker pre-installed. For fixtures that nee
 
 | ID | Fixture | Reason |
 |----|---------|--------|
+| F8 | macOS + Rancher Desktop (containerd) | GUI application, can't install headlessly in CI. nerdctl has no standalone macOS binary. Detection logic validated by F5 on Linux. |
 | F13 | macOS + Rancher Desktop (dockerd) | GUI application, can't install headlessly in CI. Tests OK path 2. |
 | F14 | macOS + Docker daemon stopped | Requires Docker installed first (F9 prerequisite). Implement after F9 if feasible. |
 | F15 | Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix inside WSL. Complex, high runner cost. Document as self-hosted-only if F11 research shows GH Windows runners can't do this. |
