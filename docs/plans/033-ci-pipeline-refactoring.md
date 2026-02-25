@@ -47,7 +47,7 @@ Platform concern, not business logic.
 | T4 | Replace arch detection in ci.yml Tier 4 | `TASK:COMPLETE` |
 | T5 | Replace arch detection in ci.yml Tier 5 | `TASK:COMPLETE` |
 | T6 | Refactor release.yml to use build-matrix.nix | `TASK:COMPLETE` |
-| T7 | Bump VERSION to 0.0.2 | `TASK:PENDING` |
+| T7 | Bump VERSION to 0.0.2 | `TASK:IN_PROGRESS` (PR #4) |
 | T8 | Dynamic matrix generation (future) | `TASK:DEFERRED` |
 
 ## Task Dependencies
