@@ -109,6 +109,7 @@ jobs:
           df -h /
 
       - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
 
       - name: Install kas
         run: pip install kas==5.1
@@ -146,106 +147,60 @@ jobs:
           RELEASE_DIR="$GITHUB_WORKSPACE/release-assets"
           mkdir -p "$RELEASE_DIR"
 
-          # Detect native build: append native-build.yml when host == target arch
+          # All variant metadata from build-matrix.nix: kas commands (with CI
+          # overlays), ISAR output filenames, and release asset names.
           HOST_ARCH=$(uname -m)
-          case "$MACHINE" in
-            qemuarm64|jetson-orin-nano) TARGET_ARCH=aarch64 ;;
-            *)                          TARGET_ARCH=x86_64 ;;
-          esac
+          VARIANTS=$(nix eval --json '.#lib.debian.buildMatrix' --apply "
+            matrix: builtins.map (v: {
+              id = matrix.mkVariantId v;
+              kasCommand = matrix.mkCiKasCommand { hostArch = \"$HOST_ARCH\"; } v;
+              artifacts = builtins.map (ext: {
+                isarFile = matrix.mkReleaseIsarOutputName v ext;
+                releaseName = matrix.mkReleaseAssetName { version = \"$VERSION\"; } v ext;
+                optional = ext == \".wic.bmap\";
+              }) matrix.machines.\${v.machine}.releaseExtensions;
+            }) (builtins.filter (v: v.machine == \"$MACHINE\") matrix.releaseVariants)
+          ")
 
-          NATIVE_OVERLAY=""
-          if [ "$HOST_ARCH" = "$TARGET_ARCH" ]; then
-            NATIVE_OVERLAY=":kas/opt/native-build.yml"
-            echo "Native build detected ($HOST_ARCH == $TARGET_ARCH)"
-          else
-            echo "Cross-compilation ($HOST_ARCH → $TARGET_ARCH)"
-          fi
+          VARIANT_COUNT=$(echo "$VARIANTS" | jq 'length')
+          echo "Building $VARIANT_COUNT release variants for $MACHINE (host: $HOST_ARCH)"
 
-          # ---------------------------------------------------------------
-          # Release variant definitions per machine.
-          # Format: VARIANT_ID|KAS_COMMAND|RECIPE_NAME|EXTENSIONS
-          #
-          # RECIPE_NAME = BitBake image recipe name (locates ISAR output).
-          # EXTENSIONS = file extensions to collect as release assets.
-          #   .wic.zst = zstd-compressed disk image (primary release artifact)
-          #   .wic.bmap = block map for fast flashing via bmaptool (auto-generated
-          #               by ISAR's WIC builder --bmap flag, not an IMAGE_FSTYPES entry)
-          #   .tar.gz = rootfs tarball (Jetson: flashed via L4T tools, not WIC)
-          #
-          # NOTE: No test overlays. Release images are clean production builds.
-          #
-          # Source of truth for kas overlay chains: lib/debian/build-matrix.nix
-          # Release variants omit test overlays and network/node overlays that
-          # the build matrix includes for CI testing. Keep in sync manually.
-          # ---------------------------------------------------------------
-          VARIANTS=()
-          case "$MACHINE" in
-            qemuamd64)
-              VARIANTS+=(
-                "base|kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/base.yml|base|.wic.zst .wic.bmap"
-                "base-swupdate|kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/base.yml:kas/feature/swupdate.yml|base|.wic.zst .wic.bmap"
-              )
-              ;;
-            qemuarm64)
-              VARIANTS+=(
-                "base|kas/base.yml:kas/machine/qemu-arm64-orin.yml:kas/image/base.yml|base|.wic.zst .wic.bmap"
-              )
-              ;;
-            amd-v3c18i)
-              VARIANTS+=(
-                "agent|kas/base.yml:kas/machine/amd-v3c18i.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-agent.yml:kas/boot/systemd-boot.yml|agent|.wic.zst .wic.bmap"
-              )
-              ;;
-            jetson-orin-nano)
-              VARIANTS+=(
-                "base|kas/base.yml:kas/machine/jetson-orin-nano.yml:kas/image/base.yml|base|.tar.gz"
-              )
-              ;;
-          esac
+          for IDX in $(seq 0 $((VARIANT_COUNT - 1))); do
+            ID=$(echo "$VARIANTS" | jq -r ".[$IDX].id")
+            KAS_CMD=$(echo "$VARIANTS" | jq -r ".[$IDX].kasCommand")
 
-          TOTAL=${#VARIANTS[@]}
-          VARIANT_NUM=0
-
-          for LINE in "${VARIANTS[@]}"; do
-            VARIANT_NUM=$((VARIANT_NUM + 1))
-
-            VARIANT_ID=$(echo "$LINE" | cut -d'|' -f1)
-            KAS_CMD=$(echo "$LINE" | cut -d'|' -f2)
-            RECIPE_NAME=$(echo "$LINE" | cut -d'|' -f3)
-            EXTENSIONS=$(echo "$LINE" | cut -d'|' -f4)
-
-            FULL_CMD="${KAS_CMD}:kas/opt/ci-cache.yml${NATIVE_OVERLAY}"
-
-            echo "::group::[$VARIANT_NUM/$TOTAL] Build: $VARIANT_ID"
-            echo "kas command: $FULL_CMD"
+            echo "::group::[$((IDX + 1))/$VARIANT_COUNT] Build: $ID"
+            echo "kas command: $KAS_CMD"
 
             # Clean stale .git-downloads symlink
             rm -f build/tmp/work/debian-trixie-*/.git-downloads 2>/dev/null || true
 
-            kas-container --isar build "$FULL_CMD"
+            kas-container --isar build "$KAS_CMD"
 
             # Collect release artifacts immediately (before next build overwrites
             # shared output filename — base and base-swupdate produce same filename)
-            ISAR_PREFIX="n3x-image-${RECIPE_NAME}-debian-trixie-${MACHINE}"
-            for EXT in $EXTENSIONS; do
-              ISAR_FILE="${DEPLOY_DIR}/${ISAR_PREFIX}${EXT}"
-              RELEASE_NAME="n3x-${VARIANT_ID}-${MACHINE}-${VERSION}${EXT}"
+            ARTIFACT_COUNT=$(echo "$VARIANTS" | jq ".[$IDX].artifacts | length")
+            for AIDX in $(seq 0 $((ARTIFACT_COUNT - 1))); do
+              ISAR_FILE=$(echo "$VARIANTS" | jq -r ".[$IDX].artifacts[$AIDX].isarFile")
+              RELEASE_NAME=$(echo "$VARIANTS" | jq -r ".[$IDX].artifacts[$AIDX].releaseName")
+              OPTIONAL=$(echo "$VARIANTS" | jq -r ".[$IDX].artifacts[$AIDX].optional")
 
-              if [ ! -f "$ISAR_FILE" ]; then
+              ISAR_PATH="${DEPLOY_DIR}/${ISAR_FILE}"
+              if [ ! -f "$ISAR_PATH" ]; then
                 # .wic.bmap is auto-generated by ISAR's WIC builder (--bmap flag).
                 # If it's missing, warn but don't fail — the .wic.zst is the
                 # primary artifact and bmap is a flashing optimization.
-                if [[ "$EXT" == ".wic.bmap" ]]; then
-                  echo "::warning::Optional artifact not found: $ISAR_FILE (bmap is auto-generated by WIC builder)"
+                if [ "$OPTIONAL" = "true" ]; then
+                  echo "::warning::Optional artifact not found: $ISAR_PATH (bmap is auto-generated by WIC builder)"
                   ls -la "$DEPLOY_DIR/"*bmap* 2>/dev/null || echo "  No bmap files in deploy dir"
                   continue
                 fi
-                echo "::error::Expected artifact not found: $ISAR_FILE"
+                echo "::error::Expected artifact not found: $ISAR_PATH"
                 ls -la "$DEPLOY_DIR/" 2>/dev/null || true
                 exit 1
               fi
 
-              cp "$ISAR_FILE" "$RELEASE_DIR/$RELEASE_NAME"
+              cp "$ISAR_PATH" "$RELEASE_DIR/$RELEASE_NAME"
               echo "  $RELEASE_NAME ($(du -h "$RELEASE_DIR/$RELEASE_NAME" | cut -f1))"
             done
 
