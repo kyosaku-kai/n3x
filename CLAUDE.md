@@ -51,11 +51,14 @@ This file provides project-specific rules and essential context for Claude Code 
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
-- **Plan 034**: **ACTIVE** (3/3 complete) - Dev Environment Validation and Team Adoption
+- **Plan 034**: **ACTIVE** (3/5 complete) - Dev Environment Validation and Team Adoption
   - T1a: Consolidate dev shells (promote debian→default, delete others) — COMPLETE
   - T1b: Port upstream platform-aware shell logic — COMPLETE
-  - T1c: Dev shell validation CI workflow — COMPLETE
+  - T1c: Dev shell validation CI workflow (basic) — COMPLETE
+  - T1d: Harden shellHook — fail on missing container runtime — PENDING
+  - T1e: CI matrix for shellHook container runtime detection (10 scenarios) — PENDING
   - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
+  - PR: https://github.com/kyosaku-kai/n3x/pull/6 (T1a-T1c)
 - **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring
   - Plan file: `docs/plans/033-ci-pipeline-refactoring.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
