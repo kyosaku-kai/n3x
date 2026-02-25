@@ -18,7 +18,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1b | Port upstream platform-aware shell logic | TASK:COMPLETE |
 | 1c | Dev shell validation CI workflow (basic) | TASK:COMPLETE |
 | 1d | Harden shellHook — validate all host-environment prerequisites | TASK:COMPLETE |
-| 1e | CI matrix for shellHook host-environment detection paths | TASK:PENDING |
+| 1e | CI matrix for shellHook host-environment detection paths | TASK:COMPLETE |
 
 ## Task Dependencies
 
