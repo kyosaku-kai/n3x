@@ -5,9 +5,11 @@
 # no builds).
 #
 # Platform coverage:
-#   - Ubuntu 24.04 (x86_64-linux): full validation including shellHook
-#   - macOS latest (aarch64-darwin): shell entry + tools. No Docker on
-#     GH runners, so shellHook warns about missing Docker — expected.
+#   - Ubuntu 24.04 (x86_64-linux): full validation — Docker present on
+#     runner, so shellHook passes and shell entry succeeds.
+#   - macOS latest (aarch64-darwin): verifies hard-fail behavior — no
+#     Docker on GH runners, so shellHook correctly rejects shell entry
+#     with actionable error message (T1d hard-fail validation).
 
 name: Dev Shell
 
@@ -42,11 +44,14 @@ jobs:
       - uses: cachix/install-nix-action@v31
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
+      # Linux: full validation (Docker present on ubuntu-24.04)
       - name: Enter shell
+        if: runner.os == 'Linux'
         run: |
           nix develop --command bash -c 'echo "shell-entry: OK"'
 
       - name: Validate tools on PATH
+        if: runner.os == 'Linux'
         run: |
           nix develop --command bash -c '
             FAIL=0
@@ -62,6 +67,7 @@ jobs:
           '
 
       - name: Validate tool functionality
+        if: runner.os == 'Linux'
         run: |
           nix develop --command bash -c '
             echo "--- kas ---"
@@ -71,3 +77,20 @@ jobs:
             echo "--- kas-build ---"
             kas-build --help | head -5
           '
+
+      # macOS: verify hard-fail behavior (no Docker on GH runners)
+      - name: Verify shell rejects missing Docker
+        if: runner.os == 'macOS'
+        run: |
+          OUTPUT=$(nix develop --command bash -c 'echo OK' 2>&1) && {
+            echo "ERROR: Shell should have rejected entry without Docker"
+            exit 1
+          }
+          echo "Shell correctly rejected entry (exit code: $?)"
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "Docker not found"; then
+            echo "PASS: Error message contains expected 'Docker not found'"
+          else
+            echo "FAIL: Expected 'Docker not found' in output"
+            exit 1
+          fi

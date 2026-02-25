@@ -587,24 +587,34 @@
           echo ""
           echo "  kas version: $(kas --version 2>&1 | head -1)"
           echo "  kas-container: $(which kas-container)"
+          # ANSI colors for error reporting
+          RED='\033[0;31m'
+          NC='\033[0m'
         '' + (if shellPkgs.stdenv.isDarwin then ''
+          # Hard-fail validation (T1d, Option A): shell exits on missing
+          # prerequisites. Rationale: prevents developers from entering a
+          # broken shell and discovering problems only when kas-build fails.
           if ! command -v docker &>/dev/null; then
             echo ""
-            echo "  ERROR: Docker not found in PATH"
+            echo -e "  ''${RED}ERROR: Docker not found in PATH''${NC}"
             echo "  Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
             echo "  Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
             echo ""
+            exit 1
           elif docker -v 2>/dev/null | grep -qi nerdctl; then
             echo ""
-            echo "  WARNING: Rancher Desktop detected in containerd mode."
+            echo -e "  ''${RED}ERROR: Rancher Desktop detected in containerd mode.''${NC}"
             echo "  kas-container requires Docker-compatible API."
             echo "  Switch to dockerd (moby) mode:"
             echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
             echo ""
+            exit 1
           elif ! docker info &>/dev/null 2>&1; then
-            echo "  docker: installed but daemon not running"
             echo ""
+            echo -e "  ''${RED}ERROR: Docker daemon not running''${NC}"
             echo "  Start Docker Desktop and try again."
+            echo ""
+            exit 1
           else
             export KAS_CONTAINER_ENGINE=docker
             echo "  docker version: $(docker --version)"
@@ -629,9 +639,11 @@
               echo "  docker version: $(docker --version)"
             else
               echo ""
-              echo "  WARNING: No container runtime found."
+              echo -e "  ''${RED}ERROR: No container runtime found.''${NC}"
               echo "  The WSL image should have podman pre-installed."
               echo "  If missing, install: sudo apt-get install podman"
+              echo ""
+              exit 1
             fi
           else
             # Non-WSL Linux: prefer docker (no sudo PATH issues with kas-container)
@@ -639,17 +651,22 @@
               # Detect nerdctl masquerading as docker (Rancher Desktop containerd mode)
               if docker -v 2>/dev/null | grep -qi nerdctl; then
                 echo ""
-                echo "  WARNING: Rancher Desktop detected in containerd mode."
+                echo -e "  ''${RED}ERROR: Rancher Desktop detected in containerd mode.''${NC}"
                 echo "  kas-container requires Docker-compatible API."
                 echo "  Switch to dockerd (moby) mode:"
                 echo "    Rancher Desktop -> Preferences -> Container Engine -> dockerd (moby)"
+                echo ""
+                exit 1
               elif docker info &>/dev/null 2>&1; then
                 export KAS_CONTAINER_ENGINE=docker
                 echo "  docker version: $(docker --version)"
                 echo "  engine: docker"
               else
-                echo "  docker: installed but daemon not running"
+                echo ""
+                echo -e "  ''${RED}ERROR: Docker daemon not running''${NC}"
                 echo "  Start with: sudo systemctl start docker"
+                echo ""
+                exit 1
               fi
             elif command -v podman &>/dev/null; then
               podman_path=$(command -v podman)
@@ -657,12 +674,14 @@
               # NixOS (/etc/NIXOS) configures sudo to preserve Nix paths, so it's fine there.
               if [[ "$podman_path" == /nix/store/* ]] && [[ ! -f /etc/NIXOS ]]; then
                 echo ""
-                echo "  WARNING: podman found in Nix store ($podman_path)"
+                echo -e "  ''${RED}ERROR: podman found in Nix store ($podman_path)''${NC}"
                 echo "  kas-container runs podman via sudo, which cannot access Nix store paths"
                 echo "  on non-NixOS systems (sudo resets PATH via secure_path)."
                 echo ""
                 echo "  Install system podman: sudo apt-get install podman"
                 echo "  Or install docker instead (recommended)."
+                echo ""
+                exit 1
               else
                 export KAS_CONTAINER_ENGINE=podman
                 echo "  podman version: $(podman --version)"
@@ -671,7 +690,7 @@
               fi
             else
               echo ""
-              echo "  WARNING: No container runtime found."
+              echo -e "  ''${RED}ERROR: No container runtime found.''${NC}"
               echo "  ISAR builds require docker or podman (system-installed, not from Nix)."
               echo ""
               echo "  Docker (recommended - avoids sudo PATH issues):"
@@ -680,6 +699,8 @@
               echo ""
               echo "  Podman (note: kas-container runs podman via sudo):"
               echo "    sudo apt-get install podman"
+              echo ""
+              exit 1
             fi
           fi
         '') + ''
