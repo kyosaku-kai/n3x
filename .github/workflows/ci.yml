@@ -227,36 +227,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Get all variants for this machine via nix eval
+          # Get all variants for this machine with CI overlays applied.
+          # mkCiKasCommand appends ci-cache.yml always, native-build.yml
+          # when host arch matches target (replaces shell case statement).
+          HOST_ARCH=$(uname -m)
           VARIANTS=$(nix eval --json '.#lib.debian.buildMatrix' --apply "
             matrix: builtins.map (v: {
               id = matrix.mkVariantId v;
-              kasCommand = matrix.mkKasCommand v;
+              kasCommand = matrix.mkCiKasCommand { hostArch = \"$HOST_ARCH\"; } v;
             }) (builtins.filter (v: v.machine == \"$MACHINE\") matrix.variants)
           ")
 
-          # Detect native build: append native-build.yml when host == target arch
-          HOST_ARCH=$(uname -m)
-          case "$MACHINE" in
-            qemuarm64|jetson-orin-nano) TARGET_ARCH=aarch64 ;;
-            *)                          TARGET_ARCH=x86_64 ;;
-          esac
-
-          NATIVE_OVERLAY=""
-          if [ "$HOST_ARCH" = "$TARGET_ARCH" ]; then
-            NATIVE_OVERLAY=":kas/opt/native-build.yml"
-            echo "Native build detected ($HOST_ARCH == $TARGET_ARCH)"
-          else
-            echo "Cross-compilation ($HOST_ARCH → $TARGET_ARCH)"
-          fi
-
           VARIANT_COUNT=$(echo "$VARIANTS" | jq 'length')
-          echo "Building $VARIANT_COUNT variants for $MACHINE"
+          echo "Building $VARIANT_COUNT variants for $MACHINE (host: $HOST_ARCH)"
 
           for IDX in $(seq 0 $((VARIANT_COUNT - 1))); do
             ID=$(echo "$VARIANTS" | jq -r ".[$IDX].id")
-            KAS_CMD=$(echo "$VARIANTS" | jq -r ".[$IDX].kasCommand")
-            FULL_CMD="${KAS_CMD}:kas/opt/ci-cache.yml${NATIVE_OVERLAY}"
+            FULL_CMD=$(echo "$VARIANTS" | jq -r ".[$IDX].kasCommand")
 
             echo "::group::[$((IDX + 1))/$VARIANT_COUNT] Building variant: $ID"
             echo "kas command: $FULL_CMD"
