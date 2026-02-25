@@ -17,7 +17,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1a | Consolidate dev shells — promote debian to default | TASK:COMPLETE |
 | 1b | Port upstream platform-aware shell logic | TASK:COMPLETE |
 | 1c | Dev shell validation CI workflow (basic) | TASK:COMPLETE |
-| 1d | Harden shellHook — validate all host-environment prerequisites | TASK:PENDING |
+| 1d | Harden shellHook — validate all host-environment prerequisites | TASK:COMPLETE |
 | 1e | CI matrix for shellHook host-environment detection paths | TASK:PENDING |
 
 ## Task Dependencies
@@ -84,56 +84,30 @@ Ported from upstream:
 
 ### Task 1d: Harden shellHook — validate all host-environment prerequisites
 
-**Status**: `TASK:PENDING`
+**Status**: `TASK:COMPLETE`
+**Commits**: `a970213`
+**Decision**: Option A (hard fail) — shellHook calls `exit 1` on all 8 error paths
 
-**Problem**: The shellHook currently only prints warnings when host-environment prerequisites aren't met. A developer can enter the shell, scroll past warnings, and only discover problems when `kas-build` fails later with confusing errors. The dev shell's promise is "clone, `nix develop`, build" — every host-side assumption must be validated at shell entry with actionable guidance on failure.
+**What was done**:
+- All 8 error paths now call `exit 1` (shell entry fails entirely when prerequisites aren't met)
+- All error messages use ANSI red coloring (`echo -e` with `\033[0;31m`) for visibility
+- All 5 OK paths unchanged (export `KAS_CONTAINER_ENGINE` correctly)
+- Decision documented in code comment at Darwin branch entry point
+- CI workflow (`dev-shells.yml`) updated: macOS step now verifies hard-fail behavior (expects rejection + "Docker not found" message) instead of expecting warn-and-continue
 
-**Current behavior** (all platforms): shellHook prints warnings via `echo`, sets env vars on success, but never exits non-zero. The shell always opens regardless of host state.
+**Error paths hardened** (all `exit 1`):
+- Darwin: docker missing (path 1), nerdctl detected (path 2), daemon stopped (path 3)
+- Linux WSL: no runtime found (path 7)
+- Linux non-WSL: nerdctl detected (path 8), daemon stopped (path 10), Nix-store podman on non-NixOS (path 11), no runtime found (path 13)
 
-**Host-environment prerequisites to validate**:
+**Note on binfmt_misc** (prerequisite #5): Not added to shellHook validation. binfmt is only needed for cross-arch builds, not all builds. It remains validated in the kas-build wrapper where the target architecture is known. Adding it to shellHook would reject native-arch-only developers unnecessarily.
 
-1. **Container runtime** (docker/podman) — required for all ISAR builds
-2. **Container daemon state** — runtime installed but daemon not running is a distinct failure mode
-3. **Container API compatibility** — nerdctl (Rancher Desktop containerd mode) looks like docker but kas-container needs Docker-compatible API
-4. **sudo PATH visibility** — kas-container invokes the container runtime via sudo; on non-NixOS systems, `secure_path` resets PATH, making Nix-store binaries unreachable
-5. **binfmt_misc registration** — required for cross-architecture builds (e.g., x86_64 host building aarch64 images); currently only checked in kas-build wrapper, not at shell entry
-6. **WSL environment** — needs guidance toward `kas-build` wrapper (handles 9p mount/unmount for sgdisk sync() hang); different container runtime preferences (podman-first vs docker-first)
-
-**Design decision** — choose one approach:
-
-- **Option A: Hard fail** — shellHook calls `return 1` when prerequisites aren't met. Shell entry fails entirely. Pros: impossible to miss. Cons: prevents shell entry for non-build tasks (code review, `jq`/`yq` usage, documentation work).
-
-- **Option B: Export readiness flags** — shellHook sets `N3X_BUILD_READY=0|1` (and detail flags like `N3X_CONTAINER_ENGINE`, `N3X_BINFMT_READY`). `kas-build` wrapper checks flags and fails early with reference to shellHook output. Pros: shell usable for non-build tasks; failure at the right time. Cons: more moving parts.
-
-- **Option C: Prominent banner, no fail** — keep warn-and-continue but make warnings unmissable (color, box drawing, repeated). Pros: simplest change. Cons: warnings can still be scrolled past.
-
-**Scope of changes** — whichever option is chosen, apply consistently to all detection paths in the shellHook:
-
-*Darwin (4 paths)*:
-1. `docker` not on PATH → ERROR
-2. `docker -v` matches nerdctl (Rancher Desktop containerd mode) → ERROR
-3. `docker info` fails (daemon not running) → ERROR
-4. All checks pass → OK, export `KAS_CONTAINER_ENGINE=docker`
-
-*Linux WSL (3 paths)* — detected via `WSL_DISTRO_NAME` or `WSL_DISTRO`:
-5. podman found → OK, export `KAS_CONTAINER_ENGINE=podman`
-6. docker found (fallback) → OK, export `KAS_CONTAINER_ENGINE=docker`
-7. Neither found → ERROR
-
-*Linux non-WSL (6 paths)*:
-8. docker found + `docker -v` matches nerdctl → ERROR
-9. docker found + `docker info` succeeds → OK, export `KAS_CONTAINER_ENGINE=docker`
-10. docker found + daemon not running → ERROR
-11. podman in Nix store on non-NixOS → ERROR (sudo can't reach it)
-12. podman system-installed (or NixOS) → OK, export `KAS_CONTAINER_ENGINE=podman`
-13. Neither found → ERROR
-
-**DoD**:
-1. Every ERROR path produces actionable guidance (what to install, how to fix)
-2. Every ERROR path prevents `kas-build` from running silently (mechanism per chosen option)
-3. Every OK path exports `KAS_CONTAINER_ENGINE` correctly
-4. Behavior is consistent across all 3 platform branches
-5. Decision on approach (A/B/C) documented in code comments
+**DoD assessment**:
+1. Every ERROR path produces actionable guidance — YES
+2. Every ERROR path prevents kas-build from running — YES (`exit 1` kills the shell)
+3. Every OK path exports `KAS_CONTAINER_ENGINE` correctly — YES (unchanged)
+4. Behavior consistent across all 3 platform branches — YES
+5. Decision documented in code comments — YES (flake.nix line 594-596)
 
 ---
 
