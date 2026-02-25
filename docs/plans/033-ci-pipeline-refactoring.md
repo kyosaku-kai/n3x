@@ -42,11 +42,11 @@ Platform concern, not business logic.
 | Task | Description | Status |
 |------|-------------|--------|
 | T1 | Document plan in n3x-public | `TASK:COMPLETE` |
-| T2 | Add `arch` to machines in build-matrix.nix | `TASK:PENDING` |
-| T3 | Add `mkCiKasCommand` and release helpers to build-matrix.nix | `TASK:PENDING` |
-| T4 | Replace arch detection in ci.yml Tier 4 | `TASK:PENDING` |
-| T5 | Replace arch detection in ci.yml Tier 5 | `TASK:PENDING` |
-| T6 | Refactor release.yml to use build-matrix.nix | `TASK:PENDING` |
+| T2 | Add `arch` to machines in build-matrix.nix | `TASK:COMPLETE` |
+| T3 | Add `mkCiKasCommand` and release helpers to build-matrix.nix | `TASK:COMPLETE` |
+| T4 | Replace arch detection in ci.yml Tier 4 | `TASK:COMPLETE` |
+| T5 | Replace arch detection in ci.yml Tier 5 | `TASK:COMPLETE` |
+| T6 | Refactor release.yml to use build-matrix.nix | `TASK:COMPLETE` |
 | T7 | Bump VERSION to 0.0.2 | `TASK:PENDING` |
 | T8 | Dynamic matrix generation (future) | `TASK:DEFERRED` |
 
