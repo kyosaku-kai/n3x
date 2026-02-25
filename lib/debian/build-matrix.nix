@@ -21,6 +21,8 @@ let
   machines = {
     qemuamd64 = {
       kasFile = "qemu-amd64";
+      arch = "x86_64";
+      releaseExtensions = [ ".wic.zst" ".wic.bmap" ];
       # Artifact types produced by ISAR for this machine
       artifactTypes = {
         wic = { extension = ".wic"; attrName = "wic"; };
@@ -30,6 +32,8 @@ let
     };
     qemuarm64 = {
       kasFile = "qemu-arm64-orin";
+      arch = "aarch64";
+      releaseExtensions = [ ".wic.zst" ".wic.bmap" ];
       # Produces WIC images (matching release.yml) — Orin emulation profile
       # with UEFI boot and zstd compression
       artifactTypes = {
@@ -40,12 +44,16 @@ let
     };
     jetson-orin-nano = {
       kasFile = "jetson-orin-nano";
+      arch = "aarch64";
+      releaseExtensions = [ ".tar.gz" ];
       artifactTypes = {
         rootfs = { extension = ".tar.gz"; attrName = "rootfs"; };
       };
     };
     amd-v3c18i = {
       kasFile = "amd-v3c18i";
+      arch = "x86_64";
+      releaseExtensions = [ ".wic.zst" ".wic.bmap" ];
       artifactTypes = {
         wic = { extension = ".wic"; attrName = "wic"; };
       };
