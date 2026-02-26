@@ -51,14 +51,14 @@ This file provides project-specific rules and essential context for Claude Code 
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
-- **Plan 034**: **ACTIVE** (4/10 complete) - Dev Environment Validation and Team Adoption
+- **Plan 034**: **ACTIVE** (all T1 complete) - Dev Environment Validation and Team Adoption
   - T1a: Consolidate dev shells (promote debian→default, delete others) — COMPLETE
   - T1b: Port upstream platform-aware shell logic — COMPLETE
   - T1c: Dev shell validation CI workflow (basic) — COMPLETE
   - T1d: Harden shellHook — validate all host-environment prerequisites — COMPLETE
   - T1e-1: Tier 1 real test fixtures (F1-F7) — COMPLETE
   - T1e-2: Tier 2 macOS fixtures F8-F10 via Colima on `macos-15-intel` — COMPLETE
-  - T1e-3: Tier 3 rationale + remaining Tier 2 (NixOS, WSL) — PENDING
+  - T1e-3: Tier 3 rationale — COMPLETE (F12-F14 removed: NixOS/WSL trivially validated locally)
   - T1f-1: DRY refactor: extract shared container engine detection into Nix functions — COMPLETE
   - T1f-2: Add Darwin+Podman path to shellHook and kas-build wrapper — COMPLETE
   - T1f-3: CI fixtures for Darwin+Podman — COMPLETE

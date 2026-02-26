@@ -421,7 +421,7 @@ Fixtures are organized into three tiers based on CI feasibility:
 
 **Tier 1** (F1-F7): Immediately feasible on standard GitHub-hosted runners. Uses real package management (`apt-get install/remove`, `systemctl stop`) on `ubuntu-24.04` and `macos-latest` runner VMs. No mocked binaries, no container jobs, no fake scripts.
 
-**Tier 2** (F8-F14): Feasible with validated approach. macOS fixtures (F8-F10) use Colima on `macos-15-intel` runners (the only GH Actions macOS runner supporting nested virtualization). NixOS semi-synthetic (F12) and WSL partial (F13-F14) fixtures test real code paths with environmental approximations.
+**Tier 2** (F8-F10): Feasible with validated approach. macOS fixtures use Colima on `macos-15-intel` runners (the only GH Actions macOS runner supporting nested virtualization). NixOS (F12) and WSL (F13-F14) fixtures were removed (2026-02-25) — these Nix-based environments are trivially validated locally.
 
 **Tier 3** (F11, F15-F18): Require self-hosted runners or cannot run in CI. Each Tier 3 fixture maps to a Tier 1 or Tier 2 fixture that validates the same behavioral contract:
 
@@ -431,7 +431,7 @@ Fixtures are organized into three tiers based on CI feasibility:
 | F15: macOS + Rancher Desktop (dockerd) | GUI Electron app, no headless mode | F8 (macOS Colima docker) | Docker daemon |
 | F16: macOS + Rancher Desktop (containerd) | GUI Electron app | F9 (macOS Colima containerd) | nerdctl as docker |
 | F17: macOS + OrbStack | Commercial license | F8 (macOS Colima docker) | Docker daemon |
-| F18: Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix | F13/F14 (partial WSL) | WSL env var + runtime |
+| F18: Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix. NixOS/WSL trivially validated locally. | Local validation only | WSL env var + runtime |
 
 ### Why no mocked binaries
 

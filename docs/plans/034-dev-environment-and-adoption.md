@@ -20,7 +20,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1d | Harden shellHook — validate all host-environment prerequisites | TASK:COMPLETE |
 | 1e-1 | Tier 1 fixtures: real test environments (F1-F7) | TASK:COMPLETE |
 | 1e-2 | Tier 2 research + implementation: macOS+Docker, macOS+nerdctl via Colima | TASK:COMPLETE |
-| 1e-3 | Tier 3 rationale + remaining Tier 2 (NixOS, WSL) | TASK:PENDING |
+| 1e-3 | Tier 3 rationale + remaining Tier 2 (NixOS, WSL) | TASK:COMPLETE |
 | 1f-1 | DRY refactor: extract shared container engine detection into Nix functions | TASK:COMPLETE |
 | 1f-2 | Add Darwin+Podman path to shellHook and kas-build wrapper | TASK:COMPLETE |
 | 1f-3 | CI fixtures for Darwin+Podman (Tier 2/3 as feasible) | TASK:COMPLETE |
@@ -238,9 +238,8 @@ The `ubuntu-24.04` runner comes with Docker pre-installed. For fixtures that nee
 | F9 | macOS + nerdctl (Colima containerd) | `macos-15-intel` | `brew install colima && colima start --runtime containerd`, symlink nerdctl as docker | ERROR: "containerd mode" | Validates Darwin nerdctl detection. Covers Rancher Desktop (containerd) by contract equivalence. |
 | F10 | macOS + Docker stopped (Colima) | `macos-15-intel` | `brew install docker colima && colima start && colima stop` | ERROR: "daemon not running" | Tests Darwin daemon-stopped detection. |
 | F11 | macOS + Podman Machine | Tier 3 (see below) | `brew install podman && podman machine init && podman machine start` | OK: engine=podman | **Requires T1f-2 (Darwin+Podman shellHook path)**. Cannot test on GH runners — Podman Machine needs nested virt. Contract validated by F3 on Linux. |
-| F12 | NixOS + Nix-store podman | `ubuntu-24.04` | Create `/etc/NIXOS` marker + nix-installed podman PATH | OK: engine=podman | Semi-synthetic: real podman binary from Nix store + NixOS marker. Tests the real code path. |
-| F13 | WSL + podman | Deferred | `WSL_DISTRO_NAME` env var on Linux runner | OK: engine=podman | Partial: tests env-var code path but not WSL-specific behavior. |
-| F14 | WSL + Docker | Deferred | `WSL_DISTRO_NAME` env var + Docker | OK: engine=docker | Partial: tests env-var code path. |
+
+**Removed fixtures** (decision 2026-02-25): F12 (NixOS + Nix-store podman), F13 (WSL + podman), F14 (WSL + Docker) were removed from the plan. NixOS and WSL environments are Nix-based and trivially validated locally by the developer — semi-synthetic CI fixtures using marker files and env var tricks add complexity without meaningful coverage beyond what local `nix develop` provides on the real platform.
 
 **Tier 3 — Self-hosted only or impractical in CI:**
 
@@ -250,7 +249,7 @@ The `ubuntu-24.04` runner comes with Docker pre-installed. For fixtures that nee
 | F15 | macOS + Rancher Desktop (dockerd) | GUI Electron app, no headless mode (Issue #1407). Same Docker daemon contract. | F8 (macOS Colima docker) |
 | F16 | macOS + Rancher Desktop (containerd) | GUI app + same nerdctl detection contract. | F9 (macOS Colima containerd) |
 | F17 | macOS + OrbStack | Commercial license. Same Docker daemon contract. | F8 (macOS Colima docker) |
-| F18 | Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix inside WSL. Complex, high cost. | F13/F14 (partial) |
+| F18 | Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix inside WSL. Complex, high cost. NixOS/WSL environments trivially validated locally. | Local validation only |
 
 #### Implementation approach
 
@@ -281,8 +280,8 @@ macOS 15 LNP (Local Network Privacy) may require `sudo` for network access to co
 #### Sub-tasks
 
 - **T1e-1**: Implement Tier 1 fixtures (F1-F7) on runner VMs with real package management. Validate `apt-get remove` fully removes docker on ubuntu-24.04 runners. Validate real nerdctl binary download (v2.2.1 linux-amd64) and F6 Nix-store podman detection via `nix build --print-out-paths` PATH injection.
-- **T1e-2**: Implement Tier 2 macOS fixtures (F8-F10) using Colima on `macos-15-intel`. Research complete — Colima confirmed working. Also implement F12 (NixOS semi-synthetic) and F13/F14 (WSL partial) if straightforward.
-- **T1e-3**: Update Tier 3 rationale. Document contract-based coverage for fixtures that can't run in CI. Implement remaining feasible Tier 2 fixtures.
+- **T1e-2**: Implement Tier 2 macOS fixtures (F8-F10) using Colima on `macos-15-intel`. Research complete — Colima confirmed working.
+- **T1e-3**: Finalize Tier 3 rationale and contract-based coverage documentation. Review remaining Tier 2 fixture candidates (F12-F14). Decision (2026-02-25): F12/F13/F14 removed — NixOS and WSL environments are Nix-based and trivially validated locally. Documentation already complete in `docs/ci.md`.
 
 #### DoD
 
