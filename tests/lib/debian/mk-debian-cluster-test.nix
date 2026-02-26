@@ -314,8 +314,16 @@ let
           tlog(f"  {cluster_iface} has correct IP from baked-in config: {ip_check.strip()}")
       ${lib.optionalString (storageIP != null) ''
       # Verify storage VLAN interface
+      # Poll for storage VLAN IP just like cluster VLAN above — systemd-networkd
+      # creates VLAN interfaces asynchronously and eth1.100 may lag behind eth1.200,
+      # especially with fast boot (direct kernel boot bypasses GRUB timer).
       storage_iface = "eth1.${toString profilePreset.vlanIds.storage}"
       expected_storage_ip = "${storageIP}/24"
+      tlog(f"  Waiting for {storage_iface} to have IP {expected_storage_ip}...")
+      ${pythonName}.wait_until_succeeds(
+          f"ip -4 addr show {storage_iface} | grep -q '${storageIP}'",
+          timeout=30
+      )
       ip_check = ${pythonName}.succeed(f"ip -4 addr show {storage_iface} | grep -oP '(?<=inet )\\S+'")
       if expected_storage_ip not in ip_check:
           tlog(f"  WARNING: Expected {expected_storage_ip} on {storage_iface}, got: {ip_check.strip()}")

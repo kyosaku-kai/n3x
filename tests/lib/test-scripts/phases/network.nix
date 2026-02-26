@@ -62,13 +62,19 @@ rec {
         node.wait_until_succeeds("ip -4 addr show eth1 | grep -q '192.168.1.'", timeout=${toString timeout})
         tlog(f"  {name}: eth1 with IP ready")
         '' else if profile == "vlans" then ''
-        # VLANs profile: wait for eth1.200 with cluster IP
+        # VLANs profile: wait for both cluster and storage VLANs
+        # systemd-networkd creates VLAN interfaces asynchronously — eth1.100 may
+        # lag behind eth1.200, especially with fast boot (direct kernel boot).
         node.wait_until_succeeds("ip -4 addr show eth1.200 | grep -q '192.168.200.'", timeout=${toString timeout})
         tlog(f"  {name}: eth1.200 with IP ready")
+        node.wait_until_succeeds("ip -4 addr show eth1.100 | grep -q '192.168.100.'", timeout=${toString timeout})
+        tlog(f"  {name}: eth1.100 with IP ready")
         '' else if profile == "bonding-vlans" then ''
-        # Bonding + VLANs: wait for bond0.200 with cluster IP
+        # Bonding + VLANs: wait for both cluster and storage VLANs
         node.wait_until_succeeds("ip -4 addr show bond0.200 | grep -q '192.168.200.'", timeout=${toString timeout})
         tlog(f"  {name}: bond0.200 with IP ready")
+        node.wait_until_succeeds("ip -4 addr show bond0.100 | grep -q '192.168.100.'", timeout=${toString timeout})
+        tlog(f"  {name}: bond0.100 with IP ready")
         '' else ''
         # Unknown profile - no wait
         pass
