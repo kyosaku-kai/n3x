@@ -56,12 +56,12 @@ This file provides project-specific rules and essential context for Claude Code 
   - T1b: Port upstream platform-aware shell logic — COMPLETE
   - T1c: Dev shell validation CI workflow (basic) — COMPLETE
   - T1d: Harden shellHook — validate all host-environment prerequisites — COMPLETE
-  - T1e-1: Tier 1 real test fixtures (F1-F7) — PENDING
-  - T1e-2: Tier 2 macOS fixtures via Colima on `macos-15-intel` — PENDING
+  - T1e-1: Tier 1 real test fixtures (F1-F7) — COMPLETE
+  - T1e-2: Tier 2 macOS fixtures F8-F10 via Colima on `macos-15-intel` — COMPLETE
   - T1e-3: Tier 3 rationale + remaining Tier 2 (NixOS, WSL) — PENDING
   - T1f-1: DRY refactor: extract shared container engine detection into Nix functions — COMPLETE
-  - T1f-2: Add Darwin+Podman path to shellHook and kas-build wrapper — PENDING
-  - T1f-3: CI fixtures for Darwin+Podman — PENDING
+  - T1f-2: Add Darwin+Podman path to shellHook and kas-build wrapper — COMPLETE
+  - T1f-3: CI fixtures for Darwin+Podman — COMPLETE
   - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
   - PR: https://github.com/kyosaku-kai/n3x/pull/6 (T1a-T1d pushed)
   - **CRITICAL**: Test fixtures must use real software on runner VMs. NO mocked binaries, NO fake scripts, NO container jobs (DinD breaks privileged kas-container testing). Use runner VMs directly with real package management (`apt-get install/remove`, `brew install`, `nix profile install`). See plan file T1e spec for fixture matrix and rationale.
