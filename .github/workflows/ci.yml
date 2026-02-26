@@ -216,6 +216,18 @@ jobs:
       - name: Prepare cache directories
         run: mkdir -p .ci-cache/downloads .ci-cache/sstate
 
+      - name: Pull kas container image
+        env:
+          KAS_CONTAINER_IMAGE: ghcr.io/siemens/kas/kas-isar:5.1
+        run: |
+          for i in 1 2 3 4 5; do
+            docker pull "$KAS_CONTAINER_IMAGE" && exit 0
+            echo "::warning::Docker pull attempt $i/5 failed, retrying in $((i * 15))s..."
+            sleep $((i * 15))
+          done
+          echo "::error::Failed to pull $KAS_CONTAINER_IMAGE after 5 attempts"
+          exit 1
+
       - name: Build all variants
         env:
           KAS_CONTAINER_ENGINE: docker
@@ -350,6 +362,18 @@ jobs:
 
       - name: Prepare cache directories
         run: mkdir -p .ci-cache/downloads .ci-cache/sstate
+
+      - name: Pull kas container image
+        env:
+          KAS_CONTAINER_IMAGE: ghcr.io/siemens/kas/kas-isar:5.1
+        run: |
+          for i in 1 2 3 4 5; do
+            docker pull "$KAS_CONTAINER_IMAGE" && exit 0
+            echo "::warning::Docker pull attempt $i/5 failed, retrying in $((i * 15))s..."
+            sleep $((i * 15))
+          done
+          echo "::error::Failed to pull $KAS_CONTAINER_IMAGE after 5 attempts"
+          exit 1
 
       # Build and register each variant immediately (interleaved).
       # ISAR variants sharing the same role produce identical output filenames

@@ -1,8 +1,9 @@
 # n3x .gitignore
 
-# Nix build outputs
+# Nix build outputs and GC roots
 result
 result-*
+.gc-roots/
 
 # Secrets - NEVER commit private keys
 secrets/keys/*.age

@@ -22,11 +22,11 @@ flowchart TB
     end
 
     subgraph L2["Layer 2: kas-build Wrapper (WSL-specific)"]
-        L2_content["Defined in: flake.nix (nix develop .#debian)<br/>WSL workaround: unmounts /mnt/c during build<br/>Remounts with proper permissions on exit<br/>CRITICAL: Never SIGKILL - use SIGTERM for cleanup"]
+        L2_content["Defined in: flake.nix (nix develop)<br/>WSL workaround: unmounts /mnt/c during build<br/>Remounts with proper permissions on exit<br/>CRITICAL: Never SIGKILL - use SIGTERM for cleanup"]
     end
 
     subgraph L1["Layer 1: Nix Development Shell"]
-        L1_content["Command: nix develop .#debian<br/>Provides: kas, podman, kas-build wrapper<br/>Sets: KAS_CONTAINER_IMAGE_NAME, KAS_CONTAINER_ENGINE"]
+        L1_content["Command: nix develop<br/>Provides: kas, podman, kas-build wrapper<br/>Sets: KAS_CONTAINER_IMAGE_NAME, KAS_CONTAINER_ENGINE"]
     end
 
     subgraph L0["Layer 0: Host Environment (WSL2)"]
@@ -88,7 +88,7 @@ backends/debian/
 
 ```bash
 # Enter the Debian development shell
-nix develop .#debian
+nix develop
 
 # Build a K3s server image for QEMU (testing)
 cd backends/debian
@@ -396,7 +396,7 @@ sudo podman rm -f $(sudo podman ps -aq)
 
 ```bash
 # Enter Debian development shell to debug
-nix develop .#debian
+nix develop
 cd backends/debian
 
 # Clean and rebuild a specific recipe

@@ -52,7 +52,7 @@ let
           nix-store --add-fixed sha256 build/tmp/deploy/images/${variant.machine}/${uniqueName}
 
         To rebuild the image:
-          nix develop .#debian -c bash -c "cd backends/debian && kas-build ${kasCmd}"
+          nix develop -c bash -c "cd backends/debian && kas-build ${kasCmd}"
 
         Or use the automated build script:
           nix run '.#isar-build-all' -- --variant ${mkVariantId variant}

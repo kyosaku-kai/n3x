@@ -25,7 +25,7 @@ nix build '.#packages.x86_64-linux.my-app'
 **Level 1** - Work in `backends/debian/`
 
 ```bash
-nix develop .#debian
+nix develop
 cd backends/debian
 kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:...
 ```
