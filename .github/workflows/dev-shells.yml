@@ -14,8 +14,12 @@
 #   F6: Ubuntu + Nix-store podman        → ERROR: Nix store path rejection
 #   F7: macOS + no runtime               → ERROR: no runtime found
 #
-# Tier 2 fixtures (F8-F10, macOS via Colima) and Tier 3 rationale are
-# defined in docs/plans/034-dev-environment-and-adoption.md.
+# Tier 2 fixtures (F8-F10, macOS via Colima on macos-15-intel):
+#   F8: macOS + Docker (Colima)             → OK: engine=docker
+#   F9: macOS + nerdctl (Colima containerd) → ERROR: containerd mode
+#   F10: macOS + Docker stopped (Colima)    → ERROR: daemon not running
+#
+# Tier 3 rationale: docs/plans/034-dev-environment-and-adoption.md.
 # Coverage model: docs/ci.md § Dev Shell Validation.
 
 name: Dev Shell
@@ -89,6 +93,24 @@ jobs:
             runner: macos-latest
             expect_exit: "1"
             expect_pattern: "No container runtime found"
+            expect_engine: ""
+          - fixture: F8
+            name: "F8: macOS + Docker (Colima)"
+            runner: macos-15-intel
+            expect_exit: "0"
+            expect_pattern: "engine: docker"
+            expect_engine: "docker"
+          - fixture: F9
+            name: "F9: macOS + nerdctl (Colima containerd)"
+            runner: macos-15-intel
+            expect_exit: "1"
+            expect_pattern: "containerd mode"
+            expect_engine: ""
+          - fixture: F10
+            name: "F10: macOS + Docker stopped (Colima)"
+            runner: macos-15-intel
+            expect_exit: "1"
+            expect_pattern: "Docker daemon not running"
             expect_engine: ""
 
     steps:
@@ -191,6 +213,44 @@ jobs:
           fi
           echo "Confirmed: not NixOS (no /etc/NIXOS)"
 
+      - name: "Setup: install Docker CLI and Colima"
+        if: contains(fromJSON('["F8","F10"]'), matrix.fixture)
+        run: |
+          brew install docker colima
+          echo "docker CLI: $(docker --version)"
+          echo "colima: $(colima version)"
+
+      - name: "Setup: start Colima (Docker mode)"
+        if: matrix.fixture == 'F8'
+        run: |
+          colima start
+          # Verify docker daemon is reachable
+          docker info > /dev/null
+          echo "Colima started, Docker daemon reachable"
+
+      - name: "Setup: install nerdctl and Colima (containerd mode)"
+        if: matrix.fixture == 'F9'
+        run: |
+          brew install colima nerdctl
+          colima start --runtime containerd
+          # Symlink nerdctl as docker (mimics Rancher Desktop containerd mode)
+          ln -sf "$(brew --prefix)/bin/nerdctl" /usr/local/bin/docker
+          echo "docker symlink -> $(readlink -f /usr/local/bin/docker)"
+          echo "docker -v output: $(docker -v 2>&1)"
+
+      - name: "Setup: start and stop Colima (Docker stopped)"
+        if: matrix.fixture == 'F10'
+        run: |
+          colima start
+          docker info > /dev/null  # verify it was running
+          colima stop
+          # Verify daemon is no longer reachable
+          if docker info &>/dev/null 2>&1; then
+            echo "ERROR: Docker daemon still responding after colima stop"
+            exit 1
+          fi
+          echo "Colima stopped, Docker daemon unreachable"
+
       # ── Test dev shell ──────────────────────────────────────────────
       - name: Test dev shell entry
         id: test
@@ -262,9 +322,9 @@ jobs:
             exit 1
           fi
 
-      # ── Tool validation (F1 only — the happy path) ─────────────────
+      # ── Tool validation (happy paths: F1 Linux, F8 macOS) ──────────
       - name: Validate tools on PATH
-        if: matrix.fixture == 'F1'
+        if: contains(fromJSON('["F1","F8"]'), matrix.fixture)
         run: |
           nix develop --command bash -c '
             FAIL=0
@@ -280,7 +340,7 @@ jobs:
           '
 
       - name: Validate tool functionality
-        if: matrix.fixture == 'F1'
+        if: contains(fromJSON('["F1","F8"]'), matrix.fixture)
         run: |
           nix develop --command bash -c '
             echo "--- kas ---"
