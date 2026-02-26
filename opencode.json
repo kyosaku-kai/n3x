@@ -1,0 +1,6 @@
+{
+  "instructions": [
+    "CLAUDE.md",
+    ".opencode/rules/*.md"
+  ]
+}
