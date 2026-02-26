@@ -1,0 +1,1 @@
+../../.ai/skills/image-testing.md
