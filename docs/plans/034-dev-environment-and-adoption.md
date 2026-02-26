@@ -123,7 +123,7 @@ Ported from upstream:
 
 ### Task 1e: CI matrix — real test fixtures for every claimed dev environment
 
-**Status**: `TASK:PENDING`
+**Status**: `TASK:COMPLETE` (all subtasks T1e-1, T1e-2, T1e-3 complete)
 
 **Previous attempt (reverted)**: Commits `32de225` + `990dd16` used a mocking approach — moving docker binaries, creating fake nerdctl scripts, setting `WSL_DISTRO_NAME` env vars on regular ubuntu runners. This tested bash branching logic, not real environments. Reverted because it doesn't prove the dev shell works on actual developer machines.
 
@@ -295,7 +295,7 @@ macOS 15 LNP (Local Network Privacy) may require `sudo` for network access to co
 
 ### Task 1f: DRY refactor + Darwin+Podman support
 
-**Status**: `TASK:PENDING`
+**Status**: `TASK:COMPLETE` (all subtasks T1f-1, T1f-2, T1f-3 complete)
 
 **Motivation**: The current container engine detection logic is duplicated across 4 locations in `flake.nix` with inconsistent behavior between Darwin and Linux. Darwin supports only Docker, but real macOS developers also use Podman Machine. Adding Darwin+Podman requires touching all 4 locations — this is the right time to DRY the detection into shared Nix-defined shell functions.
 
