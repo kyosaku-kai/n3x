@@ -1,0 +1,29 @@
+#!/bin/sh
+# SessionStart hook — runs at Claude Code session start
+# Keep output to 5-10 lines max, complete in <2 seconds, always exit 0
+
+# --- Orphaned build processes ---
+orphans=""
+for proc in qemu nixos-test-driver bitbake kas; do
+  pids="$(pgrep -a "$proc" 2>/dev/null)" || continue
+  orphans="${orphans}${orphans:+
+}  ${pids}"
+done
+if [ -n "$orphans" ]; then
+  echo "WARNING: Orphaned build processes detected:"
+  echo "$orphans"
+  echo "  Kill with: kill -TERM <pid>"
+fi
+
+# --- Disk space warning (<10GB available on /) ---
+if [ "$(uname -s)" = "Darwin" ]; then
+  avail_kb=$(df -k / | awk 'NR==2 {print $4}')
+else
+  avail_kb=$(df -k / | awk 'NR==2 {print $4}')
+fi
+if [ -n "$avail_kb" ] && [ "$avail_kb" -lt 10485760 ] 2>/dev/null; then
+  avail_gb=$((avail_kb / 1048576))
+  echo "WARNING: Low disk space on /: ${avail_gb}GB available (<10GB threshold)"
+fi
+
+exit 0
