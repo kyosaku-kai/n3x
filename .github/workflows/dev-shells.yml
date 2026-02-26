@@ -230,11 +230,16 @@ jobs:
 
       - name: "Setup: install nerdctl and Colima (containerd mode)"
         if: matrix.fixture == 'F9'
+        env:
+          NERDCTL_VERSION: "2.2.1"
         run: |
-          brew install colima nerdctl
+          brew install colima
           colima start --runtime containerd
+          # nerdctl brew formula is Linux-only; download binary from GitHub releases
+          curl -fsSL "https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-${NERDCTL_VERSION}-darwin-amd64.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin nerdctl
           # Symlink nerdctl as docker (mimics Rancher Desktop containerd mode)
-          ln -sf "$(brew --prefix)/bin/nerdctl" /usr/local/bin/docker
+          ln -sf /usr/local/bin/nerdctl /usr/local/bin/docker
           echo "docker symlink -> $(readlink -f /usr/local/bin/docker)"
           echo "docker -v output: $(docker -v 2>&1)"
 

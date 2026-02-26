@@ -277,9 +277,13 @@
         config.allowUnfree = true;
       };
 
-      # Package set for aarch64-darwin (Apple Silicon)
-      pkgsDarwin = import nixpkgs {
+      # Package sets for macOS (Apple Silicon and Intel)
+      pkgsDarwinArm = import nixpkgs {
         system = "aarch64-darwin";
+        config.allowUnfree = true;
+      };
+      pkgsDarwinX64 = import nixpkgs {
+        system = "x86_64-darwin";
         config.allowUnfree = true;
       };
 
@@ -959,7 +963,11 @@
       };
 
       devShells.aarch64-darwin = {
-        default = mkDevShell pkgsDarwin;
+        default = mkDevShell pkgsDarwinArm;
+      };
+
+      devShells.x86_64-darwin = {
+        default = mkDevShell pkgsDarwinX64;
       };
 
       # Packages that can be built
