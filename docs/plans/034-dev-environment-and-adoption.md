@@ -22,7 +22,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1e-2 | Tier 2 research + implementation: macOS+Docker, macOS+nerdctl via Colima | TASK:PENDING |
 | 1e-3 | Tier 3 rationale + remaining Tier 2 (NixOS, WSL) | TASK:PENDING |
 | 1f-1 | DRY refactor: extract shared container engine detection into Nix functions | TASK:COMPLETE |
-| 1f-2 | Add Darwin+Podman path to shellHook and kas-build wrapper | TASK:PENDING |
+| 1f-2 | Add Darwin+Podman path to shellHook and kas-build wrapper | TASK:COMPLETE |
 | 1f-3 | CI fixtures for Darwin+Podman (Tier 2/3 as feasible) | TASK:PENDING |
 
 ## Task Dependencies
@@ -463,6 +463,9 @@ detectEngine + ''
 5. Nix evaluation (`nix flake check --no-build`) succeeds
 
 #### Sub-task T1f-2: Add Darwin+Podman to shellHook and kas-build wrapper
+
+**Status**: `TASK:COMPLETE`
+**Commit**: `ab77aa1`
 
 **Goal**: The shared `detect_container_engine` from T1f-1 already checks for podman (with `podman info` to verify the machine is running). This sub-task adds Darwin-specific error messages and updates the kas-build wrapper.
 
