@@ -73,7 +73,6 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
-- **Plan 035**: AI Skills Improvements — IN PROGRESS — `docs/plans/035-ai-skills-improvements.md`
 - **Plan 034**: Dev Environment Validation — COMPLETE — `docs/plans/034-dev-environment-and-adoption.md`
 - **Plan 033**: CI Pipeline Refactoring — COMPLETE (T8 deferred) — `docs/plans/033-ci-pipeline-refactoring.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
