@@ -73,25 +73,9 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
-- **Plan 034**: **ACTIVE** (all T1 complete) - Dev Environment Validation and Team Adoption
-  - T1a: Consolidate dev shells (promote debian→default, delete others) — COMPLETE
-  - T1b: Port upstream platform-aware shell logic — COMPLETE
-  - T1c: Dev shell validation CI workflow (basic) — COMPLETE
-  - T1d: Harden shellHook — validate all host-environment prerequisites — COMPLETE
-  - T1e-1: Tier 1 real test fixtures (F1-F7) — COMPLETE
-  - T1e-2: Tier 2 macOS fixtures F8-F10 via Colima on `macos-15-intel` — COMPLETE
-  - T1e-3: Tier 3 rationale — COMPLETE (F12-F14 removed: NixOS/WSL trivially validated locally)
-  - T1f-1: DRY refactor: extract shared container engine detection into Nix functions — COMPLETE
-  - T1f-2: Add Darwin+Podman path to shellHook and kas-build wrapper — COMPLETE
-  - T1f-3: CI fixtures for Darwin+Podman — COMPLETE
-  - Plan file: `docs/plans/034-dev-environment-and-adoption.md`
-  - PR: https://github.com/kyosaku-kai/n3x/pull/6 (T1a-T1d pushed)
-  - **CRITICAL**: Test fixtures must use real software on runner VMs. NO mocked binaries, NO fake scripts, NO container jobs (DinD breaks privileged kas-container testing). Use runner VMs directly with real package management (`apt-get install/remove`, `brew install`, `nix profile install`). See plan file T1e spec for fixture matrix and rationale.
-  - **macOS CI constraint**: Only Colima works on GH Actions macOS runners (`macos-15-intel`). Podman Machine, Docker Desktop, Rancher Desktop, OrbStack all require nested virt that ARM runners don't support. Intel runner available until ~Aug 2027.
-  - **Contract-based coverage**: ShellHook tests behavioral contracts (binary on PATH + version string + daemon reachable), not products. Testing with Colima validates Docker Desktop, Rancher Desktop (dockerd), OrbStack by contract equivalence.
-  - **DRY violations**: Container engine detection duplicated in 4 places in flake.nix (Darwin shellHook, Linux shellHook, Darwin kas-build wrapper, Linux kas-build wrapper). Darwin wrapper hardcodes "docker" throughout. T1f refactors into shared `detect_container_engine` function.
-- **Plan 033**: **COMPLETE** (7/7, T8 deferred) - CI Pipeline Refactoring
-  - Plan file: `docs/plans/033-ci-pipeline-refactoring.md`
+- **Plan 035**: AI Skills Improvements — IN PROGRESS — `docs/plans/035-ai-skills-improvements.md`
+- **Plan 034**: Dev Environment Validation — COMPLETE — `docs/plans/034-dev-environment-and-adoption.md`
+- **Plan 033**: CI Pipeline Refactoring — COMPLETE (T8 deferred) — `docs/plans/033-ci-pipeline-refactoring.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
 - **BitBake Limits**: BB_NUMBER_THREADS=dynamic (min(CPUs, (RAM_GB-4)/3)), BB_PRESSURE_MAX_MEMORY=10000
 - **ISAR Build Matrix**: 42 artifacts across 4 machines (qemuamd64, amd-v3c18i, qemuarm64, jetson-orin-nano)
