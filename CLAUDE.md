@@ -48,6 +48,28 @@ This file provides project-specific rules and essential context for Claude Code 
    pgrep -a qemu 2>/dev/null || echo "No QEMU"; pgrep -a nixos-test-driver 2>/dev/null || echo "No drivers"
    ```
 
+## Build Quick Reference
+
+```bash
+# Flake verification (pre-commit hook runs this automatically)
+nix flake check --no-build
+
+# NixOS VM tests (L4 cluster, 4 profiles × 2 boot modes)
+nix build '.#checks.x86_64-linux.k3s-cluster-simple' -L
+nix build '.#checks.x86_64-linux.debian-cluster-simple' -L
+
+# ISAR image builds (preferred workflow)
+nix run '.'                              # Build ALL 16 variants
+nix run '.' -- --variant base            # Build one variant
+nix run '.' -- --list                    # Show all variants
+
+# Interactive test debugging
+nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
+./result/bin/nixos-test-driver --interactive
+```
+
+**Detailed procedures**: `.ai/skills/isar-build.md` (ISAR builds), `.ai/skills/image-testing.md` (VM tests)
+
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
