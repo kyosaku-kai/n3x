@@ -12,7 +12,7 @@
 #   F4: Ubuntu + no container runtime    → ERROR: no runtime found
 #   F5: Ubuntu + nerdctl as docker       → ERROR: containerd mode
 #   F6: Ubuntu + Nix-store podman        → ERROR: Nix store path rejection
-#   F7: macOS + no Docker               → ERROR: Docker not found
+#   F7: macOS + no runtime               → ERROR: no runtime found
 #
 # Tier 2 fixtures (F8-F10, macOS via Colima) and Tier 3 rationale are
 # defined in docs/plans/034-dev-environment-and-adoption.md.
@@ -85,10 +85,10 @@ jobs:
             expect_pattern: "Nix store"
             expect_engine: ""
           - fixture: F7
-            name: "F7: macOS + no Docker"
+            name: "F7: macOS + no runtime"
             runner: macos-latest
             expect_exit: "1"
-            expect_pattern: "Docker not found"
+            expect_pattern: "No container runtime found"
             expect_engine: ""
 
     steps:

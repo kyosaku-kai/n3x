@@ -156,6 +156,11 @@
               ENGINE_ERROR_PATH="$podman_path"
               return 1
             fi
+            # Verify podman is functional (machine running on macOS, daemon on Linux)
+            if ! podman info &>/dev/null 2>&1; then
+              ENGINE_ERROR="PODMAN_NOT_RUNNING"
+              return 1
+            fi
             ENGINE_NAME="podman"
             return 0
           fi
@@ -184,11 +189,21 @@
               echo "  Start Docker Desktop and try again."
               echo ""
               ;;
+            PODMAN_NOT_RUNNING)
+              echo ""
+              echo -e "  ''${RED}ERROR: Podman Machine not running''${NC}"
+              echo "  Start with: podman machine start"
+              echo "  Or initialize first: podman machine init && podman machine start"
+              echo ""
+              ;;
             *)
               echo ""
-              echo -e "  ''${RED}ERROR: Docker not found in PATH''${NC}"
-              echo "  Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
-              echo "  Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
+              echo -e "  ''${RED}ERROR: No container runtime found''${NC}"
+              echo "  Install one of:"
+              echo "    Docker Desktop: https://www.docker.com/products/docker-desktop/"
+              echo "    Colima: brew install colima docker && colima start"
+              echo "    Podman: brew install podman && podman machine init && podman machine start"
+              echo "    Rancher Desktop (dockerd mode): https://rancherdesktop.io/"
               echo ""
               ;;
           esac
@@ -223,6 +238,13 @@
               echo ""
               echo "  Install system podman: sudo apt-get install podman"
               echo "  Or install docker instead (recommended)."
+              echo ""
+              ;;
+            PODMAN_NOT_RUNNING)
+              echo ""
+              echo -e "  ''${RED}ERROR: podman is installed but not functional''${NC}"
+              echo "  Check: podman info"
+              echo "  On systemd systems: systemctl --user start podman.socket"
               echo ""
               ;;
             *)
@@ -267,7 +289,7 @@
 
       # Platform-aware kas-container wrapper script
       # Linux: Handles the sgdisk sync() hang on WSL2 by temporarily unmounting 9p filesystems
-      # Darwin: Docker Desktop, Colima, or Rancher Desktop (dockerd mode) as container engine
+      # Darwin: Docker Desktop, Colima, Podman Machine, or Rancher Desktop (dockerd mode)
       mkKasBuildWrapper = wrapperPkgs:
         if wrapperPkgs.stdenv.isDarwin then
           wrapperPkgs.writeShellScriptBin "kas-build" ''
@@ -291,7 +313,7 @@
               echo "Usage: kas-build <kas-config-files> [additional-args...]"
               echo ""
               echo "Wrapper around 'kas-container --isar build' for macOS."
-              echo "Requires Docker Desktop, Colima, or Rancher Desktop (dockerd/moby mode)."
+              echo "Requires Docker Desktop, Colima, Podman Machine, or Rancher Desktop (dockerd/moby mode)."
               echo ""
               echo "Examples:"
               echo "  kas-build backends/debian/kas/base.yml:backends/debian/kas/machine/qemu-amd64.yml"
@@ -316,10 +338,18 @@
                     echo ""
                     echo "Start Docker Desktop and try again."
                     ;;
+                  PODMAN_NOT_RUNNING)
+                    log_error "Podman Machine is not running"
+                    echo ""
+                    echo "Start with: podman machine start"
+                    echo "Or initialize first: podman machine init && podman machine start"
+                    ;;
                   *)
-                    log_error "Docker not found in PATH"
+                    log_error "No container runtime found"
                     echo ""
                     echo "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+                    echo "Or Colima: brew install colima docker && colima start"
+                    echo "Or Podman: brew install podman && podman machine init && podman machine start"
                     echo "Or Rancher Desktop (dockerd/moby mode): https://rancherdesktop.io/"
                     ;;
                 esac
@@ -352,7 +382,7 @@
                 kas_config="''${kas_config}:kas/opt/native-build.yml"
               else
                 log_info "Cross-compilation: $HOST_ARCH -> $TARGET_ARCH (ISAR default)"
-                log_info "Docker Desktop handles binfmt_misc automatically."
+                log_info "binfmt_misc is handled by the container runtime's Linux VM."
                 log_info "If you see 'Exec format error', try:"
                 log_info "  $KAS_CONTAINER_ENGINE run --rm --privileged multiarch/qemu-user-static --reset -p yes"
               fi
@@ -509,6 +539,10 @@
                     echo ""
                     echo "Install system podman: sudo apt-get install podman"
                     echo "Or install docker instead (recommended)."
+                    ;;
+                  PODMAN_NOT_RUNNING)
+                    log_error "podman is installed but not functional."
+                    echo "Check: podman info"
                     ;;
                   *)
                     log_error "No container engine found. Install docker-ce or podman."
@@ -698,7 +732,7 @@
 
       # Platform-aware development shell
       # Linux: system container runtime detection, WSL guidance
-      # Darwin: container engine validation (Docker, Colima, Rancher Desktop dockerd)
+      # Darwin: container engine validation (Docker, Colima, Podman Machine, Rancher Desktop dockerd)
       # Container runtimes (docker/podman) are NOT provided by Nix — they must
       # be system-installed because kas-container runs them via sudo, which
       # resets PATH and cannot reach Nix store paths on non-NixOS systems.
