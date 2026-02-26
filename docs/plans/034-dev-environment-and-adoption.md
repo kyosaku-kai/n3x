@@ -23,7 +23,7 @@ The flake now defines a single `default` dev shell with platform-aware logic (WS
 | 1e-3 | Tier 3 rationale + remaining Tier 2 (NixOS, WSL) | TASK:PENDING |
 | 1f-1 | DRY refactor: extract shared container engine detection into Nix functions | TASK:COMPLETE |
 | 1f-2 | Add Darwin+Podman path to shellHook and kas-build wrapper | TASK:COMPLETE |
-| 1f-3 | CI fixtures for Darwin+Podman (Tier 2/3 as feasible) | TASK:PENDING |
+| 1f-3 | CI fixtures for Darwin+Podman (Tier 2/3 as feasible) | TASK:COMPLETE |
 
 ## Task Dependencies
 
@@ -493,6 +493,8 @@ detectEngine + ''
 
 #### Sub-task T1f-3: CI fixtures for Darwin+Podman
 
+**Status**: `TASK:COMPLETE`
+
 **Goal**: Add CI fixture coverage for the new Darwin+Podman path where feasible.
 
 **F11 (macOS + Podman Machine)** is Tier 3 — cannot run on GH runners. Coverage comes from:
@@ -518,3 +520,8 @@ nix develop   # Should fail: "Podman Machine not running"
 1. F7 expectations updated for new "no runtime" message (includes Podman guidance)
 2. Manual testing procedure documented in plan or developer docs
 3. Tier 3 rationale for F11 documents contract-based coverage via F3
+
+**DoD assessment:**
+1. F7 expectations — Updated in T1f-2 (`ab77aa1`): pattern changed from `"Docker not found"` to `"No container runtime found"`, fixture renamed from "macOS + no Docker" to "macOS + no runtime"
+2. Manual testing — Documented in `docs/ci.md` § "Manual testing for Tier 3 environments" (Podman Machine, Docker Desktop, preference test)
+3. Tier 3 rationale — Explicit mapping table added to `docs/ci.md` § "Fixture tiers": F11→F3 (podman contract), F15→F8, F16→F9, F17→F8, F18→F13/F14

@@ -423,7 +423,15 @@ Fixtures are organized into three tiers based on CI feasibility:
 
 **Tier 2** (F8-F14): Feasible with validated approach. macOS fixtures (F8-F10) use Colima on `macos-15-intel` runners (the only GH Actions macOS runner supporting nested virtualization). NixOS semi-synthetic (F12) and WSL partial (F13-F14) fixtures test real code paths with environmental approximations.
 
-**Tier 3** (F11, F15-F18): Require self-hosted runners or cannot run in CI. Each Tier 3 fixture maps to a Tier 1 or Tier 2 fixture that validates the same behavioral contract. For example, F11 (macOS + Podman Machine) cannot run on GH runners (Podman Machine requires nested virt), but F3 (Linux podman) validates the identical `command -v podman` + `podman info` contract.
+**Tier 3** (F11, F15-F18): Require self-hosted runners or cannot run in CI. Each Tier 3 fixture maps to a Tier 1 or Tier 2 fixture that validates the same behavioral contract:
+
+| Tier 3 fixture | Why not in CI | CI equivalent | Shared contract |
+|---|---|---|---|
+| F11: macOS + Podman Machine | Requires nested virt (confirmed by Podman maintainer, Discussion #26859) | F3 (Linux podman) | `command -v podman` + `podman info` |
+| F15: macOS + Rancher Desktop (dockerd) | GUI Electron app, no headless mode | F8 (macOS Colima docker) | Docker daemon |
+| F16: macOS + Rancher Desktop (containerd) | GUI Electron app | F9 (macOS Colima containerd) | nerdctl as docker |
+| F17: macOS + OrbStack | Commercial license | F8 (macOS Colima docker) | Docker daemon |
+| F18: Real WSL2 on Windows | Requires Windows runner + WSL2 + Nix | F13/F14 (partial WSL) | WSL env var + runtime |
 
 ### Why no mocked binaries
 
@@ -436,6 +444,60 @@ Every macOS container runtime requires a Linux VM (containers are Linux). GH Act
 Colima is the only confirmed working container runtime on GH Actions macOS runners. It supports both Docker mode (`colima start`) and containerd mode (`colima start --runtime containerd`), making it a CI proxy for Docker Desktop, Rancher Desktop, and OrbStack via contract equivalence.
 
 See the [plan file](plans/034-dev-environment-and-adoption.md) for the full macOS runtime survey (11 tools evaluated) and per-fixture setup details.
+
+### Manual testing for Tier 3 environments
+
+Certain environments cannot be tested in CI. Developers on these platforms should verify the dev shell manually after any changes to the shellHook or container engine detection logic in `flake.nix`.
+
+**macOS + Podman Machine** (F11 — validates Darwin+Podman path):
+
+```bash
+# Install and start Podman Machine
+brew install podman
+podman machine init
+podman machine start
+
+# Test: shell should enter with KAS_CONTAINER_ENGINE=podman
+nix develop --command bash -c 'echo "ENGINE=$KAS_CONTAINER_ENGINE"'
+# Expected: exit 0, ENGINE=podman
+
+# Stop Podman Machine (and ensure no Docker is available)
+podman machine stop
+
+# Test: shell should reject with guidance
+nix develop --command bash -c 'echo unreachable' 2>&1
+# Expected: exit 1, "Podman Machine not running"
+```
+
+**macOS + Docker Desktop** (F15-equivalent — validates Darwin+Docker path):
+
+```bash
+# Start Docker Desktop
+open -a Docker
+
+# Test: shell should enter with KAS_CONTAINER_ENGINE=docker
+nix develop --command bash -c 'echo "ENGINE=$KAS_CONTAINER_ENGINE"'
+# Expected: exit 0, ENGINE=docker
+
+# Quit Docker Desktop
+osascript -e 'quit app "Docker"'
+sleep 5
+
+# Test: shell should reject with guidance
+nix develop --command bash -c 'echo unreachable' 2>&1
+# Expected: exit 1, "Docker daemon not running"
+```
+
+**macOS + both Docker and Podman** (preference test):
+
+```bash
+# Start both Docker Desktop and Podman Machine
+open -a Docker && podman machine start
+
+# Test: docker should be preferred (consistent with Linux non-WSL behavior)
+nix develop --command bash -c 'echo "ENGINE=$KAS_CONTAINER_ENGINE"'
+# Expected: exit 0, ENGINE=docker
+```
 
 ## Related Documentation
 
