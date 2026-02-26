@@ -75,8 +75,11 @@ let
   bootPhase = import ../test-scripts/phases/boot.nix { inherit lib; };
   k3sPhase = import ../test-scripts/phases/k3s.nix { inherit lib; };
 
-  # Test name defaults to debian-cluster-<profile>
-  actualTestName = if testName != null then testName else "debian-cluster-${networkProfile}";
+  # Test name defaults to debian-cluster-<profile>[-<bootMode>]
+  # Include boot mode suffix for non-firmware variants so derivation names
+  # (and therefore CI log prefixes) are distinguishable.
+  bootSuffix = if bootMode == "firmware" then "" else "-${bootMode}";
+  actualTestName = if testName != null then testName else "debian-cluster-${networkProfile}${bootSuffix}";
 
   # Get server API URL from profile
   serverApi = profilePreset.serverApi;
@@ -799,9 +802,6 @@ let
     # Also check L2 connectivity
     pre_ping = server_2.execute("ping -c 1 ${primaryIP} 2>&1")[1]
     tlog(f"  Pre-check: server-2 ping server-1: {pre_ping.strip()}")
-    # Try nc instead of curl (simpler, less TLS overhead)
-    nc_test = server_2.execute("timeout 3 nc -vz ${primaryIP} 6443 2>&1")[1]
-    tlog(f"  Pre-check: server-2 nc to server-1:6443: {nc_test.strip()}")
     pre_conn = server_2.execute("timeout 5 curl -v -k https://${primaryIP}:6443/healthz 2>&1")[1]
     tlog(f"  Pre-check: server-2 -> server-1:6443: {pre_conn.strip()}")
 
