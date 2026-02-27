@@ -285,3 +285,5 @@ Key entry points:
 - [`tests/README.md`](tests/README.md) — Test framework and full test catalog
 - [`infra/README.md`](infra/README.md) — CI/CD infrastructure (AWS + NixOS runners)
 - [`docs/SECRETS-SETUP.md`](docs/SECRETS-SETUP.md) — SOPS/age secrets management
+- [`RELEASE.md`](RELEASE.md) — Versioning and release process
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — Contribution guidelines and commit conventions
