@@ -165,7 +165,9 @@ See [`backends/nixos/README.md`](backends/nixos/README.md) for module compositio
 
 ## Testing
 
-Both backends are validated using the NixOS test driver (QEMU multi-node VMs). Each network profile is tested independently on both backends to ensure parity.
+The test infrastructure emulates multi-node k3s clusters in VMs — booting real images, configuring networking, and validating cluster formation automatically. Tests run identically on developer laptops and CI, requiring only KVM. No physical hardware or cloud dependencies needed.
+
+Both backends converge at the same test harness: the NixOS test driver, which orchestrates QEMU/KVM multi-node topologies via Python test scripts. Each network profile is tested independently on both backends to ensure parity.
 
 ```bash
 # Run ALL Debian tests (18 tests)
