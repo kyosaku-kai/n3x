@@ -328,11 +328,11 @@ server_2.succeed("systemctl start k3s-server.service")
 - Solution: `kas-build` wrapper handles mount/unmount automatically
 
 ### Platform Support
-| Platform | nixosTest Multi-Node | vsim (Nested Virt) |
-|----------|---------------------|-------------------|
-| Native Linux | YES | YES |
-| WSL2 | YES | NO (2-level limit) |
-| Darwin | YES* | NO |
+| Platform | nixosTest Multi-Node |
+|----------|---------------------|
+| Native Linux | YES |
+| WSL2 | YES |
+| Darwin | YES* |
 
 ### ISAR Kernel Selection Mechanism
 

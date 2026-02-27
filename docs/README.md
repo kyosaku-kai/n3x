@@ -73,11 +73,6 @@ Quick navigation to all project documentation. See also the [top-level README](.
 ## Extraction & Migration
 - [n3x Extraction Manifest](n3x-extraction-manifest.md) — Tracks file extraction to downstream repo
 
-## Emulation
-- [Embedded System Emulator](../vsim/embedded-system-emulator.md) — NixOS-based embedded system emulation
-- [vsim Merge Analysis](../vsim/MERGE-ANALYSIS.md) — n3x + vsim consolidation analysis
-- [VSIM Integration Plan](VSIM-INTEGRATION-PLAN.md) — vsim integration into n3x
-
 ## Reference & WIP
 - [Mikrotik Setup Notes](wip-L1.0-mikrotik-setup.md) (WIP)
 - [Infrastructure Survey](wip-L1.1-infrastructure-survey.md) (WIP)
