@@ -21,32 +21,22 @@
 header:
   version: 14
 
-# ISAR framework repository
+# ISAR framework repository (fork with do_adjust_git symlink fix)
 #
-# IMPORTANT: This will eventually be a FORK, not a plain mirror.
+# Fork of ilbers/isar with fix for dangling symlink handling in
+# dpkg-base.bbclass do_adjust_git(). os.path.exists() follows symlinks
+# and misses dangling ones, causing FileExistsError when DL_DIR mount
+# paths change between kas-container sessions.
 #
-# ISAR's dpkg-base.bbclass has a bug in do_adjust_git (line 30-34) where
-# os.path.exists() is used to check a symlink, but this follows the symlink
-# target. When the target doesn't exist (stale tmpdir from a previous
-# kas-container session), the dangling symlink isn't cleaned up, and the
-# subsequent os.symlink() call fails with FileExistsError.
+# Fix: os.path.exists() → os.path.lexists() on lines 30 and 33.
+# Upstream issue: https://github.com/ilbers/isar/issues/PENDING
+# Upstream PR: https://github.com/ilbers/isar/pull/PENDING
 #
-# Fix: change os.path.exists() to os.path.lexists() on line 30 and 33 of
-# meta/classes-recipe/dpkg-base.bbclass in the ISAR source.
-#
-# Upstream file: https://github.com/ilbers/isar/blob/master/meta/classes-recipe/dpkg-base.bbclass
-# Affected function: do_adjust_git() -- symlink creation for .git-downloads
-#
-# Current workaround: rm -f build/tmp/work/debian-trixie-*/.git-downloads
-# before each kas-container build when switching between invocations.
-#
-# Tracking: When internal GitLab mirror is provisioned, create a fork with
-# a patch branch containing the fix, point this URL at the fork, and submit
-# the fix upstream to ilbers/isar.
+# TODO: Revert to upstream ilbers/isar once fix is merged.
 repos:
   isar:
-    url: https://github.com/ilbers/isar.git
-    commit: 16b7b7e37b54be969453466e01ce4aa66e8ccb8e
+    url: https://github.com/kyosaku-kai/isar.git
+    commit: 62a2db1545a8d5dd811d3ad7caa3107fb51e256e
     layers:
       meta:
       meta-isar:
