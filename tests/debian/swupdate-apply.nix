@@ -43,55 +43,47 @@ let
     testScript =
       let
         utils = import ../lib/test-scripts/utils.nix;
+        bootPhase = import ../lib/test-scripts/phases/boot.nix { inherit lib; };
       in
       ''
-        import os
-        ${utils.runWithRetry}
+        ${utils.all}
 
-        # Wait for VM to boot
-        testvm.wait_for_unit("nixos-test-backdoor.service")
-        print("VM booted successfully")
+        ${bootPhase.debian.bootWithBackdoor { node = "testvm"; displayName = "SWUpdate test VM"; }}
 
         # ===== Test 1: Verify boot from APP partition =====
-        print("\n" + "=" * 60)
-        print("Test 1: Verify boot from APP partition (slot A)")
-        print("=" * 60)
+        log_section("TEST 1", "Verify boot from APP partition (slot A)")
 
         # Get current root device
         root_mount = testvm.succeed("findmnt -n -o SOURCE /").strip()
-        print(f"Current root device: {root_mount}")
+        tlog(f"Current root device: {root_mount}")
 
         # Verify we're on APP (slot A) - could be by label or by device path
         # The device will be /dev/sda2 (partition 2) or contain LABEL=APP
         root_label = testvm.succeed("findmnt -n -o LABEL / 2>/dev/null || echo 'no-label'").strip()
-        print(f"Root partition label: {root_label}")
+        tlog(f"Root partition label: {root_label}")
 
         if root_label == "APP" or "sda2" in root_mount:
-            print("Confirmed: Booted from APP partition (slot A)")
+            tlog("Confirmed: Booted from APP partition (slot A)")
         else:
             raise Exception(f"Expected boot from APP, got label={root_label} device={root_mount}")
 
         # ===== Test 2: Verify A/B partition layout =====
-        print("\n" + "=" * 60)
-        print("Test 2: Verify A/B partition layout")
-        print("=" * 60)
+        log_section("TEST 2", "Verify A/B partition layout")
 
         # Show block device info
         blkid = testvm.succeed("blkid")
-        print(f"Block devices:\n{blkid}")
+        tlog(f"Block devices:\n{blkid}")
 
         # Verify APP_b exists
         testvm.succeed("blkid | grep -i 'LABEL=\"APP_b\"'")
-        print("APP_b partition found")
+        tlog("APP_b partition found")
 
         # Get APP_b device path
         app_b_dev = testvm.succeed("blkid -L APP_b").strip()
-        print(f"APP_b device: {app_b_dev}")
+        tlog(f"APP_b device: {app_b_dev}")
 
         # ===== Test 3: Generate signing keys =====
-        print("\n" + "=" * 60)
-        print("Test 3: Generate RSA key pair for signing")
-        print("=" * 60)
+        log_section("TEST 3", "Generate RSA key pair for signing")
 
         # Debian swupdate is compiled with CONFIG_SIGNED_IMAGES and CONFIG_SIGALG_CMS
         # This means it uses PKCS#7/CMS signature format
@@ -107,12 +99,10 @@ let
             "ls -la /tmp/swupdate-test/*.pem && "
             "openssl x509 -in cert.pem -text -noout | head -15"
         )
-        print("RSA key and X.509 certificate generated for CMS signing")
+        tlog("RSA key and X.509 certificate generated for CMS signing")
 
         # ===== Test 4: Prepare update bundle =====
-        print("\n" + "=" * 60)
-        print("Test 4: Prepare signed update bundle with raw ext4 handler")
-        print("=" * 60)
+        log_section("TEST 4", "Prepare signed update bundle with raw ext4 handler")
 
         # Create a minimal ext4 image to write to APP_b
         # This simulates what a real OTA update would do
@@ -156,32 +146,28 @@ let
 
         # Verify bundle was created
         bundle_size = testvm.succeed("stat -c%s /tmp/swupdate-test/update-bundle.swu").strip()
-        print(f"Created signed update bundle: {bundle_size} bytes")
+        tlog(f"Created signed update bundle: {bundle_size} bytes")
 
         # ===== Test 5: Validate bundle before applying =====
-        print("\n" + "=" * 60)
-        print("Test 5: Validate bundle before applying")
-        print("=" * 60)
+        log_section("TEST 5", "Validate bundle before applying")
 
         # Check bundle structure with certificate
         result = testvm.execute("swupdate -c -k /tmp/swupdate-test/cert.pem -i /tmp/swupdate-test/update-bundle.swu 2>&1")
-        print(f"Validation result (exit={result[0]}):\n{result[1]}")
+        tlog(f"Validation result (exit={result[0]}):\n{result[1]}")
 
         # ===== Test 6: Apply update to APP_b =====
-        print("\n" + "=" * 60)
-        print("Test 6: Apply update to APP_b partition")
-        print("=" * 60)
+        log_section("TEST 6", "Apply update to APP_b partition")
 
         # First check current state of APP_b
-        print("APP_b before update:")
+        tlog("APP_b before update:")
         result = testvm.execute("mount /dev/disk/by-label/APP_b /mnt && ls -la /mnt && umount /mnt")
-        print(f"APP_b contents: {result[1]}")
+        tlog(f"APP_b contents: {result[1]}")
 
         # Set up /etc/hwrevision for hardware compatibility check
         # SWUpdate reads this file to determine system hardware identity
         # Format: <boardname> <revision>
         testvm.succeed("echo 'qemu-amd64 1.0' > /etc/hwrevision")
-        print("Created /etc/hwrevision with 'qemu-amd64 1.0'")
+        tlog("Created /etc/hwrevision with 'qemu-amd64 1.0'")
 
         # Create grubenv at the default location SWUpdate expects
         # SWUpdate GRUB handler looks for /boot/grub/grubenv by default
@@ -191,25 +177,23 @@ let
             "grub-editenv /boot/grub/grubenv set rootfs_slot=a && "
             "sync"
         )
-        print("Created /boot/grub/grubenv for SWUpdate GRUB handler")
+        tlog("Created /boot/grub/grubenv for SWUpdate GRUB handler")
 
         # Apply the update using swupdate with certificate for signature verification.
         # settle=1 ensures grubenv is flushed to disk before swupdate reads it —
         # SWUpdate's GRUB handler opens grubenv immediately on startup and can
         # fail under I/O contention on CI runners.
-        print("\nApplying signed update...")
+        tlog("Applying signed update...")
         apply_output = run_with_retry(
             testvm,
             "swupdate -v -k /tmp/swupdate-test/cert.pem "
             "-i /tmp/swupdate-test/update-bundle.swu",
             settle=1, description="swupdate apply"
         )
-        print(f"SWUpdate output:\n{apply_output}")
+        tlog(f"SWUpdate output:\n{apply_output}")
 
         # ===== Test 7: Verify APP_b was updated =====
-        print("\n" + "=" * 60)
-        print("Test 7: Verify APP_b partition contents after update")
-        print("=" * 60)
+        log_section("TEST 7", "Verify APP_b partition contents after update")
 
         # Mount APP_b and check for our marker file
         testvm.succeed(
@@ -232,12 +216,10 @@ let
             "umount /mnt/app_b"
         )
 
-        print("APP_b partition successfully updated!")
+        tlog("APP_b partition successfully updated!")
 
         # ===== Test 8: Verify grubenv can be modified for boot switch =====
-        print("\n" + "=" * 60)
-        print("Test 8: Verify grub-editenv works (prep for T3)")
-        print("=" * 60)
+        log_section("TEST 8", "Verify grub-editenv works (prep for T3)")
 
         # Check current grubenv state
         testvm.succeed("which grub-editenv")
@@ -247,7 +229,7 @@ let
             "echo 'Current grubenv:' && "
             "grub-editenv /boot/grub/grubenv list"
         )
-        print(f"grubenv state: {grubenv_result[1]}")
+        tlog(f"grubenv state: {grubenv_result[1]}")
 
         # Verify we can set rootfs_slot (but don't actually switch yet - that's T3)
         testvm.succeed(
@@ -255,23 +237,24 @@ let
             "grub-editenv /boot/grub/grubenv unset test_var && "
             "echo 'grub-editenv read/write verified'"
         )
-        print("grub-editenv verified working")
+        tlog("grub-editenv verified working")
 
-        print("\n" + "=" * 60)
-        print("ALL TESTS PASSED")
-        print("=" * 60)
-        print("")
-        print("Summary:")
-        print("  - Booted from APP partition (slot A)")
-        print("  - Generated RSA key and X.509 certificate for bundle signing")
-        print("  - Created test ext4 image with marker file")
-        print("  - Built signed .swu bundle with raw handler")
-        print("  - Validated bundle signature with certificate")
-        print("  - Applied signed update to APP_b partition")
-        print("  - Verified marker file present in APP_b")
-        print("  - Verified grub-editenv working for boot switch")
-        print("")
-        print("Next step: T3 will test rebooting into APP_b")
+        tlog("")
+        tlog("=" * 60)
+        tlog("ALL TESTS PASSED")
+        tlog("=" * 60)
+        tlog("")
+        tlog("Summary:")
+        tlog("  - Booted from APP partition (slot A)")
+        tlog("  - Generated RSA key and X.509 certificate for bundle signing")
+        tlog("  - Created test ext4 image with marker file")
+        tlog("  - Built signed .swu bundle with raw handler")
+        tlog("  - Validated bundle signature with certificate")
+        tlog("  - Applied signed update to APP_b partition")
+        tlog("  - Verified marker file present in APP_b")
+        tlog("  - Verified grub-editenv working for boot switch")
+        tlog("")
+        tlog("Next step: T3 will test rebooting into APP_b")
       '';
   };
 

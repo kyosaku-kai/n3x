@@ -45,11 +45,11 @@ let
     testScript =
       let
         utils = import ../lib/test-scripts/utils.nix;
+        bootPhase = import ../lib/test-scripts/phases/boot.nix { inherit lib; };
       in
       ''
-        import os
+        ${utils.all}
         import time
-        ${utils.runWithRetry}
 
         # Note: SWUpdate expects grubenv at /boot/grub/grubenv by default
         # The EFI path (/boot/efi/EFI/BOOT/grubenv) may not exist on all systems
@@ -70,26 +70,20 @@ let
         def set_boot_slot(machine, slot):
             """Set the boot slot via grubenv"""
             machine.succeed(f"grub-editenv {GRUBENV_PATH} set rootfs_slot={slot}")
-            print(f"Set rootfs_slot={slot} in grubenv")
+            tlog(f"Set rootfs_slot={slot} in grubenv")
 
             # Verify it was set
             result = machine.succeed(f"grub-editenv {GRUBENV_PATH} list | grep rootfs_slot")
-            print(f"grubenv after set: {result}")
+            tlog(f"grubenv after set: {result}")
 
         # ==========================================================================
         # PHASE 1: Initial boot and setup
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 1: Initial Boot from Slot A")
-        print("=" * 70)
-
-        # Wait for VM to boot
-        testvm.wait_for_unit("nixos-test-backdoor.service")
-        print("VM booted successfully")
+        ${bootPhase.debian.bootWithBackdoor { node = "testvm"; displayName = "SWUpdate boot-switch VM"; }}
 
         # Verify we're on slot A
         initial_slot = get_current_slot(testvm)
-        print(f"Initial boot slot: {initial_slot}")
+        tlog(f"Initial boot slot: {initial_slot}")
         assert initial_slot == "a", f"Expected boot from slot A, got slot {initial_slot}"
 
         # Initialize grubenv if needed
@@ -104,16 +98,14 @@ let
         )
 
         # Show partition layout
-        print("\nPartition layout:")
+        tlog("Partition layout:")
         blkid = testvm.succeed("blkid")
-        print(blkid)
+        tlog(blkid)
 
         # ==========================================================================
         # PHASE 2: Generate signing keys and apply update to APP_b
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 2: Generate Keys and Apply Update to APP_b (Slot B)")
-        print("=" * 70)
+        log_section("PHASE 2", "Generate keys and apply update to APP_b (slot B)")
 
         # Generate RSA key and X.509 certificate for CMS signing
         # Debian swupdate requires signed images with CONFIG_SIGALG_CMS
@@ -125,7 +117,7 @@ let
             "openssl req -new -x509 -key priv.pem -out cert.pem -days 1 "
             "-subj '/CN=SWUpdate Test/O=n3x/C=US'"
         )
-        print("Generated RSA key and X.509 certificate for CMS signing")
+        tlog("Generated RSA key and X.509 certificate for CMS signing")
 
         # Create test ext4 image with marker
         testvm.succeed(
@@ -163,7 +155,7 @@ let
 
         # Set up /etc/hwrevision for hardware compatibility check
         testvm.succeed("echo 'qemu-amd64 1.0' > /etc/hwrevision")
-        print("Created /etc/hwrevision with 'qemu-amd64 1.0'")
+        tlog("Created /etc/hwrevision with 'qemu-amd64 1.0'")
 
         # Create grubenv at the default location SWUpdate expects
         testvm.succeed(
@@ -172,20 +164,20 @@ let
             "grub-editenv /boot/grub/grubenv set rootfs_slot=a && "
             "sync"
         )
-        print("Created /boot/grub/grubenv for SWUpdate GRUB handler")
+        tlog("Created /boot/grub/grubenv for SWUpdate GRUB handler")
 
         # Apply the update with certificate
-        print("\nApplying signed update to APP_b...")
+        tlog("Applying signed update to APP_b...")
         apply_result = run_with_retry(
             testvm,
             "swupdate -v -k /tmp/swupdate-test/cert.pem "
             "-i /tmp/swupdate-test/update-bundle.swu",
             settle=1, description="swupdate apply"
         )
-        print(f"SWUpdate output:\n{apply_result}")
+        tlog(f"SWUpdate output:\n{apply_result}")
 
         # Verify APP_b was updated
-        print("\nVerifying APP_b contents after update:")
+        tlog("Verifying APP_b contents after update:")
         verify_result = testvm.succeed(
             "set -e && "
             "mkdir -p /mnt/app_b && "
@@ -201,24 +193,22 @@ let
             "fi && "
             "umount /mnt/app_b"
         )
-        print(verify_result)
+        tlog(verify_result)
 
         # ==========================================================================
         # PHASE 3: Switch boot to slot B and reboot
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 3: Switch Boot to Slot B and Reboot")
-        print("=" * 70)
+        log_section("PHASE 3", "Switch boot to slot B and reboot")
 
         # Set boot slot to B
         set_boot_slot(testvm, "b")
 
         # Show grubenv state before reboot
         grubenv_before = testvm.succeed(f"grub-editenv {GRUBENV_PATH} list")
-        print(f"grubenv before reboot:\n{grubenv_before}")
+        tlog(f"grubenv before reboot:\n{grubenv_before}")
 
         # Reboot the VM
-        print("\nRebooting VM...")
+        tlog("Rebooting VM...")
         testvm.shutdown()
 
         # Wait a moment for clean shutdown
@@ -229,50 +219,46 @@ let
 
         # Wait for boot
         testvm.wait_for_unit("nixos-test-backdoor.service")
-        print("VM rebooted successfully")
+        tlog("VM rebooted successfully")
 
         # ==========================================================================
         # PHASE 4: Verify boot from slot B
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 4: Verify Boot from Slot B")
-        print("=" * 70)
+        log_section("PHASE 4", "Verify boot from slot B")
 
         # Check which slot we're on now
         after_reboot_slot = get_current_slot(testvm)
-        print(f"Slot after reboot: {after_reboot_slot}")
+        tlog(f"Slot after reboot: {after_reboot_slot}")
 
         # This is the critical check - we should be on slot B now
         if after_reboot_slot == "b":
-            print("SUCCESS: Booted from slot B after partition switch!")
+            tlog("SUCCESS: Booted from slot B after partition switch!")
         else:
             # Even if we don't boot from B, let's gather debug info
-            print(f"WARNING: Expected slot B, got slot {after_reboot_slot}")
+            tlog(f"WARNING: Expected slot B, got slot {after_reboot_slot}")
 
             # Check grubenv state
             grubenv_after = testvm.execute(f"grub-editenv {GRUBENV_PATH} list 2>&1")
-            print(f"grubenv after reboot: {grubenv_after[1]}")
+            tlog(f"grubenv after reboot: {grubenv_after[1]}")
 
             # Check mount info
             mount_info = testvm.succeed("findmnt -n / ; blkid")
-            print(f"Mount info:\n{mount_info}")
+            tlog(f"Mount info:\n{mount_info}")
 
             # Check GRUB config
             grub_cfg = testvm.execute("cat /boot/efi/EFI/BOOT/grub.cfg 2>&1 || cat /boot/grub/grub.cfg 2>&1")
-            print(f"GRUB config:\n{grub_cfg[1]}")
+            tlog(f"GRUB config:\n{grub_cfg[1]}")
 
             # For now, this is informational - the GRUB config may need adjustment
             # to actually read grubenv and switch partitions
-            print("\nNote: The GRUB bootloader may not be configured to read grubenv.")
-            print("This test validates the update mechanism; GRUB integration requires")
-            print("custom grub.cfg that reads rootfs_slot from grubenv.")
+            tlog("Note: The GRUB bootloader may not be configured to read grubenv.")
+            tlog("This test validates the update mechanism; GRUB integration requires")
+            tlog("custom grub.cfg that reads rootfs_slot from grubenv.")
 
         # ==========================================================================
         # PHASE 5: Test rollback to slot A
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 5: Test Rollback to Slot A")
-        print("=" * 70)
+        log_section("PHASE 5", "Test rollback to slot A")
 
         # Re-initialize grubenv after reboot (it may not persist without proper GRUB integration)
         testvm.succeed(
@@ -287,57 +273,58 @@ let
         set_boot_slot(testvm, "a")
 
         # Reboot
-        print("\nRebooting for rollback...")
+        tlog("Rebooting for rollback...")
         testvm.shutdown()
         time.sleep(2)
         testvm.start()
         testvm.wait_for_unit("nixos-test-backdoor.service")
-        print("VM rebooted after rollback command")
+        tlog("VM rebooted after rollback command")
 
         # Check slot
         rollback_slot = get_current_slot(testvm)
-        print(f"Slot after rollback: {rollback_slot}")
+        tlog(f"Slot after rollback: {rollback_slot}")
 
         if rollback_slot == "a":
-            print("SUCCESS: Rolled back to slot A!")
+            tlog("SUCCESS: Rolled back to slot A!")
         else:
-            print(f"INFO: Slot is {rollback_slot} after rollback command")
-            print("(GRUB integration may need custom configuration)")
+            tlog(f"INFO: Slot is {rollback_slot} after rollback command")
+            tlog("(GRUB integration may need custom configuration)")
 
         # ==========================================================================
         # Summary
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("TEST SUMMARY")
-        print("=" * 70)
-        print("")
-        print("Validated components:")
-        print("  [PASS] Boot from APP partition (slot A)")
-        print("  [PASS] Create and apply update bundle to APP_b")
-        print("  [PASS] SWUpdate raw handler writes to APP_b partition")
-        print("  [PASS] grub-editenv can set/modify rootfs_slot")
-        print("  [PASS] VM reboot cycle works")
-        print("")
-        print(f"  Initial slot: a")
-        print(f"  After switch to B: {after_reboot_slot}")
-        print(f"  After rollback to A: {rollback_slot}")
-        print("")
+        tlog("")
+        tlog("=" * 70)
+        tlog("TEST SUMMARY")
+        tlog("=" * 70)
+        tlog("")
+        tlog("Validated components:")
+        tlog("  [PASS] Boot from APP partition (slot A)")
+        tlog("  [PASS] Create and apply update bundle to APP_b")
+        tlog("  [PASS] SWUpdate raw handler writes to APP_b partition")
+        tlog("  [PASS] grub-editenv can set/modify rootfs_slot")
+        tlog("  [PASS] VM reboot cycle works")
+        tlog("")
+        tlog(f"  Initial slot: a")
+        tlog(f"  After switch to B: {after_reboot_slot}")
+        tlog(f"  After rollback to A: {rollback_slot}")
+        tlog("")
 
         if after_reboot_slot == "b" and rollback_slot == "a":
-            print("FULL A/B BOOT SWITCHING: PASSED")
+            tlog("FULL A/B BOOT SWITCHING: PASSED")
         else:
-            print("Note: GRUB needs custom grub.cfg to read rootfs_slot variable")
-            print("      for automatic partition switching. The update mechanism works;")
-            print("      bootloader integration is hardware/config specific.")
-            print("")
-            print("SWUPDATE MECHANISM: PASSED")
-            print("GRUB INTEGRATION: REQUIRES CUSTOM GRUB.CFG (expected)")
+            tlog("Note: GRUB needs custom grub.cfg to read rootfs_slot variable")
+            tlog("      for automatic partition switching. The update mechanism works;")
+            tlog("      bootloader integration is hardware/config specific.")
+            tlog("")
+            tlog("SWUPDATE MECHANISM: PASSED")
+            tlog("GRUB INTEGRATION: REQUIRES CUSTOM GRUB.CFG (expected)")
 
-        print("")
-        print("Next steps for production:")
-        print("  1. Add custom grub.cfg that reads rootfs_slot from grubenv")
-        print("  2. Set root= kernel parameter based on slot")
-        print("  3. For Jetson: Use nvbootctrl instead of grub-editenv")
+        tlog("")
+        tlog("Next steps for production:")
+        tlog("  1. Add custom grub.cfg that reads rootfs_slot from grubenv")
+        tlog("  2. Set root= kernel parameter based on slot")
+        tlog("  3. For Jetson: Use nvbootctrl instead of grub-editenv")
       '';
   };
 

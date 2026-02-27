@@ -54,10 +54,11 @@ let
     testScript =
       let
         utils = import ../lib/test-scripts/utils.nix;
+        bootPhase = import ../lib/test-scripts/phases/boot.nix { inherit lib; };
       in
       ''
+        ${utils.all}
         import time
-        ${utils.runWithRetry}
 
         HTTP_PORT = 8080
         UPDATE_DIR = "/srv/updates"
@@ -65,11 +66,11 @@ let
 
         def setup_network(machine, ip_addr, interface="enp0s3"):
             """Configure network interface with static IP
-            QEMU adds: net0 (user, restricted) → enp0s2, then vlan1 (VDE) → enp0s3
+            QEMU adds: net0 (user, restricted) -> enp0s2, then vlan1 (VDE) -> enp0s3
             Base/swupdate images use predictable naming (no net.ifnames=0 boot arg)"""
             machine.succeed(f"ip link set {interface} up")
             machine.succeed(f"ip addr add {ip_addr}/24 dev {interface}")
-            print(f"Configured {interface} with {ip_addr}")
+            tlog(f"Configured {interface} with {ip_addr}")
 
         def create_test_bundle(machine, bundle_path, key_dir):
             """Create a signed test .swu bundle on the machine"""
@@ -83,7 +84,7 @@ let
                 "openssl req -new -x509 -key priv.pem -out cert.pem -days 1 "
                 "-subj '/CN=SWUpdate Test/O=n3x/C=US'"
             )
-            print(f"Generated RSA key and X.509 certificate for CMS signing in {key_dir}")
+            tlog(f"Generated RSA key and X.509 certificate for CMS signing in {key_dir}")
 
             machine.succeed(
                 f"set -e && "
@@ -124,98 +125,93 @@ let
         # ==========================================================================
         # PHASE 1: Boot both VMs and establish network
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 1: Boot VMs and Establish Network")
-        print("=" * 70)
-
-        # Wait for both VMs to boot
-        update_server.wait_for_unit("nixos-test-backdoor.service")
-        target.wait_for_unit("nixos-test-backdoor.service")
-        print("Both VMs booted successfully")
+        ${bootPhase.debian.bootAllWithBackdoor {
+          nodes = [
+            { node = "update_server"; displayName = "Update server"; }
+            { node = "target"; displayName = "Target device"; }
+          ];
+        }}
 
         # Configure network interfaces manually since ISAR images don't auto-configure
         # Using static IPs on the 192.168.1.x subnet
         SERVER_IP = "192.168.1.1"
         TARGET_IP = "192.168.1.2"
 
-        print("\n--- Configuring Network ---")
+        log_section("NETWORK", "Configuring static IPs")
         setup_network(update_server, SERVER_IP)
         setup_network(target, TARGET_IP)
 
         # Show network interfaces on both machines
-        print("\n--- Update Server Network ---")
+        tlog("--- Update Server Network ---")
         server_ifaces = update_server.succeed("ip -br addr")
-        print(server_ifaces)
+        tlog(server_ifaces)
 
-        print("\n--- Target Network ---")
+        tlog("--- Target Network ---")
         target_ifaces = target.succeed("ip -br addr")
-        print(target_ifaces)
+        tlog(target_ifaces)
 
         server_ip = SERVER_IP
         target_ip = TARGET_IP
-        print(f"\nUpdate server IP: {server_ip}")
-        print(f"Target IP: {target_ip}")
+        tlog(f"Update server IP: {server_ip}")
+        tlog(f"Target IP: {target_ip}")
 
         # Verify network connectivity between VMs
-        print("\n--- Network Connectivity Test ---")
+        tlog("--- Network Connectivity Test ---")
 
         # VDE switch needs time to establish forwarding between VMs
         # Give the virtio-net devices time to initialize and the VDE switch to see them
-        print("Waiting for VDE switch to establish connectivity...")
+        tlog("Waiting for VDE switch to establish connectivity...")
         time.sleep(3)
 
         # Use ping to trigger ARP resolution and verify Layer 3 connectivity
-        # Ping multiple times to give ARP time to populate
-        print("Testing ping connectivity (may take a few attempts)...")
+        tlog("Testing ping connectivity (may take a few attempts)...")
 
         # Try ping from both sides with retries - VDE switch may need traffic to learn MACs
         for attempt in range(5):
             server_ping = update_server.execute(f"ping -c 2 -W 2 {target_ip} 2>&1")
             target_ping = target.execute(f"ping -c 2 -W 2 {server_ip} 2>&1")
-            print(f"Attempt {attempt + 1}:")
-            print(f"  Server->Target: exit={server_ping[0]}")
-            print(f"  Target->Server: exit={target_ping[0]}")
+            tlog(f"Attempt {attempt + 1}:")
+            tlog(f"  Server->Target: exit={server_ping[0]}")
+            tlog(f"  Target->Server: exit={target_ping[0]}")
             if server_ping[0] == 0 and target_ping[0] == 0:
-                print("Network connectivity established!")
+                tlog("Network connectivity established!")
                 break
             time.sleep(2)
         else:
             # Final debug before continuing (don't fail yet - let HTTP test fail with details)
-            print("Warning: Ping connectivity not verified, continuing anyway...")
+            tlog("Warning: Ping connectivity not verified, continuing anyway...")
 
         # Show ARP tables for debugging
-        print("\nARP tables:")
+        tlog("ARP tables:")
         server_arp = update_server.execute("ip neigh show")
-        print(f"Server ARP: {server_arp}")
+        tlog(f"Server ARP: {server_arp}")
         target_arp = target.execute("ip neigh show")
-        print(f"Target ARP: {target_arp}")
+        tlog(f"Target ARP: {target_arp}")
 
-        print("Network setup complete - proceeding with HTTP setup")
+        tlog("Network setup complete - proceeding with HTTP setup")
 
         # ==========================================================================
         # PHASE 2: Set up update server with HTTP service
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 2: Set Up Update Server")
-        print("=" * 70)
+        log_section("PHASE 2", "Set up update server")
 
         # Create the signed .swu bundle on the update server
         bundle_path = f"{UPDATE_DIR}/{BUNDLE_NAME}"
         key_dir = f"{UPDATE_DIR}/keys"
-        print(f"Creating signed test bundle at {bundle_path}...")
+        tlog(f"Creating signed test bundle at {bundle_path}...")
         create_test_bundle(update_server, bundle_path, key_dir)
 
         # Also serve the certificate for signature verification
         update_server.succeed(f"cp {key_dir}/cert.pem {UPDATE_DIR}/cert.pem")
-        print(f"Certificate available at {UPDATE_DIR}/cert.pem")
+        tlog(f"Certificate available at {UPDATE_DIR}/cert.pem")
 
         # Verify bundle was created
         bundle_info = update_server.succeed(f"ls -la {bundle_path}")
-        print(f"Bundle created: {bundle_info}")
+        tlog(f"Bundle created: {bundle_info}")
 
         # Start a simple HTTP file server using socat
         # socat properly handles bidirectional TCP communication
-        print(f"\nStarting socat HTTP server on port {HTTP_PORT}...")
+        tlog(f"Starting socat HTTP server on port {HTTP_PORT}...")
 
         # Create an HTTP handler script that socat will exec for each connection
         # Note: Using separate commands to avoid complex escaping issues
@@ -251,7 +247,6 @@ let
         )
 
         # Give server a moment to start
-        import time
         time.sleep(1)
 
         # Wait for HTTP server to be ready - check if socat is listening
@@ -263,91 +258,88 @@ let
         else:
             # Debug: show what's happening
             ss_out = update_server.execute("ss -tln")
-            print(f"ss -tln output: {ss_out}")
+            tlog(f"ss -tln output: {ss_out}")
             ps_out = update_server.execute("ps aux | grep -E 'socat|http'")
-            print(f"socat/http processes: {ps_out}")
+            tlog(f"socat/http processes: {ps_out}")
             log_out = update_server.execute("cat /tmp/http-server.log 2>/dev/null || echo 'no log'")
-            print(f"http server log: {log_out}")
+            tlog(f"http server log: {log_out}")
             raise Exception(f"HTTP server did not start on port {HTTP_PORT}")
-        print(f"HTTP server running on port {HTTP_PORT}")
+        tlog(f"HTTP server running on port {HTTP_PORT}")
 
         # ==========================================================================
         # PHASE 3: Target downloads and applies update
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 3: Target Downloads and Applies Update")
-        print("=" * 70)
+        log_section("PHASE 3", "Target downloads and applies update")
 
         bundle_url = f"http://{server_ip}:{HTTP_PORT}/{BUNDLE_NAME}"
-        print(f"Bundle URL: {bundle_url}")
+        tlog(f"Bundle URL: {bundle_url}")
 
         # Debug: verify network connectivity with ping first
-        print("\n--- Network connectivity debug ---")
+        tlog("--- Network connectivity debug ---")
 
         # First, verify network devices exist and show full details
-        print("Target network devices:")
+        tlog("Target network devices:")
         target_devs = target.execute("ip link show")
-        print(f"  ip link: {target_devs}")
+        tlog(f"  ip link: {target_devs}")
 
-        print("Server network devices:")
+        tlog("Server network devices:")
         server_devs = update_server.execute("ip link show")
-        print(f"  ip link: {server_devs}")
+        tlog(f"  ip link: {server_devs}")
 
         # Check if interface has correct MAC (set by mkISARVMScript)
-        # The MACs are generated from machine name hash
-        print("Verifying VLAN connectivity via arping (layer 2 test):")
+        tlog("Verifying VLAN connectivity via arping (layer 2 test):")
         arping_result = target.execute(f"arping -c 3 -I enp0s2 {server_ip} 2>&1 || echo 'arping failed (may not be installed)'")
-        print(f"  arping result: {arping_result}")
+        tlog(f"  arping result: {arping_result}")
 
         ping_result = target.execute(f"ping -c 3 -W 2 {server_ip} 2>&1 || echo 'ping failed'")
 
         # Debug: check ARP and routes
         arp_result = target.execute("ip neigh show")
-        print(f"ARP table: {arp_result}")
+        tlog(f"ARP table: {arp_result}")
         route_result = target.execute("ip route show")
-        print(f"Routes: {route_result}")
+        tlog(f"Routes: {route_result}")
 
         # Test TCP connectivity with nc before curl
-        print("\n--- Testing TCP connectivity to HTTP port ---")
+        tlog("--- Testing TCP connectivity to HTTP port ---")
         nc_result = target.execute(f"nc -zv -w 5 {server_ip} {HTTP_PORT} 2>&1 || echo 'nc failed'")
-        print(f"Netcat result: {nc_result}")
+        tlog(f"Netcat result: {nc_result}")
 
         # Test HTTP connectivity from target to server with retry and verbose output
-        print("\n--- Testing HTTP connectivity ---")
+        tlog("--- Testing HTTP connectivity ---")
         for attempt in range(5):
             result = target.execute(f"curl -v --connect-timeout 10 -I {bundle_url} 2>&1")
-            print(f"Curl attempt {attempt + 1}: exit={result[0]}")
+            tlog(f"Curl attempt {attempt + 1}: exit={result[0]}")
             if result[0] == 0:
-                print("HTTP HEAD request successful")
+                tlog("HTTP HEAD request successful")
                 break
-            print(f"Output: {result[1][:500]}")
+            tlog(f"Output: {result[1][:500]}")
             time.sleep(2)
         else:
             # Final debug before failing
             server_ss = update_server.execute("ss -tlnp")
-            print(f"Server listening sockets: {server_ss}")
+            tlog(f"Server listening sockets: {server_ss}")
             server_log = update_server.execute("cat /tmp/http-server.log 2>/dev/null || echo 'no log'")
-            print(f"HTTP server log: {server_log}")
+            tlog(f"HTTP server log: {server_log}")
             raise Exception("HTTP connectivity test failed after 5 attempts")
 
         # Download the bundle and certificate
-        print("\n--- Downloading bundle and certificate ---")
+        tlog("--- Downloading bundle and certificate ---")
         cert_url = f"http://{server_ip}:{HTTP_PORT}/cert.pem"
         target.succeed(f"curl -o /tmp/update.swu {bundle_url}")
         target.succeed(f"curl -o /tmp/cert.pem {cert_url}")
         download_info = target.succeed("ls -la /tmp/update.swu /tmp/cert.pem")
-        print(f"Downloaded files: {download_info}")
+        tlog(f"Downloaded files: {download_info}")
 
         # Verify the target's current partition state
-        print("\n--- Target current partition state ---")
+        tlog("--- Target current partition state ---")
         current_root = target.succeed("findmnt -n -o SOURCE /").strip()
-        print(f"Current root: {current_root}")
+        tlog(f"Current root: {current_root}")
         blkid_out = target.succeed("blkid")
-        print(f"Block devices:\n{blkid_out}")
+        tlog(f"Block devices:\n{blkid_out}")
 
         # Set up /etc/hwrevision for hardware compatibility check
         target.succeed("echo 'qemu-amd64 1.0' > /etc/hwrevision")
-        print("Created /etc/hwrevision with 'qemu-amd64 1.0'")
+        tlog("Created /etc/hwrevision with 'qemu-amd64 1.0'")
 
         # Create grubenv at the default location SWUpdate expects
         target.succeed(
@@ -356,23 +348,21 @@ let
             "grub-editenv /boot/grub/grubenv set rootfs_slot=a && "
             "sync"
         )
-        print("Created /boot/grub/grubenv for SWUpdate GRUB handler")
+        tlog("Created /boot/grub/grubenv for SWUpdate GRUB handler")
 
         # Apply the update using SWUpdate with certificate for signature verification
-        print("\n--- Applying signed update with SWUpdate ---")
+        tlog("--- Applying signed update with SWUpdate ---")
         apply_result = run_with_retry(
             target,
             "swupdate -v -k /tmp/cert.pem -i /tmp/update.swu",
             settle=1, description="swupdate network-ota apply"
         )
-        print(f"SWUpdate output:\n{apply_result}")
+        tlog(f"SWUpdate output:\n{apply_result}")
 
         # ==========================================================================
         # PHASE 4: Verify update was applied
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 4: Verify Update Applied")
-        print("=" * 70)
+        log_section("PHASE 4", "Verify update applied")
 
         # Mount APP_b and check for our marker file
         verify_result = target.succeed(
@@ -394,42 +384,41 @@ let
             "fi && "
             "umount /mnt/app_b"
         )
-        print(verify_result)
+        tlog(verify_result)
 
         # ==========================================================================
         # PHASE 5: Cleanup and summary
         # ==========================================================================
-        print("\n" + "=" * 70)
-        print("PHASE 5: Cleanup and Summary")
-        print("=" * 70)
+        log_section("PHASE 5", "Cleanup and summary")
 
         # Stop HTTP server (socat-based) - use execute to avoid race condition with cleanup
         update_server.execute("pkill -f 'socat TCP-LISTEN'")
-        print("HTTP server stopped")
+        tlog("HTTP server stopped")
 
         # Summary
-        print("\n" + "=" * 70)
-        print("TEST SUMMARY")
-        print("=" * 70)
-        print("")
-        print("Network OTA Test Results:")
-        print(f"  [PASS] Update server booted at {server_ip}")
-        print(f"  [PASS] Target device booted at {target_ip}")
-        print("  [PASS] VLAN networking configured between VMs")
-        print("  [PASS] Generated RSA key and X.509 certificate for bundle signing")
-        print(f"  [PASS] HTTP server serving signed bundle on port {HTTP_PORT}")
-        print("  [PASS] Target downloaded bundle and certificate over network")
-        print("  [PASS] SWUpdate verified signature and applied update to APP_b")
-        print("  [PASS] Marker file present in updated partition")
-        print("")
-        print("This test validates:")
-        print("  - Multi-VM network setup with VLAN")
-        print("  - RSA signature generation and verification")
-        print("  - HTTP-based signed bundle distribution")
-        print("  - Network-based SWUpdate workflow with signature verification")
-        print("  - End-to-end secure OTA update mechanism")
-        print("")
-        print("NETWORK OTA TEST: PASSED")
+        tlog("")
+        tlog("=" * 70)
+        tlog("TEST SUMMARY")
+        tlog("=" * 70)
+        tlog("")
+        tlog("Network OTA Test Results:")
+        tlog(f"  [PASS] Update server booted at {server_ip}")
+        tlog(f"  [PASS] Target device booted at {target_ip}")
+        tlog("  [PASS] VLAN networking configured between VMs")
+        tlog("  [PASS] Generated RSA key and X.509 certificate for bundle signing")
+        tlog(f"  [PASS] HTTP server serving signed bundle on port {HTTP_PORT}")
+        tlog("  [PASS] Target downloaded bundle and certificate over network")
+        tlog("  [PASS] SWUpdate verified signature and applied update to APP_b")
+        tlog("  [PASS] Marker file present in updated partition")
+        tlog("")
+        tlog("This test validates:")
+        tlog("  - Multi-VM network setup with VLAN")
+        tlog("  - RSA signature generation and verification")
+        tlog("  - HTTP-based signed bundle distribution")
+        tlog("  - Network-based SWUpdate workflow with signature verification")
+        tlog("  - End-to-end secure OTA update mechanism")
+        tlog("")
+        tlog("NETWORK OTA TEST: PASSED")
       '';
   };
 
