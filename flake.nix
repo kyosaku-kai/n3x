@@ -394,6 +394,15 @@
               log_warn "Could not detect machine from kas config — skipping arch detection"
             fi
 
+            # Persistent download and sstate cache directories.
+            # kas-container reads these from the environment and mounts them into the
+            # container at /downloads and /sstate respectively. Without these exports,
+            # BitBake's DL_DIR inside the container resolves to kas's ephemeral tmpdir
+            # HOME (/tmp/tmpXXXXXX) and all downloads are lost between builds.
+            # See: siemens/kas#52, siemens/kas#148
+            export DL_DIR="''${DL_DIR:-''${HOME}/.cache/yocto/downloads}"
+            export SSTATE_DIR="''${SSTATE_DIR:-''${HOME}/.cache/yocto/sstate}"
+
             export KAS_CONTAINER_IMAGE="ghcr.io/siemens/kas/kas-isar:5.1"
 
             log_info "Starting kas-container build (engine: $KAS_CONTAINER_ENGINE)..."
@@ -602,6 +611,15 @@
             log_info "Starting kas-container build (engine: $KAS_CONTAINER_ENGINE)..."
             log_info "Config: $kas_config"
             echo
+
+            # Persistent download and sstate cache directories.
+            # kas-container reads these from the environment and mounts them into the
+            # container at /downloads and /sstate respectively. Without these exports,
+            # BitBake's DL_DIR inside the container resolves to kas's ephemeral tmpdir
+            # HOME (/tmp/tmpXXXXXX) and all downloads are lost between builds.
+            # See: siemens/kas#52, siemens/kas#148
+            export DL_DIR="''${DL_DIR:-''${HOME}/.cache/yocto/downloads}"
+            export SSTATE_DIR="''${SSTATE_DIR:-''${HOME}/.cache/yocto/sstate}"
 
             # ISAR commit 27651d51 (Sept 2024) requires bubblewrap for rootfs sandboxing
             # kas-isar:4.7 does NOT have bwrap; kas-isar:5.1+ does

@@ -12,8 +12,8 @@
 # ISAR builds use kas-container with --privileged (required for mmdebstrap's
 # unshare(2) mount namespace isolation). Build cache (downloads + sstate) is
 # persisted via actions/cache and forwarded into the container via kas-container's
-# DL_DIR/SSTATE_DIR mount mechanism, with the ci-cache.yml kas overlay ensuring
-# BitBake uses the container-mounted paths.
+# DL_DIR/SSTATE_DIR environment variable mount mechanism. base.yml hardcodes
+# /downloads and /sstate (the stable kas-container mount points).
 
 name: CI
 
@@ -232,6 +232,9 @@ jobs:
         env:
           KAS_CONTAINER_ENGINE: docker
           KAS_CONTAINER_IMAGE: ghcr.io/siemens/kas/kas-isar:5.1
+          # CRITICAL: kas-container mounts these host paths into the container at
+          # /downloads and /sstate. Without these, builds use ephemeral container
+          # storage and lose all cached downloads between runs.
           DL_DIR: ${{ github.workspace }}/.ci-cache/downloads
           SSTATE_DIR: ${{ github.workspace }}/.ci-cache/sstate
           MACHINE: ${{ matrix.machine }}
@@ -240,8 +243,7 @@ jobs:
           set -euo pipefail
 
           # Get all variants for this machine with CI overlays applied.
-          # mkCiKasCommand appends ci-cache.yml always, native-build.yml
-          # when host arch matches target (replaces shell case statement).
+          # mkCiKasCommand appends native-build.yml when host arch matches target.
           HOST_ARCH=$(uname -m)
           VARIANTS=$(nix eval --json '.#lib.debian.buildMatrix' --apply "
             matrix: builtins.map (v: {
@@ -259,9 +261,6 @@ jobs:
 
             echo "::group::[$((IDX + 1))/$VARIANT_COUNT] Building variant: $ID"
             echo "kas command: $FULL_CMD"
-
-            # Clean stale .git-downloads symlink (kas-container tmpdir changes between sessions)
-            rm -f build/tmp/work/debian-trixie-*/.git-downloads 2>/dev/null || true
 
             kas-container --isar build "$FULL_CMD"
             echo "::endgroup::"
@@ -383,6 +382,9 @@ jobs:
         env:
           KAS_CONTAINER_ENGINE: docker
           KAS_CONTAINER_IMAGE: ghcr.io/siemens/kas/kas-isar:5.1
+          # CRITICAL: kas-container mounts these host paths into the container at
+          # /downloads and /sstate. Without these, builds use ephemeral container
+          # storage and lose all cached downloads between runs.
           DL_DIR: ${{ github.workspace }}/.ci-cache/downloads
           SSTATE_DIR: ${{ github.workspace }}/.ci-cache/sstate
           VARIANTS: ${{ matrix.variants }}
@@ -401,11 +403,8 @@ jobs:
             ")
             echo "kas command: $FULL_CMD"
 
-            # Clean stale .git-downloads symlink
-            cd backends/debian
-            rm -f build/tmp/work/debian-trixie-*/.git-downloads 2>/dev/null || true
-
             # Build
+            cd backends/debian
             kas-container --isar build "$FULL_CMD"
             cd ../..
 

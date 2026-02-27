@@ -25,11 +25,22 @@ target: isar-image-base
 # Common variables
 local_conf_header:
   shared-cache: |
-    # Shared user-level cache directories for all Yocto/ISAR projects
-    # This enables cache reuse across multiple projects/builds
-    # BitBake auto-creates these directories if they don't exist
-    DL_DIR = "${HOME}/.cache/yocto/downloads"
-    SSTATE_DIR = "${HOME}/.cache/yocto/sstate"
+    # Download and sstate cache paths inside the kas-container.
+    #
+    # kas-container mounts host DL_DIR at /downloads and SSTATE_DIR at /sstate
+    # when these environment variables are set on the host. The kas-build wrapper
+    # (flake.nix mkKasBuildWrapper) exports them with a default of
+    # ~/.cache/yocto/{downloads,sstate}, enabling cross-project cache sharing.
+    #
+    # WARNING: Do NOT use ${HOME} here. Inside the container, kas overrides HOME
+    # to an ephemeral tmpdir for build isolation (siemens/kas#148). Any path
+    # referencing ${HOME} resolves to /tmp/tmpXXXXXX and is destroyed on exit.
+    #
+    # If DL_DIR/SSTATE_DIR are not set on the host (e.g., running kas directly
+    # without the wrapper), these paths won't exist and BitBake will fall back
+    # to creating them inside the container (ephemeral). Always use the wrapper.
+    DL_DIR = "/downloads"
+    SSTATE_DIR = "/sstate"
 
   n3x-base: |
     # n3x common configuration

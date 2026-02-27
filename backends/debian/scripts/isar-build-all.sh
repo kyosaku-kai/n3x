@@ -164,9 +164,6 @@ process_variant() {
     if ${dry_run}; then
       echo "  [DRY-RUN] Would run: nix develop '.' -c bash -c \"cd backends/debian && kas-build ${full_kas_cmd}\""
     else
-      # Clean stale .git-downloads symlink
-      rm -f backends/debian/build/tmp/work/debian-trixie-*/.git-downloads 2>/dev/null || true
-
       nix develop '.' -c bash -c "cd backends/debian && kas-build ${full_kas_cmd}"
     fi
   fi
