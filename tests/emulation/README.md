@@ -21,6 +21,91 @@ The emulation testing framework enables comprehensive validation of n3x deployme
 
 **Primary Use Case**: Test automation for k3s cluster deployments that require realistic multi-node simulation without cloud dependencies or physical hardware.
 
+### Emulated Architecture
+
+```mermaid
+flowchart TB
+    subgraph host["Physical Host (Laptop / Server / Cloud VM)"]
+        direction TB
+        subgraph outer["Outer VM — NixOS Hypervisor Layer"]
+            direction TB
+
+            subgraph services["System Services"]
+                libvirt["libvirtd"]
+                ovs_daemon["openvswitch"]
+                systemd_net["systemd-networkd"]
+                tc["tc (traffic control)"]
+            end
+
+            subgraph switch["OVS Switch Fabric: ovsbr0"]
+                direction TB
+
+                subgraph mgmt_port["Management Port"]
+                    vnet0["vnet0<br/>192.168.100.1/24"]
+                end
+
+                switch_fabric["OVS Bridge<br/>VLAN / QoS / tc shaping"]
+
+                subgraph port_1["Port 1"]
+                    tap_1["vnet-server-1"]
+                end
+
+                subgraph port_2["Port 2"]
+                    tap_2["vnet-server-2"]
+                end
+
+                subgraph port_3["Port 3"]
+                    tap_3["vnet-agent-1"]
+                end
+            end
+
+            subgraph vms["Inner VMs (k3s Cluster)"]
+                direction TB
+
+                subgraph vm_1["server-1 (x86_64)"]
+                    vm_1_info["k3s Server<br/>4GB RAM · 2 vCPU"]
+                end
+
+                subgraph vm_2["server-2 (x86_64)"]
+                    vm_2_info["k3s Server<br/>4GB RAM · 2 vCPU"]
+                end
+
+                subgraph vm_3["agent-1 (x86_64 or arm64)"]
+                    vm_3_info["k3s Agent<br/>2GB RAM · 2 vCPU"]
+                end
+            end
+
+            vnet0 <--> switch_fabric
+            switch_fabric <--> tap_1
+            switch_fabric <--> tap_2
+            switch_fabric <--> tap_3
+
+            tap_1 <--> vm_1
+            tap_2 <--> vm_2
+            tap_3 <--> vm_3
+
+            libvirt --> vm_1
+            libvirt --> vm_2
+            libvirt --> vm_3
+            ovs_daemon --> switch_fabric
+            tc --> switch_fabric
+            systemd_net --> vnet0
+        end
+    end
+
+    style host fill:#f5f5f5,stroke:#333
+    style outer fill:#e1f5ff,stroke:#1976d2
+    style switch fill:#fff4e1,stroke:#f57c00
+    style services fill:#e8f5e9,stroke:#388e3c
+    style vms fill:#fce4ec,stroke:#c2185b
+    style vm_1 fill:#e3f2fd,stroke:#1565c0
+    style vm_2 fill:#fff3e0,stroke:#ef6c00
+    style vm_3 fill:#f3e5f5,stroke:#7b1fa2
+    style switch_fabric fill:#90EE90,stroke:#2e7d32
+```
+
+Each inner VM connects to the OVS bridge through a dedicated tap interface, emulating physical switch ports. The outer VM's system services — libvirtd for VM lifecycle, openvswitch for the network fabric, and tc for traffic shaping — provide the simulation control plane. systemd-networkd manages the host-side management interface.
+
 ---
 
 ## Platform Compatibility

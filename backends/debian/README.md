@@ -2,6 +2,10 @@
 
 This directory contains the Debian backend for the n3x K3s cluster platform, using ISAR (Integration System for Automated Root filesystem generation) as the build framework.
 
+Your ISAR images are automatically validated by n3x's VM test infrastructure — after building, CI boots the image in QEMU, configures the network profile, and verifies k3s cluster formation end-to-end. You don't immediately need to know how the test infrastructure works, but if you're curious, see [`tests/README.md`](../../tests/README.md).
+
+The NixOS backend (`backends/nixos/`) exists as a reference implementation and powers the shared abstraction layer that generates your network and k3s configurations. You don't work in it directly.
+
 **Architecture Diagram**: [n3x-debian-backend.drawio.svg](../../docs/diagrams/n3x-debian-backend.drawio.svg) — kas overlay composition, configuration hierarchy, build stack, artifact flow, and build matrix.
 See also: [System Architecture](../../docs/diagrams/n3x-architecture.drawio.svg) | [NixOS Backend](../../docs/diagrams/n3x-nixos-backend.drawio.svg) | [CI Pipeline](../../docs/diagrams/ci-pipeline.drawio.svg)
 
