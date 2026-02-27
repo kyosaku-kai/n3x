@@ -10,19 +10,23 @@ This file provides project-specific rules and essential context for Claude Code 
 3. **NEVER include AI/Claude attributions in commits** - No "Co-Authored-By: Claude", no "Generated with Claude", no Anthropic mentions.
 4. **Do NOT commit temporary files** - Never stage files created for temporary purposes.
 
+### PR and Merge Rules
+5. **NEVER merge PRs** - The user handles all PR merges. Branch protection rulesets exist for a reason. Claude's role is to create PRs, monitor CI, and report status — never to merge.
+6. **ALWAYS investigate CI failures** - When a CI check fails, re-running is acceptable as an experiment, but you MUST investigate the root cause, record it in CLAUDE.md (Technical Learnings), and create a task to track debugging/fixing. Never silently re-run and move on.
+
 ### Task Completion Standards
-5. **Test tasks require PASS to be COMPLETE** - A task to "run test X" is NOT complete if the test fails. Documenting a failure is progress, but the task stays `IN_PROGRESS` until the test passes. Do NOT move to the next task until the current test-based task passes.
-6. **NEVER mark failed tests as "complete with documentation"** - This creates tech debt breadcrumbs. Fix issues before moving on.
+7. **Test tasks require PASS to be COMPLETE** - A task to "run test X" is NOT complete if the test fails. Documenting a failure is progress, but the task stays `IN_PROGRESS` until the test passes. Do NOT move to the next task until the current test-based task passes.
+8. **NEVER mark failed tests as "complete with documentation"** - This creates tech debt breadcrumbs. Fix issues before moving on.
 
 ### Backend Parity Requirements
-7. **NEVER defer tests for perceived redundancy** - This project establishes a parameterized embedded Linux build matrix. Every test that exists for one backend MUST be run for all backends. Do NOT make judgment calls about "overlapping" tests or "same code path" - run ALL tests to verify actual parity. The goal is identical test coverage across NixOS and Debian backends.
-8. **Test parity is non-negotiable** - If NixOS has a test (simple, vlans, bonding-vlans, dhcp-simple), the Debian backend must have and pass the same test. No exceptions.
+9. **NEVER defer tests for perceived redundancy** - This project establishes a parameterized embedded Linux build matrix. Every test that exists for one backend MUST be run for all backends. Do NOT make judgment calls about "overlapping" tests or "same code path" - run ALL tests to verify actual parity. The goal is identical test coverage across NixOS and Debian backends.
+10. **Test parity is non-negotiable** - If NixOS has a test (simple, vlans, bonding-vlans, dhcp-simple), the Debian backend must have and pass the same test. No exceptions.
 
 ### Shell Command Practices
-9. **ALWAYS single-quote Nix derivation references** - Use `nix build '.#thing'` to prevent zsh globbing.
+11. **ALWAYS single-quote Nix derivation references** - Use `nix build '.#thing'` to prevent zsh globbing.
 
 ### Container Image Pinning
-10. **Use `tag@digest` syntax for container images** - Provides determinism (digest) + visibility (tag):
+12. **Use `tag@digest` syntax for container images** - Provides determinism (digest) + visibility (tag):
    ```yaml
    # CORRECT: tag for humans, digest for machines
    image: ghcr.io/siemens/kas/kas-isar:5.1@sha256:c60d32d7d6943e114affad0f8a0e9ec6d4c163e636c84da2dd8bde7a39f2a9bd
@@ -35,15 +39,15 @@ This file provides project-specific rules and essential context for Claude Code 
    - Get digest: `docker images --digests <image>`
 
 ### NixOS Test Driver & QEMU Process Management
-11. **Orphaned nix build cleanup** - Prefer SIGTERM over SIGKILL (WSL mount safety):
+13. **Orphaned nix build cleanup** - Prefer SIGTERM over SIGKILL (WSL mount safety):
    ```bash
    sudo kill -TERM <pid>; sleep 5; sudo kill -INT <pid>  # SIGKILL only as last resort
    ```
    If mounts break: `nix run '.#wsl-remount'` or `wsl --shutdown`
 
-12. **PROACTIVE log monitoring** - Use `-L` flag, check BashOutput frequently, kill early on failure patterns.
+14. **PROACTIVE log monitoring** - Use `-L` flag, check BashOutput frequently, kill early on failure patterns.
 
-13. **Session cleanup** - Verify no orphaned processes before new tests:
+15. **Session cleanup** - Verify no orphaned processes before new tests:
    ```bash
    pgrep -a qemu 2>/dev/null || echo "No QEMU"; pgrep -a nixos-test-driver 2>/dev/null || echo "No drivers"
    ```
@@ -306,6 +310,25 @@ server_2.succeed("systemctl start k3s-server.service")
 **Resolved latent issues**:
 - Bond state verification via `/proc/net/bonding/bond0`
 - Replaced `time.sleep(2)` with `wait_until_succeeds` IP polling
+
+### SWUpdate Apply Test Flakiness (2026-02-27)
+
+**Symptom**: `debian-test-swupdate-apply` fails intermittently in CI at Test 6 — `swupdate -v -k cert.pem -i update-bundle.swu` exits with code 1. Passes on retry and on concurrent workflow runs for the same commit.
+
+**Root cause**: Unknown. Likely candidates:
+1. SWUpdate GRUB handler races with grubenv file creation (grubenv is created immediately before the apply call at `tests/debian/swupdate-apply.nix:183-188`)
+2. Disk I/O contention on GitHub-hosted runners (50MB ext4 image write to APP_b partition)
+3. SWUpdate internal state initialization timing (invoked one-shot, not as a service)
+
+**Observability gap**: The test wraps `swupdate` with `2>&1 || { echo ...; exit 1; }` but the NixOS test driver's `RequestedAssertionFailed` message only shows the command that failed, not swupdate's verbose output. The actual swupdate error messages are lost.
+
+**TODO**: Improve test resilience:
+- Add `time.sleep(1)` between grubenv creation and swupdate invocation, OR
+- Use `testvm.execute()` to capture swupdate output first, then assert on exit code
+- Capture swupdate verbose output to a file so failure logs are diagnostic
+- Consider `wait_until_succeeds` wrapper with 1 retry
+
+**First observed**: PR #13 CI run `22493486475`, job `65161686503`. Passed on retry (same run) and on parallel run `22493473680`.
 
 ### WIC Generation Hang (WSL2)
 - Cause: `sgdisk` sync() hangs on 9p mounts
