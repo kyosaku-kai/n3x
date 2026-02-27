@@ -392,12 +392,12 @@ The `/etc/tc-simulate-constraints.sh` script applies network constraints:
 #### Profile Details
 
 **Constrained Profile** (embedded system limits):
-- Chassis-type nodes: 10Mbps, 100ms latency
-- Compute/Storage nodes: 100Mbps, 10ms latency
+- Server nodes: 10Mbps, 100ms latency
+- Agent nodes: 100Mbps, 10ms latency
 
 **Lossy Profile** (resilience testing):
-- Chassis-type nodes: 2% packet loss, 50±20ms delay (normal distribution)
-- Compute/Storage nodes: 0.5% packet loss, 20±10ms delay
+- Server nodes: 2% packet loss, 50±20ms delay (normal distribution)
+- Agent nodes: 0.5% packet loss, 20±10ms delay
 
 #### Usage Examples
 
