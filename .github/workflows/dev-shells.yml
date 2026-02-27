@@ -223,7 +223,12 @@ jobs:
       - name: "Setup: start Colima (Docker mode)"
         if: matrix.fixture == 'F8'
         run: |
-          colima start
+          for attempt in 1 2 3; do
+            colima start && break
+            echo "::warning::Colima start failed (attempt $attempt/3), retrying in 10s..."
+            colima delete -f 2>/dev/null || true
+            sleep 10
+          done
           # Verify docker daemon is reachable
           docker info > /dev/null
           echo "Colima started, Docker daemon reachable"
@@ -232,7 +237,12 @@ jobs:
         if: matrix.fixture == 'F9'
         run: |
           brew install colima
-          colima start --runtime containerd
+          for attempt in 1 2 3; do
+            colima start --runtime containerd && break
+            echo "::warning::Colima start failed (attempt $attempt/3), retrying in 10s..."
+            colima delete -f 2>/dev/null || true
+            sleep 10
+          done
           # nerdctl has no native macOS binary — it runs inside the Colima VM.
           # `colima nerdctl install` creates a wrapper script in /usr/local/bin
           # that delegates to nerdctl inside the VM via SSH.
@@ -245,7 +255,12 @@ jobs:
       - name: "Setup: start and stop Colima (Docker stopped)"
         if: matrix.fixture == 'F10'
         run: |
-          colima start
+          for attempt in 1 2 3; do
+            colima start && break
+            echo "::warning::Colima start failed (attempt $attempt/3), retrying in 10s..."
+            colima delete -f 2>/dev/null || true
+            sleep 10
+          done
           docker info > /dev/null  # verify it was running
           colima stop
           # Verify daemon is no longer reachable
