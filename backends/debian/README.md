@@ -2,6 +2,10 @@
 
 This directory contains the Debian backend for the n3x K3s cluster platform, using ISAR (Integration System for Automated Root filesystem generation) as the build framework.
 
+Your ISAR images are automatically validated by n3x's VM test infrastructure — after building, CI boots the image in QEMU, configures the network profile, and verifies k3s cluster formation end-to-end. You don't immediately need to know how the test infrastructure works, but if you're curious, see [`tests/README.md`](../../tests/README.md).
+
+The NixOS backend (`backends/nixos/`) exists as a reference implementation and powers the shared abstraction layer that generates your network and k3s configurations. You don't work in it directly.
+
 **Architecture Diagram**: [n3x-debian-backend.drawio.svg](../../docs/diagrams/n3x-debian-backend.drawio.svg) — kas overlay composition, configuration hierarchy, build stack, artifact flow, and build matrix.
 See also: [System Architecture](../../docs/diagrams/n3x-architecture.drawio.svg) | [NixOS Backend](../../docs/diagrams/n3x-nixos-backend.drawio.svg) | [CI Pipeline](../../docs/diagrams/ci-pipeline.drawio.svg)
 
@@ -84,18 +88,52 @@ backends/debian/
 2. **KVM** - Kernel virtualization for qemu-amd64 testing
 3. **WSL2** (if on Windows) - With nested virtualization enabled
 
-### Build Commands
+### Build Your First Image
+
+The simplest first build targets QEMU with a base Debian image:
 
 ```bash
-# Enter the Debian development shell
+# Enter the development shell (provides kas, podman, qemu, etc.)
 nix develop
 
-# Build a K3s server image for QEMU (testing)
+# Change to the Debian backend directory
 cd backends/debian
-kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/k3s-server.yml:kas/network/simple.yml
 
-# Build for Jetson Orin Nano (hardware)
-kas-build kas/base.yml:kas/machine/jetson-orin-nano.yml:kas/image/k3s-server.yml:kas/network/vlans.yml
+# Build a base image for QEMU x86_64
+kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/image/base.yml
+```
+
+The first build downloads the ISAR framework and Debian packages, so it takes longer than subsequent builds. The output image is at:
+
+```
+build/tmp/deploy/images/qemuamd64/n3x-image-base-debian-trixie-qemuamd64.wic
+```
+
+### Boot the Image in QEMU
+
+Still inside `nix develop` and `backends/debian/`:
+
+```bash
+qemu-system-x86_64 \
+  -m 2048 \
+  -nographic \
+  -kernel build/tmp/deploy/images/qemuamd64/n3x-image-base-debian-trixie-qemuamd64-vmlinuz \
+  -initrd build/tmp/deploy/images/qemuamd64/n3x-image-base-debian-trixie-qemuamd64-initrd.img \
+  -append "console=ttyS0 root=/dev/sda2 rw" \
+  -drive file=build/tmp/deploy/images/qemuamd64/n3x-image-base-debian-trixie-qemuamd64.wic,format=raw \
+  -serial mon:stdio
+```
+
+Log in as **root** with password **root** (provided by `kas/packages/root-login.yml`, included in base images by default). Exit QEMU with `Ctrl-a x`.
+
+### More Build Examples
+
+```bash
+# K3s server image (requires packages, network profile, and node identity)
+kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml:kas/network/simple.yml:kas/node/server-1.yml
+
+# Build for Jetson Orin Nano (cross-compiled from x86_64)
+kas-build kas/base.yml:kas/machine/jetson-orin-nano.yml:kas/image/base.yml
 
 # Build a specific package only (for debugging)
 kas-build kas/base.yml:kas/machine/qemu-amd64.yml --cmd "bitbake systemd-networkd-config"

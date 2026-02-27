@@ -1,0 +1,38 @@
+# Root Login Overlay
+# =============================================================================
+#
+# PURPOSE:
+#   Enable root login with password "root" on console and SSH.
+#   Debian Trixie's mmdebstrap creates rootfs with root account locked (*),
+#   so without this overlay no login is possible.
+#
+# USAGE:
+#   kas-build kas/base.yml:kas/machine/<target>.yml:kas/packages/root-login.yml:kas/image/base.yml
+#
+# MECHANISM:
+#   Uses ISAR's image-account-extension.bbclass (inherited by all images).
+#   The USERS variable triggers image_create_users() which runs chpasswd
+#   inside the rootfs chroot during ROOTFS_POSTPROCESS_COMMAND.
+#
+# CREDENTIALS:
+#   Username: root
+#   Password: root
+#
+# PASSWORD HASH:
+#   Generated with: mkpasswd -m sha512crypt -R 10000
+#   (mkpasswd is in the 'whois' Debian package)
+#
+# SECURITY:
+#   For development and testing only. Do NOT include in production images.
+#
+# =============================================================================
+
+header:
+  version: 14
+
+local_conf_header:
+  root-login: |
+    # Enable root login with password "root"
+    # Without this, Debian Trixie images have root locked (*) in /etc/shadow
+    USERS += "root"
+    USER_root[password] = "$6$rounds=10000$RXeWrnFmkY$DtuS/OmsAS2cCEDo0BF5qQsizIrq6jPgXnwv3PHqREJeKd1sXdHX/ayQtuQWVDHe0KIO0/sVH8dvQm1KthF0d/"

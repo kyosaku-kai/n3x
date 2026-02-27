@@ -73,8 +73,8 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
 ## Project Status
 
 - **Release**: 0.0.2 (tagged, published with release notes)
-- **Plan 034**: Dev Environment Validation — COMPLETE — `docs/plans/034-dev-environment-and-adoption.md`
-- **Plan 033**: CI Pipeline Refactoring — COMPLETE (T8 deferred) — `docs/plans/033-ci-pipeline-refactoring.md`
+- **Plan 034**: Dev Environment Validation — COMPLETE — `.claude/user-plans/034-dev-environment-and-adoption.md`
+- **Plan 033**: CI Pipeline Refactoring — COMPLETE (T8 deferred) — `.claude/user-plans/033-ci-pipeline-refactoring.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
 - **BitBake Limits**: BB_NUMBER_THREADS=dynamic (min(CPUs, (RAM_GB-4)/3)), BB_PRESSURE_MAX_MEMORY=10000
 - **ISAR Build Matrix**: 42 artifacts across 4 machines (qemuamd64, amd-v3c18i, qemuarm64, jetson-orin-nano)
@@ -328,11 +328,11 @@ server_2.succeed("systemctl start k3s-server.service")
 - Solution: `kas-build` wrapper handles mount/unmount automatically
 
 ### Platform Support
-| Platform | nixosTest Multi-Node | vsim (Nested Virt) |
-|----------|---------------------|-------------------|
-| Native Linux | YES | YES |
-| WSL2 | YES | NO (2-level limit) |
-| Darwin | YES* | NO |
+| Platform | nixosTest Multi-Node |
+|----------|---------------------|
+| Native Linux | YES |
+| WSL2 | YES |
+| Darwin | YES* |
 
 ### ISAR Kernel Selection Mechanism
 
@@ -434,6 +434,6 @@ ISAR kernel selection uses `KERNEL_NAME`:
 - [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md) - ISAR L4 cluster test design
 - [docs/binfmt-requirements.md](docs/binfmt-requirements.md) - Cross-architecture binfmt_misc requirements
 - [docs/nix-binary-cache-architecture-decision.md](docs/nix-binary-cache-architecture-decision.md) - Binary cache ADR
-- [docs/plans/034-dev-environment-and-adoption.md](docs/plans/034-dev-environment-and-adoption.md) - Dev environment validation and team adoption plan
-- [docs/plans/033-ci-pipeline-refactoring.md](docs/plans/033-ci-pipeline-refactoring.md) - CI pipeline refactoring plan
+- [.claude/user-plans/034-dev-environment-and-adoption.md](.claude/user-plans/034-dev-environment-and-adoption.md) - Dev environment validation and team adoption plan
+- [.claude/user-plans/033-ci-pipeline-refactoring.md](.claude/user-plans/033-ci-pipeline-refactoring.md) - CI pipeline refactoring plan
 - ALWAYS ask before adding packages to ISAR images
