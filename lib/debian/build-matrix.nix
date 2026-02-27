@@ -167,15 +167,14 @@ let
   # CI and release helpers
   # ===========================================================================
 
-  # CI-aware kas command: appends ci-cache.yml always, native-build.yml when
-  # the runner's host architecture matches the target machine's architecture.
+  # CI-aware kas command: appends native-build.yml when the runner's host
+  # architecture matches the target machine's architecture.
   mkCiKasCommand = { hostArch }: variant:
     let
       machineInfo = machines.${variant.machine};
       baseCommand = mkKasCommand variant;
       isNative = hostArch == machineInfo.arch;
-      ciOverlays = [ "kas/opt/ci-cache.yml" ]
-        ++ lib.optional isNative "kas/opt/native-build.yml";
+      ciOverlays = lib.optional isNative "kas/opt/native-build.yml";
     in
     lib.concatStringsSep ":" ([ baseCommand ] ++ ciOverlays);
 

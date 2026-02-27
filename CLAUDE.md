@@ -251,28 +251,12 @@ nix develop -c bash -c "cd backends/debian && kas-container --isar cleansstate k
 nix develop -c bash -c "cd backends/debian && kas-container --isar cleanall kas/machine/<machine>.yml:..."
 ```
 
-**Stale `.git-downloads` symlink** (common issue):
-- Each kas-container session creates a new tmpdir (`/tmp/tmpXXXXXX`); `.git-downloads` symlink in the build work dir points to the previous session's tmpdir
-- **Fix**: Remove before EVERY new build after a container session change:
-  ```bash
-  rm -f backends/debian/build/tmp/work/debian-trixie-arm64/.git-downloads
-  rm -f backends/debian/build/tmp/work/debian-trixie-amd64/.git-downloads
-  ```
-- Integrate into build command: `rm -f backends/debian/build/tmp/work/debian-trixie-*/.git-downloads && nix develop -c bash -c "cd backends/debian && kas-build ..."`
-
-**Download cache collision** (multi-arch):
-- k3s recipe uses `downloadfilename=k3s` for BOTH architectures — x86_64 and arm64 binaries share the same cache key
-- If switching architectures (e.g., qemuamd64 → jetson-orin-nano), the cached `k3s` binary is the wrong architecture
-- **Fix**: Delete the cached binary AND its fetch stamps:
-  ```bash
-  rm -f ~/.cache/yocto/downloads/k3s ~/.cache/yocto/downloads/k3s.done
-  rm -f backends/debian/build/tmp/stamps/debian-trixie-arm64/k3s-server/1.32.0-r0.do_fetch*
-  rm -f backends/debian/build/tmp/stamps/debian-trixie-arm64/k3s-agent/1.32.0-r0.do_fetch*
-  ```
-- TODO: Fix k3s recipe to use arch-specific `downloadfilename` (e.g., `k3s-arm64` or `k3s-amd64`)
-
 ### ISAR Build Cache
-- Shared cache: `DL_DIR="${HOME}/.cache/yocto/downloads"`, `SSTATE_DIR="${HOME}/.cache/yocto/sstate"`
+- The kas-build wrapper (flake.nix) exports `DL_DIR` and `SSTATE_DIR` with defaults of `~/.cache/yocto/{downloads,sstate}`
+- kas-container mounts these host paths at `/downloads` and `/sstate` inside the container
+- base.yml hardcodes `DL_DIR = "/downloads"` and `SSTATE_DIR = "/sstate"` (the stable mount points)
+- **WARNING**: Do NOT use `${HOME}` in kas `local_conf_header` — inside the container, kas overrides HOME to an ephemeral tmpdir (`/tmp/tmpXXXXXX`), so any path referencing `${HOME}` is destroyed on exit (siemens/kas#148)
+- CI sets its own `DL_DIR`/`SSTATE_DIR` values which the wrapper respects via `${VAR:-default}` pattern
 
 ### ZFS Replication Limitations
 
