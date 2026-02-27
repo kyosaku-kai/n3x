@@ -29,8 +29,8 @@ header:
 # paths change between kas-container sessions.
 #
 # Fix: os.path.exists() → os.path.lexists() on lines 30 and 33.
-# Upstream issue: https://github.com/ilbers/isar/issues/PENDING
-# Upstream PR: https://github.com/ilbers/isar/pull/PENDING
+# Upstream issue: https://github.com/ilbers/isar/issues/122
+# Upstream PR: https://github.com/ilbers/isar/pull/123
 #
 # TODO: Revert to upstream ilbers/isar once fix is merged.
 repos:
