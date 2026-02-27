@@ -29,6 +29,8 @@
 { pkgs, lib, inputs ? { }, ... }:
 
 let
+  testScripts = import ../lib/test-scripts { inherit lib; };
+
   # Common k3s token for test cluster
   testToken = "k3s-network-test-token";
 
@@ -232,11 +234,7 @@ pkgs.testers.runNixOSTest {
   skipTypeCheck = true;
 
   testScript = ''
-    def tlog(msg):
-        """Print timestamped log message"""
-        import datetime
-        ts = datetime.datetime.now().strftime("%H:%M:%S")
-        print(f"[{ts}] {msg}", flush=True)
+    ${testScripts.utils.all}
 
     tlog("=" * 70)
     tlog("K3s Network Test (Multi-Node nixosTest)")
@@ -299,17 +297,13 @@ pkgs.testers.runNixOSTest {
     )
     tlog("  All 3 nodes Ready")
 
-    # Give k3s a moment to stabilize after cluster formation
-    # This helps avoid race conditions during leader election and service stabilization
-    import time
-    time.sleep(10)
-
-    # Use wait_until_succeeds for node listing in case API server needs to stabilize
-    # If k3s service crashed, this will wait for systemd to restart it
+    # Wait for cluster stabilization — verify kube-system pods are scheduling
+    # (replaces bare time.sleep; confirms scheduler is active after leader election)
     server_1.wait_until_succeeds(
-        "k3s kubectl get nodes -o wide",
+        "k3s kubectl get pods -n kube-system --no-headers 2>/dev/null | grep -q Running",
         timeout=120
     )
+    tlog("  kube-system pods scheduling")
     nodes_output = server_1.succeed("k3s kubectl get nodes -o wide")
     tlog(f"\n  Cluster nodes:\n{nodes_output}")
 
