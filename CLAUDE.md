@@ -76,9 +76,13 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
 
 ## Project Status
 
-- **Release**: 0.0.2 (tagged, published with release notes)
+- **Release**: 0.0.3 (tagged, published with release notes)
 - **Plan 034**: Dev Environment Validation — COMPLETE — `.claude/user-plans/034-dev-environment-and-adoption.md`
 - **Plan 033**: CI Pipeline Refactoring — COMPLETE (T8 deferred) — `.claude/user-plans/033-ci-pipeline-refactoring.md`
+- **Plan 032**: Public Repo Publication and Internal Fork — IN_PROGRESS — `.claude/user-plans/032-public-repo-and-internal-fork.md`
+- **Plan 030**: Architecture Diagrams — ACTIVE — `.claude/user-plans/030-architecture-diagrams.md`
+- **Plan 025**: Cross-Architecture Build Environment — ACTIVE (4/7) — `.claude/user-plans/025-cross-arch-build-environment.md`
+- **Plan 023**: CI Infrastructure and Runner Deployment — ACTIVE (15/23) — `.claude/user-plans/023-ci-infrastructure-deployment.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
 - **BitBake Limits**: BB_NUMBER_THREADS=dynamic (min(CPUs, (RAM_GB-4)/3)), BB_PRESSURE_MAX_MEMORY=10000
 - **ISAR Build Matrix**: 42 artifacts across 4 machines (qemuamd64, amd-v3c18i, qemuarm64, jetson-orin-nano)
@@ -98,6 +102,17 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
 - Self-managed EC2 runners (x86_64 + Graviton) for ISAR/Nix builds
 - On-prem NixOS bare metal for: VM tests (KVM required), HIL tests
 - Harmonia + ZFS binary cache, Caddy reverse proxy with internal CA
+
+### AI Agent Architecture (2026-02-26)
+
+**Design principle**: Project provides context and procedures, users provide tools and credentials.
+
+**Cross-tool compatibility**:
+- `CLAUDE.md` is the universal project instructions file (Claude Code reads natively, OpenCode reads as fallback)
+- `.ai/skills/` is the single source of truth for shared procedures, with symlinks from `.claude/skills/` and `.opencode/agents/`
+- `.claude/rules/` and `.opencode/rules/` are extension points for the internal fork to add context without modifying public files
+
+**Internal fork additive pattern**: The fork ONLY adds files — never modifies public repo files. Extension directories (`.claude/rules/`, `.opencode/rules/`) are empty on the public repo and populated on the fork with `internal-context.md`. The fork's `opencode.json` is the one intentional divergence (model endpoint configuration).
 
 ### ISAR Package Parity
 
@@ -255,8 +270,27 @@ nix develop -c bash -c "cd backends/debian && kas-container --isar cleansstate k
 nix develop -c bash -c "cd backends/debian && kas-container --isar cleanall kas/machine/<machine>.yml:..."
 ```
 
+**Stale `.git-downloads` symlink** (common issue):
+- Each kas-container session creates a new tmpdir (`/tmp/tmpXXXXXX`); `.git-downloads` symlink in the build work dir points to the previous session's tmpdir
+- **Fix**: Remove before EVERY new build after a container session change:
+  ```bash
+  rm -f backends/debian/build/tmp/work/debian-trixie-arm64/.git-downloads
+  rm -f backends/debian/build/tmp/work/debian-trixie-amd64/.git-downloads
+  ```
+
+**Download cache collision** (multi-arch):
+- k3s recipe uses `downloadfilename=k3s` for BOTH architectures — x86_64 and arm64 binaries share the same cache key
+- If switching architectures (e.g., qemuamd64 → jetson-orin-nano), the cached `k3s` binary is the wrong architecture
+- **Fix**: Delete the cached binary AND its fetch stamps:
+  ```bash
+  rm -f ~/.cache/yocto/downloads/k3s ~/.cache/yocto/downloads/k3s.done
+  rm -f backends/debian/build/tmp/stamps/debian-trixie-arm64/k3s-server/1.32.0-r0.do_fetch*
+  rm -f backends/debian/build/tmp/stamps/debian-trixie-arm64/k3s-agent/1.32.0-r0.do_fetch*
+  ```
+- TODO: Fix k3s recipe to use arch-specific `downloadfilename` (e.g., `k3s-arm64` or `k3s-amd64`)
+
 ### ISAR Build Cache
-- The kas-build wrapper (flake.nix) exports `DL_DIR` and `SSTATE_DIR` with defaults of `~/.cache/yocto/{downloads,sstate}`
+- Shared cache: `DL_DIR="${HOME}/.cache/yocto/downloads"`, `SSTATE_DIR="${HOME}/.cache/yocto/sstate"`
 - kas-container mounts these host paths at `/downloads` and `/sstate` inside the container
 - base.yml hardcodes `DL_DIR = "/downloads"` and `SSTATE_DIR = "/sstate"` (the stable mount points)
 - **WARNING**: Do NOT use `${HOME}` in kas `local_conf_header` — inside the container, kas overrides HOME to an ephemeral tmpdir (`/tmp/tmpXXXXXX`), so any path referencing `${HOME}` is destroyed on exit (siemens/kas#148)
@@ -317,11 +351,12 @@ server_2.succeed("systemctl start k3s-server.service")
 
 **Root cause**: Race between grubenv creation and swupdate invocation. SWUpdate's GRUB handler opens `/boot/grub/grubenv` immediately on startup. Under I/O contention on GitHub-hosted runners, the file may not be fully flushed to disk when swupdate reads it, causing an exit code 1.
 
-**Fix applied** (`tests/debian/swupdate-apply.nix`):
-1. Added `sync` to the grubenv creation command chain
-2. Added `time.sleep(1)` between grubenv creation and swupdate invocation
-3. Replaced `testvm.succeed()` with `testvm.execute()` + manual exit code check — `succeed()` throws `RequestedAssertionFailed` which loses swupdate's verbose diagnostic output
-4. Added 3-attempt retry loop with 2s delay between attempts for transient I/O failures
+**Fix applied** (all 3 swupdate tests):
+1. Extracted `run_with_retry()` utility into `tests/lib/test-scripts/utils.nix` — shared across all tests
+2. Added `sync` to grubenv creation command chains
+3. Uses `machine.execute()` (not `succeed()`) to preserve diagnostic output on failure
+4. 3-attempt retry with 2s delay, 1s settle time for filesystem sync before first attempt
+5. Applied consistently to: `swupdate-apply.nix`, `swupdate-boot-switch.nix`, `swupdate-network-ota.nix`
 
 **First observed**: PR #13 CI run `22493486475`, job `65161686503`. Passed on retry (same run) and on parallel run `22493473680`.
 
@@ -438,4 +473,6 @@ ISAR kernel selection uses `KERNEL_NAME`:
 - [docs/nix-binary-cache-architecture-decision.md](docs/nix-binary-cache-architecture-decision.md) - Binary cache ADR
 - [.claude/user-plans/034-dev-environment-and-adoption.md](.claude/user-plans/034-dev-environment-and-adoption.md) - Dev environment validation and team adoption plan
 - [.claude/user-plans/033-ci-pipeline-refactoring.md](.claude/user-plans/033-ci-pipeline-refactoring.md) - CI pipeline refactoring plan
+- [.claude/user-plans/032-public-repo-and-internal-fork.md](.claude/user-plans/032-public-repo-and-internal-fork.md) - Public repo publication and internal fork plan
+- [.claude/user-plans/023-ci-infrastructure-deployment.md](.claude/user-plans/023-ci-infrastructure-deployment.md) - CI infrastructure deployment plan
 - ALWAYS ask before adding packages to ISAR images
