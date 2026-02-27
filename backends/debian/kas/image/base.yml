@@ -1,9 +1,17 @@
 # Base Image configuration
 # Builds a minimal Debian Trixie base image with essential packages
 #
+# Includes root-login overlay by default because Debian Trixie locks the root
+# account. Without it, console login is impossible. For production images that
+# should not have a default root password, create a separate image overlay
+# without this include.
+#
 # Usage: kas-build kas/base.yml:kas/machine/<target>.yml:kas/image/base.yml
 
 header:
   version: 14
+  includes:
+    - repo: this
+      file: kas/packages/root-login.yml
 
 target: n3x-image-base

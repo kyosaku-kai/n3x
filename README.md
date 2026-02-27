@@ -144,7 +144,7 @@ For lower-level builds without Nix store registration:
 ```bash
 nix develop
 cd backends/debian
-kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/image/k3s-server.yml:kas/network/simple.yml:kas/node/server-1.yml
+kas-build kas/base.yml:kas/machine/qemu-amd64.yml:kas/packages/k3s-core.yml:kas/packages/debug.yml:kas/image/k3s-server.yml:kas/network/simple.yml:kas/node/server-1.yml
 ```
 
 See [`backends/debian/README.md`](backends/debian/README.md) for the full Debian build guide.
