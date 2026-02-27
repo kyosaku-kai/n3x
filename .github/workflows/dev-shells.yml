@@ -19,7 +19,7 @@
 #   F9: macOS + nerdctl (Colima containerd) → ERROR: containerd mode
 #   F10: macOS + Docker stopped (Colima)    → ERROR: daemon not running
 #
-# Tier 3 rationale: docs/plans/034-dev-environment-and-adoption.md.
+# Tier 3 rationale: .claude/user-plans/034-dev-environment-and-adoption.md.
 # Coverage model: docs/ci.md § Dev Shell Validation.
 
 name: Dev Shell

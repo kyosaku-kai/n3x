@@ -132,3 +132,4 @@ dist/
 .claude-task-logs/
 .claude-task-state
 .claude/settings.local.json
+.claude/user-plans/

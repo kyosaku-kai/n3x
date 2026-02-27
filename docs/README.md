@@ -46,7 +46,6 @@ Quick navigation to all project documentation. See also the [top-level README](.
 - [AWS Runner Provisioning (Pulumi)](../infra/pulumi/README.md)
 - [NixOS Runner Configuration](../infra/nixos-runner/README.md)
 - [CI Privileged Build Requirements](isar-ci-privileged-build-requirements.md)
-- [CI Validation Plan](plans/CI-VALIDATION-PLAN.md)
 - [Air-Gapped Source Audit](oss-air-gapped-source-audit.md)
 
 ## Hardware & Deployment
@@ -78,7 +77,6 @@ Quick navigation to all project documentation. See also the [top-level README](.
 - [Infrastructure Survey](wip-L1.1-infrastructure-survey.md) (WIP)
 
 ## Archive
-- [Attic Infrastructure Design](plans/ATTIC-INFRASTRUCTURE-DESIGN.md) — Superseded by Harmonia ADR
 - [ISAR Interface Design Diagram](diagrams/archive/n3x-isar-interface-design.drawio.svg) — Historical
 - [Sparse Checkout Workflow Diagram](diagrams/archive/n3x-sparse-checkout-workflow.drawio.svg) — Historical
 - [Flow Notes](archive/n3x-flow-notes.md) — Debugging session notes

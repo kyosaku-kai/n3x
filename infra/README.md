@@ -46,4 +46,3 @@ For on-prem hosts or recovery: `nixos-anywhere --flake '.#on-prem-runner' root@<
 
 - [Nix Binary Cache Architecture Decision](../docs/nix-binary-cache-architecture-decision.md)
 - [CI Privileged Build Requirements](../docs/isar-ci-privileged-build-requirements.md)
-- [CI Validation Plan](../docs/plans/CI-VALIDATION-PLAN.md)
