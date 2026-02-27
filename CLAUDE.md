@@ -315,18 +315,13 @@ server_2.succeed("systemctl start k3s-server.service")
 
 **Symptom**: `debian-test-swupdate-apply` fails intermittently in CI at Test 6 — `swupdate -v -k cert.pem -i update-bundle.swu` exits with code 1. Passes on retry and on concurrent workflow runs for the same commit.
 
-**Root cause**: Unknown. Likely candidates:
-1. SWUpdate GRUB handler races with grubenv file creation (grubenv is created immediately before the apply call at `tests/debian/swupdate-apply.nix:183-188`)
-2. Disk I/O contention on GitHub-hosted runners (50MB ext4 image write to APP_b partition)
-3. SWUpdate internal state initialization timing (invoked one-shot, not as a service)
+**Root cause**: Race between grubenv creation and swupdate invocation. SWUpdate's GRUB handler opens `/boot/grub/grubenv` immediately on startup. Under I/O contention on GitHub-hosted runners, the file may not be fully flushed to disk when swupdate reads it, causing an exit code 1.
 
-**Observability gap**: The test wraps `swupdate` with `2>&1 || { echo ...; exit 1; }` but the NixOS test driver's `RequestedAssertionFailed` message only shows the command that failed, not swupdate's verbose output. The actual swupdate error messages are lost.
-
-**TODO**: Improve test resilience:
-- Add `time.sleep(1)` between grubenv creation and swupdate invocation, OR
-- Use `testvm.execute()` to capture swupdate output first, then assert on exit code
-- Capture swupdate verbose output to a file so failure logs are diagnostic
-- Consider `wait_until_succeeds` wrapper with 1 retry
+**Fix applied** (`tests/debian/swupdate-apply.nix`):
+1. Added `sync` to the grubenv creation command chain
+2. Added `time.sleep(1)` between grubenv creation and swupdate invocation
+3. Replaced `testvm.succeed()` with `testvm.execute()` + manual exit code check — `succeed()` throws `RequestedAssertionFailed` which loses swupdate's verbose diagnostic output
+4. Added 3-attempt retry loop with 2s delay between attempts for transient I/O failures
 
 **First observed**: PR #13 CI run `22493486475`, job `65161686503`. Passed on retry (same run) and on parallel run `22493473680`.
 

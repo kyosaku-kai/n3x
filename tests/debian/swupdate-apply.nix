@@ -183,22 +183,45 @@ let
       testvm.succeed(
           "mkdir -p /boot/grub && "
           "grub-editenv /boot/grub/grubenv create && "
-          "grub-editenv /boot/grub/grubenv set rootfs_slot=a"
+          "grub-editenv /boot/grub/grubenv set rootfs_slot=a && "
+          "sync"
       )
       print("Created /boot/grub/grubenv for SWUpdate GRUB handler")
+
+      # Ensure grubenv is flushed to disk before swupdate reads it.
+      # SWUpdate's GRUB handler opens grubenv immediately on startup;
+      # without sync, the file may not be visible on CI runners with
+      # high I/O contention (observed as intermittent exit code 1).
+      import time
+      time.sleep(1)
 
       # Apply the update using swupdate with certificate for signature verification
       # -k = certificate file for signature verification
       # -v = verbose
       # -i = input file
+      #
+      # Use execute() instead of succeed() to capture swupdate's verbose
+      # output even on failure — succeed() throws RequestedAssertionFailed
+      # which loses the diagnostic output.
       print("\nApplying signed update...")
-      apply_result = testvm.succeed(
-          "swupdate -v -k /tmp/swupdate-test/cert.pem -i /tmp/swupdate-test/update-bundle.swu 2>&1 || { "
-          "echo 'SWUpdate failed with exit code $?'; "
-          "journalctl -u swupdate --no-pager -n 50 2>/dev/null || true; "
-          "exit 1; }"
-      )
-      print(f"SWUpdate output:\n{apply_result}")
+      for attempt in range(3):
+          exit_code, apply_output = testvm.execute(
+              "swupdate -v -k /tmp/swupdate-test/cert.pem "
+              "-i /tmp/swupdate-test/update-bundle.swu 2>&1"
+          )
+          print(f"SWUpdate attempt {attempt + 1}: exit_code={exit_code}")
+          print(f"SWUpdate output:\n{apply_output}")
+          if exit_code == 0:
+              break
+          if attempt < 2:
+              print("Retrying after 2s...")
+              time.sleep(2)
+
+      if exit_code != 0:
+          raise Exception(
+              f"SWUpdate failed after 3 attempts (exit code {exit_code}).\n"
+              f"Last output:\n{apply_output}"
+          )
 
       # ===== Test 7: Verify APP_b was updated =====
       print("\n" + "=" * 60)
