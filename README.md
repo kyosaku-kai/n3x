@@ -1,96 +1,42 @@
 # n3x — K3s Edge Cluster Platform
 
-n3x builds and tests Kubernetes clusters for edge hardware. It currently supports two embedded linux build system "backends": **[NixOS](https://nixos.org)** for reproducible infrastructure, and **[ISAR](https://github.com/ilbers/isar)** for Debian-based development and image assembly. A shared nix abstraction layer defines common system elements as profiles for machine, network/k3s topology and configuration, and package mappings. The output of these nix derivations is consumed by backend processes to produce consistent, VM-tested final images ready for rapid local development without hardware, or bare-metal deployment.
+n3x builds and tests K3s edge clusters. You build images with your existing tools — [kas/ISAR](https://github.com/ilbers/isar) for Debian, [Nix](https://nixos.org) for NixOS — and the framework automatically validates them: booting each image in QEMU, configuring virtual networks, forming a real K3s cluster, and reporting pass/fail. No hardware needed.
 
-## Architecture
+Every test boots real images in QEMU, wires up virtual networks, and validates K3s cluster formation end-to-end:
 
 ```mermaid
 flowchart TD
-    subgraph lib["lib/ — Shared Abstraction Layer"]
-        net["lib/network/\nNetwork profiles → config files"]
-        k3s["lib/k3s/\nK3s flags + cluster topology"]
-        deb_lib["lib/debian/\nPackage mapping + verification"]
+    CMD["nix build '.#checks...cluster-vlans'"]
+
+    subgraph QEMU["QEMU/KVM Virtual Cluster"]
+        direction LR
+        S1["server-1\n2 vCPUs · 2GB\nyour disk image"]
+        S2["server-2\n2 vCPUs · 2GB\nyour disk image"]
+        A1["agent-1\n2 vCPUs · 1.5GB\nyour disk image"]
     end
 
-    subgraph nixos["NixOS Backend"]
-        nx_mods["backends/nixos/modules/\nComposable NixOS modules"]
-        nx_cfg["nixosConfigurations\n(NixOS closures)"]
-        nx_mods --> nx_cfg
+    subgraph NET["Virtual Network · VDE Switch"]
+        direction LR
+        V200["VLAN 200\nCluster\n192.168.200.0/24"]
+        V100["VLAN 100\nStorage\n192.168.100.0/24"]
     end
 
-    subgraph debian["Debian Backend"]
-        pkgs["backends/debian/packages/\nDebian source packages"]
-        kas["backends/debian/kas/\nkas overlays → BitBake/ISAR"]
-        wic[".wic disk images"]
-        pkgs --> kas --> wic
+    subgraph CHECK["Automated Validation"]
+        direction LR
+        C1["Interfaces\n+ IPs"]
+        C2["VLAN\ntags"]
+        C3["K3s cluster\nall Ready"]
+        C4["Cross-VLAN\nisolation"]
     end
 
-    subgraph test["Unified Test Infrastructure"]
-        driver["NixOS test driver\n(QEMU multi-node VMs)"]
-        profiles["simple · vlans · bonding · dhcp"]
-        driver --- profiles
-    end
+    RESULT(["PASS / FAIL"])
 
-    lib --> nx_mods
-    lib --> kas
-    nx_cfg --> driver
-    wic --> driver
+    CMD --> QEMU
+    QEMU --- NET
+    NET --> CHECK --> RESULT
 ```
 
-The `lib/` directory is the architectural center: it defines network profiles, K3s topology, and package requirements once, then each backend consumes them in its native format. Both backends converge at the test infrastructure, where identical test scenarios validate cluster formation across network profiles.
-
-| Abstraction | NixOS Backend | Debian Backend |
-|-------------|---------------|----------------|
-| **Machine** | `system` + `hardware/<machine>.nix` | `MACHINE` + `recipes-bsp/` |
-| **Role** | `modules/roles/k3s-server.nix` | `classes/k3s-server.bbclass` |
-| **System** | `nixosConfigurations.<name>` | `kas/<overlays>.yml` + image recipe |
-| **Network** | NixOS systemd-networkd module | `.network`/`.netdev` config files |
-| **K3s Binary** | nixpkgs `k3s` package | Static binary from GitHub releases |
-| **Test Harness** | nixosTest (native) | nixosTest (with .wic images) |
-
-Shared configuration libraries ([`lib/network/`](lib/network/README.md), [`lib/k3s/`](lib/k3s/README.md)) transform profile data for both backends.
-
-## Repository Structure
-
-```
-n3x/
-├── backends/
-│   ├── debian/                  # Debian backend — ISAR/BitBake image assembly
-│   │   ├── packages/            #   Developer interface — Debian source packages
-│   │   │   ├── k3s/             #     K3s binary + systemd service
-│   │   │   └── k3s-system-config/ #   K3s cluster configuration
-│   │   ├── kas/                 #   kas configuration overlays
-│   │   │   ├── base.yml         #     Base ISAR config
-│   │   │   ├── machine/         #     Target hardware definitions
-│   │   │   ├── image/           #     Image roles (server, agent)
-│   │   │   ├── network/         #     Network profiles
-│   │   │   └── node/            #     Per-node identity
-│   │   └── meta-n3x/            #   BitBake layer (recipes, WIC templates)
-│   │
-│   └── nixos/                   # NixOS backend — host infrastructure
-│       ├── hosts/               #   Per-node configs (n100-1..3, jetson-1..2)
-│       ├── modules/             #   Composable NixOS modules
-│       ├── disko/               #   Disk partitioning layouts
-│       └── vms/                 #   VM test configurations
-│
-├── lib/                         # Shared abstraction layer
-│   ├── network/                 #   Network config generation (NixOS + Debian)
-│   ├── k3s/                     #   K3s flag generation from topology profiles
-│   └── debian/                  #   Package mapping + kas verification
-│
-├── tests/                       # VM test infrastructure
-│   ├── nixos/                   #   NixOS backend tests (cluster, smoke, network)
-│   ├── debian/                  #   Debian backend tests (cluster, boot, swupdate)
-│   └── lib/                     #   Shared test builders and phase scripts
-│
-├── infra/                       # CI/CD infrastructure
-│   ├── nixos-runner/            #   NixOS runner configurations
-│   └── pulumi/                  #   AWS EC2 provisioning
-│
-├── manifests/                   # Kubernetes manifests
-├── secrets/                     # Encrypted secrets (SOPS)
-└── docs/                        # Documentation
-```
+Both backends — NixOS and Debian/ISAR — share the same network profiles and converge at this test infrastructure.
 
 ## Getting Started
 
@@ -165,9 +111,34 @@ See [`backends/nixos/README.md`](backends/nixos/README.md) for module compositio
 
 ## Testing
 
-The test infrastructure emulates multi-node k3s clusters in VMs — booting real images, configuring networking, and validating cluster formation automatically. Tests run identically on developer laptops and CI, requiring only KVM. No physical hardware or cloud dependencies needed.
+Both backends converge at the same test harness — the NixOS test driver — which orchestrates QEMU/KVM multi-node topologies via Python test scripts:
 
-Both backends converge at the same test harness: the NixOS test driver, which orchestrates QEMU/KVM multi-node topologies via Python test scripts. Each network profile is tested independently on both backends to ensure parity.
+```mermaid
+flowchart LR
+    subgraph NixOS["NixOS Backend"]
+        NB["nixosConfigurations\nper-node closures"]
+    end
+
+    subgraph Debian["Debian/ISAR Backend"]
+        DB["kas overlays\n.wic disk images"]
+    end
+
+    DRIVER["NixOS Test Driver\nQEMU/KVM · Python scripts"]
+
+    subgraph MATRIX["16 Cluster Tests\n4 profiles × 2 backends × 2 boot modes"]
+        direction TB
+        P1["simple"]
+        P2["vlans"]
+        P3["bonding-vlans"]
+        P4["dhcp-simple"]
+    end
+
+    NixOS --> DRIVER
+    Debian --> DRIVER
+    DRIVER --> MATRIX
+```
+
+The test infrastructure emulates multi-node K3s clusters in VMs — booting real images, configuring networking, and validating cluster formation automatically. Tests run identically on developer laptops and CI, requiring only KVM. No physical hardware or cloud dependencies needed.
 
 ```bash
 # Run ALL Debian tests (18 tests)
@@ -193,6 +164,93 @@ nix build '.#checks.x86_64-linux.debian-artifact-validation'
 | DHCP | `k3s-cluster-dhcp-simple` | `debian-cluster-dhcp-simple` |
 
 Additional backend-specific tests cover boot validation, service startup, network debugging, OTA updates (Debian), and storage/failover scenarios (NixOS). See [`tests/README.md`](tests/README.md) for the full 45-check test catalog.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph lib["lib/ — Shared Abstraction Layer"]
+        net["lib/network/\nNetwork profiles → config files"]
+        k3s["lib/k3s/\nK3s flags + cluster topology"]
+        deb_lib["lib/debian/\nPackage mapping + verification"]
+    end
+
+    subgraph nixos["NixOS Backend"]
+        nx_mods["backends/nixos/modules/\nComposable NixOS modules"]
+        nx_cfg["nixosConfigurations\n(NixOS closures)"]
+        nx_mods --> nx_cfg
+    end
+
+    subgraph debian["Debian Backend"]
+        pkgs["backends/debian/packages/\nDebian source packages"]
+        kas["backends/debian/kas/\nkas overlays → BitBake/ISAR"]
+        wic[".wic disk images"]
+        pkgs --> kas --> wic
+    end
+
+    subgraph test["Unified Test Infrastructure"]
+        driver["NixOS test driver\n(QEMU multi-node VMs)"]
+        profiles["simple · vlans · bonding · dhcp"]
+        driver --- profiles
+    end
+
+    lib --> nx_mods
+    lib --> kas
+    nx_cfg --> driver
+    wic --> driver
+```
+
+The `lib/` directory is the architectural center: it defines network profiles, K3s topology, and package requirements once, then each backend consumes them in its native format. Both backends converge at the test infrastructure, where identical test scenarios validate cluster formation across network profiles.
+
+| Abstraction | NixOS Backend | Debian Backend |
+|-------------|---------------|----------------|
+| **Machine** | `system` + `hardware/<machine>.nix` | `MACHINE` + `recipes-bsp/` |
+| **Role** | `modules/roles/k3s-server.nix` | `classes/k3s-server.bbclass` |
+| **System** | `nixosConfigurations.<name>` | `kas/<overlays>.yml` + image recipe |
+| **Network** | NixOS systemd-networkd module | `.network`/`.netdev` config files |
+| **K3s Binary** | nixpkgs `k3s` package | Static binary from GitHub releases |
+| **Test Harness** | nixosTest (native) | nixosTest (with .wic images) |
+
+Shared configuration libraries ([`lib/network/`](lib/network/README.md), [`lib/k3s/`](lib/k3s/README.md)) transform profile data for both backends. See [`docs/diagrams/n3x-architecture.md`](docs/diagrams/n3x-architecture.md) for detailed architecture diagrams.
+
+## Repository Structure
+
+```
+n3x/
+├── backends/
+│   ├── debian/                  # ← MOST DEVELOPERS WORK HERE
+│   │   ├── packages/            #   ← ADD PACKAGES HERE
+│   │   │   ├── k3s/             #     K3s binary + systemd service
+│   │   │   └── k3s-system-config/ #   K3s cluster configuration
+│   │   ├── kas/                 #   kas configuration overlays
+│   │   │   ├── base.yml         #     Base ISAR config
+│   │   │   ├── machine/         #     Target hardware definitions
+│   │   │   ├── image/           #     Image roles (server, agent)
+│   │   │   ├── network/         #     Network profiles
+│   │   │   └── node/            #     Per-node identity
+│   │   └── meta-n3x/            #   BitBake layer (recipes, WIC templates)
+│   │
+│   └── nixos/                   # NixOS backend — reference implementation
+│       └── ...                  #   (hosts, modules, disko, vms)
+│
+├── lib/                         # Shared abstraction layer
+│   ├── network/                 #   Network config generation (NixOS + Debian)
+│   ├── k3s/                     #   K3s flag generation from topology profiles
+│   └── debian/                  #   Package mapping + kas verification
+│
+├── tests/                       # ← VALIDATES YOUR IMAGES
+│   ├── nixos/                   #   NixOS backend tests (cluster, smoke, network)
+│   ├── debian/                  #   Debian backend tests (cluster, boot, swupdate)
+│   └── lib/                     #   Shared test builders and phase scripts
+│
+├── infra/                       # CI/CD infrastructure
+│   ├── nixos-runner/            #   NixOS runner configurations
+│   └── pulumi/                  #   AWS EC2 provisioning
+│
+├── manifests/                   # Kubernetes manifests
+├── secrets/                     # Encrypted secrets (SOPS)
+└── docs/                        # Documentation
+```
 
 ## Target Hardware
 
