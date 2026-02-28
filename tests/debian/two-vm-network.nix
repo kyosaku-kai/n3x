@@ -153,9 +153,9 @@ let
         vm2.succeed("nohup socat TCP-LISTEN:9999,fork,reuseaddr EXEC:'/bin/echo hello' > /tmp/socat.log 2>&1 &")
         vm1.succeed("nohup socat TCP-LISTEN:9998,fork,reuseaddr EXEC:'/bin/echo hello' > /tmp/socat.log 2>&1 &")
 
-        # Wait for listeners to be ready
-        wait_for_tcp(vm1, "localhost", 9998, description="vm1 socat listener")
-        wait_for_tcp(vm2, "localhost", 9999, description="vm2 socat listener")
+        # Wait for listeners to be ready (use 127.0.0.1, not localhost — ISAR images lack /etc/hosts)
+        wait_for_tcp(vm1, "127.0.0.1", 9998, description="vm1 socat listener")
+        wait_for_tcp(vm2, "127.0.0.1", 9999, description="vm2 socat listener")
 
         # Test cross-VM TCP connectivity
         tlog("  Testing cross-VM TCP connectivity...")
