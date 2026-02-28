@@ -205,73 +205,52 @@ Additional backend-specific tests cover boot validation, service startup, networ
 
 ## CI/CD Pipeline
 
+GitHub Actions runs 22 jobs on every push and pull request. All jobs start simultaneously — no cross-tier dependencies.
+
 ```mermaid
 flowchart TD
     subgraph triggers["Triggers"]
-        mr["Merge Request"]
-        main["Push to main"]
+        push["Push / PR"]
     end
 
-    subgraph nix_stage["build-nix"]
-        deb_x86["build:deb:k3s\nx86_64"]
-        deb_arm["build:deb:k3s-arm64\naarch64"]
-        nixos_eval["NixOS eval\n+ flake checks"]
+    subgraph tier1["Tier 1 — Eval/Lint"]
+        eval["Nix evaluation"]
+        fmt["Nix formatting"]
+        ver["VERSION semver"]
+        parity["Package parity"]
     end
 
-    subgraph debian_stage["build-debian"]
-        img_s["server image"]
-        img_a["agent image"]
+    subgraph tier2["Tier 2 — Packages"]
+        deb_x86["Debian packages\nx86_64"]
+        deb_arm["Debian packages\naarch64"]
     end
 
-    subgraph test_stage["test"]
-        vm_nixos["NixOS VM tests\ncluster + smoke"]
-        vm_debian["Debian VM tests\ncluster + boot"]
+    subgraph tier3["Tier 3 — NixOS Tests"]
+        smoke["Smoke tests\nvm-boot, network, k3s"]
+        cluster["Cluster tests\nsimple, vlans, bonding, dhcp"]
     end
 
-    triggers --> nix_stage
-    nix_stage --> debian_stage --> vm_debian
-    nix_stage --> vm_nixos
+    subgraph tier4["Tier 4 — ISAR Builds"]
+        qemu_amd["qemuamd64"]
+        qemu_arm["qemuarm64"]
+        v3c18i["amd-v3c18i"]
+        jetson["jetson-orin-nano"]
+    end
+
+    subgraph tier5["Tier 5 — Debian Tests"]
+        deb_test["Cluster + boot + swupdate\n(qemuamd64 only)"]
+    end
+
+    triggers --> tier1 & tier2 & tier3 & tier4 & tier5
 ```
 
-- **build-nix**: Evaluates flake, compiles `.deb` packages (EC2 runners), runs NixOS checks
-- **build-debian**: Assembles bootable Debian images via kas/BitBake (large-disk runners)
-- **test**: VM cluster tests on KVM-capable runners (both backends)
+- **Tier 1**: Fast Nix-only checks — evaluation, formatting, semver, package parity
+- **Tier 2**: Nix builds `.deb` packages for both architectures
+- **Tier 3**: NixOS VM tests — single `nix build` per test (KVM-accelerated)
+- **Tier 4**: ISAR image builds for all 4 target machines via `kas-container`
+- **Tier 5**: Debian VM tests — ISAR build + Nix store registration + NixOS test driver
 
-Built artifacts are shared between stages via Nix binary cache (Harmonia), not GitLab artifacts.
-
-## Caching Architecture
-
-```mermaid
-flowchart TD
-    subgraph node["Each Build Node"]
-        store["/nix/store — ZFS + zstd"]
-        harmonia["Harmonia → Caddy (HTTPS)"]
-        store --> harmonia
-    end
-
-    subgraph yocto["ISAR Build Caches"]
-        apt["apt-cacher-ng\nDebian package proxy"]
-        sstate["SSTATE_DIR + DL_DIR"]
-    end
-
-    subgraph mirrors["Internal Mirrors"]
-        artifactory["JFrog Artifactory\nDebian repos + binaries"]
-        gitlab["Internal GitLab\nSource code forks"]
-    end
-
-    harmonia -->|"HTTPS substituters"| peers["Other Build Nodes"]
-    apt -->|"cache miss"| artifactory
-```
-
-| Cache Tier       | What                          | Storage                |
-|------------------|-------------------------------|------------------------|
-| Nix binary cache | Built derivations (.nar)      | ZFS + Harmonia per node|
-| apt-cacher-ng    | Debian packages               | Local per machine      |
-| Yocto sstate     | BitBake shared state           | Local disk (ephemeral) |
-| Artifactory      | Custom .debs + Debian mirror  | JFrog cloud            |
-| Internal GitLab  | Source code forks             | GitLab instance        |
-
-See [`docs/nix-binary-cache-architecture-decision.md`](docs/nix-binary-cache-architecture-decision.md) for the full architecture decision.
+Nix store caching uses [`magic-nix-cache-action`](https://github.com/DeterminateSystems/magic-nix-cache-action) backed by GitHub Actions cache. See [`docs/ci.md`](docs/ci.md) for the full pipeline reference.
 
 ## Documentation
 
