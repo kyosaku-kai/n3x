@@ -47,7 +47,14 @@ This file provides project-specific rules and essential context for Claude Code 
 
 14. **PROACTIVE log monitoring** - Use `-L` flag, check BashOutput frequently, kill early on failure patterns.
 
-15. **Session cleanup** - Verify no orphaned processes before new tests:
+15. **VM test parallelism limits** - Each VM uses 1-4 vCPUs + 1-4GB RAM. Limit concurrent VMs to avoid CPU saturation:
+   - **Single-VM tests** (L1-L3: vm-boot, server-boot, service, network-*, swupdate-*): Up to 4 tests in parallel
+   - **Two-VM tests** (L2: two-vm-network): Up to 2 tests in parallel
+   - **Cluster tests** (L4: cluster-*): Run at most 2 in parallel (4 VMs total), prefer sequential
+   - **Bonding cluster tests**: Run ONE at a time (each VM has bond + VLANs, heavy on CPU)
+   - Evidence: cluster-bonding-vlans-direct took 86s solo vs 326s when 3 cluster tests ran simultaneously
+
+16. **Session cleanup** - Verify no orphaned processes before new tests:
    ```bash
    pgrep -a qemu 2>/dev/null || echo "No QEMU"; pgrep -a nixos-test-driver 2>/dev/null || echo "No drivers"
    ```
