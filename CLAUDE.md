@@ -84,12 +84,6 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
 ## Project Status
 
 - **Release**: 0.0.3 (tagged, published with release notes)
-- **Plan 034**: Dev Environment Validation — COMPLETE — `.claude/user-plans/034-dev-environment-and-adoption.md`
-- **Plan 033**: CI Pipeline Refactoring — COMPLETE (T8 deferred) — `.claude/user-plans/033-ci-pipeline-refactoring.md`
-- **Plan 032**: Public Repo Publication and Internal Fork — IN_PROGRESS — `.claude/user-plans/032-public-repo-and-internal-fork.md`
-- **Plan 030**: Architecture Diagrams — ACTIVE — `.claude/user-plans/030-architecture-diagrams.md`
-- **Plan 025**: Cross-Architecture Build Environment — ACTIVE (4/7) — `.claude/user-plans/025-cross-arch-build-environment.md`
-- **Plan 023**: CI Infrastructure and Runner Deployment — ACTIVE (15/23) — `.claude/user-plans/023-ci-infrastructure-deployment.md`
 - **Test Infrastructure**: Fully integrated NixOS + Debian backends, 16-test parity matrix
 - **BitBake Limits**: BB_NUMBER_THREADS=dynamic (min(CPUs, (RAM_GB-4)/3)), BB_PRESSURE_MAX_MEMORY=10000
 - **ISAR Build Matrix**: 42 artifacts across 4 machines (qemuamd64, amd-v3c18i, qemuarm64, jetson-orin-nano)
@@ -104,11 +98,6 @@ nix build '.#checks.x86_64-linux.k3s-cluster-simple.driverInteractive'
 - x86_64 on `ubuntu-latest`, aarch64 on `ubuntu-24.04-arm` (Cobalt 100)
 - KVM-accelerated VM tests on GitHub-hosted runners
 - `magic-nix-cache-action` for Nix store caching
-
-**Target CI Architecture** (future, see `docs/nix-binary-cache-architecture-decision.md`):
-- Self-managed EC2 runners (x86_64 + Graviton) for ISAR/Nix builds
-- On-prem NixOS bare metal for: VM tests (KVM required), HIL tests
-- Harmonia + ZFS binary cache, Caddy reverse proxy with internal CA
 
 ### AI Agent Architecture (2026-02-26)
 
@@ -303,26 +292,6 @@ nix develop -c bash -c "cd backends/debian && kas-container --isar cleanall kas/
 - **WARNING**: Do NOT use `${HOME}` in kas `local_conf_header` — inside the container, kas overrides HOME to an ephemeral tmpdir (`/tmp/tmpXXXXXX`), so any path referencing `${HOME}` is destroyed on exit (siemens/kas#148)
 - CI sets its own `DL_DIR`/`SSTATE_DIR` values which the wrapper respects via `${VAR:-default}` pattern
 
-### ZFS Replication Limitations
-
-**ZFS does NOT support multi-master replication.** Key findings:
-- `zfs send/recv` requires single-master topology (one writer, read-only replicas)
-- If both source and destination have written past the last shared snapshot, they've "diverged" and cannot be merged
-- Tools like zrep/zrepl are active-passive with failover, not simultaneous read-write
-
-**For Nix binary caches with multiple active builders:**
-- Use HTTP substituters instead of ZFS replication
-- Each node: independent ZFS-backed `/nix/store` (for compression benefits)
-- Each node: Harmonia serving local store
-- Before building, Nix queries all substituters; downloads if found, builds if not
-- Nix's content-addressing prevents conflicts (same derivation = same store path)
-
-**ZFS value without replication:**
-- zstd compression: 1.5-2x savings (500GB → 750-1000GB effective)
-- Checksumming: Detects bit rot
-- Snapshots: Pre-GC safety, instant rollback
-- ARC cache: Intelligent read caching
-
 ### Test Timing Patterns
 
 **"It works sometimes" = Timing Bug**. Diagnose with:
@@ -414,14 +383,7 @@ ISAR kernel selection uses `KERNEL_NAME`:
   correct `systemd-binfmt.service` registration with POCF flags at boot. No manual registration needed.
   See `docs/binfmt-requirements.md` for details.
 
-### AWS AMI Registration (register-ami.sh)
-
-- AWS `register-image --architecture` accepts `x86_64` or `arm64` (NOT `aarch64`)
-- Script maps: `--arch aarch64` → `AWS_ARCH="arm64"` for the API call
-- Uses `jq` (not python3) for JSON parsing — lighter dependency
-- EXIT trap handles S3 cleanup on script failure
-
-### Infra Flake Input Management
+### Flake Input Management
 
 - **nixos-generators**: Archived 2026-01-30, upstreamed to nixpkgs 25.05.
   **Removed as flake input** (2026-02-16): initially replaced with manual
@@ -435,12 +397,10 @@ ISAR kernel selection uses `KERNEL_NAME`:
   deferred module pattern cleanly separates image-specific config from base config.
 - **nixos-anywhere**: Not needed as a flake input — run from upstream flake directly.
   Was adding 14 transitive lock entries including a separate nixpkgs tree.
-- **Caddyfile v2 syntax**: Use named matchers (`@name path /...`) for path-specific
-  headers, not nested `{path ...}` inside header values.
 
 ### NixOS 25.11 Migration Workarounds
 
-**Migration date**: 2026-02-16. Both flakes migrated from nixpkgs master (main) / 24.11 (infra) to 25.11.
+**Migration date**: 2026-02-16. Migrated from nixpkgs master (main) to 25.11.
 
 1. **`services.resolved.settings` → individual options** (commit `ffbedba`)
    - `services.resolved.settings.Resolve` is a master-only freeform attrset API, not on 25.11
@@ -461,11 +421,6 @@ ISAR kernel selection uses `KERNEL_NAME`:
    - Fork: `timblaktu/nixpkgs/vm-bootloader-disk-size` rebased onto `nixos-25.11`
    - TODO: Submit upstream PR to nixpkgs, then drop fork
 
-4. **gitlab-runner `authenticationTokenConfigFile`** (commit `53f7032`)
-   - `registrationConfigFile` deprecated in GitLab 16.0+, removed in 18.0
-   - File: `infra/nixos-runner/modules/gitlab-runner.nix`
-   - Added new option + mutual exclusion assertion. Both old and new work.
-
 ### Key Files
 - `lib/network/mk-network-config.nix` - Unified NixOS module generator
 - `lib/k3s/mk-k3s-flags.nix` - Shared K3s flag generator
@@ -478,8 +433,4 @@ ISAR kernel selection uses `KERNEL_NAME`:
 - [docs/ISAR-L4-TEST-ARCHITECTURE.md](docs/ISAR-L4-TEST-ARCHITECTURE.md) - ISAR L4 cluster test design
 - [docs/binfmt-requirements.md](docs/binfmt-requirements.md) - Cross-architecture binfmt_misc requirements
 - [docs/nix-binary-cache-architecture-decision.md](docs/nix-binary-cache-architecture-decision.md) - Binary cache ADR
-- [.claude/user-plans/034-dev-environment-and-adoption.md](.claude/user-plans/034-dev-environment-and-adoption.md) - Dev environment validation and team adoption plan
-- [.claude/user-plans/033-ci-pipeline-refactoring.md](.claude/user-plans/033-ci-pipeline-refactoring.md) - CI pipeline refactoring plan
-- [.claude/user-plans/032-public-repo-and-internal-fork.md](.claude/user-plans/032-public-repo-and-internal-fork.md) - Public repo publication and internal fork plan
-- [.claude/user-plans/023-ci-infrastructure-deployment.md](.claude/user-plans/023-ci-infrastructure-deployment.md) - CI infrastructure deployment plan
 - ALWAYS ask before adding packages to ISAR images
